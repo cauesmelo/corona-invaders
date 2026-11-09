@@ -1,0 +1,232 @@
+/* Preview is deliberately plain: green page, centered game. The same game fills
+ * its host in an iframe/fullscreen; there is no marketing page around it. */
+html,
+body {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+html {
+  background: #168546;
+}
+body {
+  display: grid;
+  place-items: center;
+  background: #168546 !important;
+  padding: 16px;
+  box-sizing: border-box;
+}
+.game-only body > main {
+  position: relative;
+  width: min(960px, 100%);
+  height: min(640px, calc(100dvh - 32px));
+  max-width: none;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  container-type: inline-size;
+  box-sizing: border-box;
+}
+.game-only body > main:fullscreen {
+  width: 100vw !important;
+  height: 100dvh !important;
+  max-width: none;
+  background: #080e14;
+}
+.itch-fullscreen {
+  position: absolute;
+  right: 10px;
+  top: 8px;
+  z-index: 12;
+  width: 32px;
+  height: 30px;
+  border: 1px solid #99b3a866;
+  background: #0d171dcc;
+  color: #e7f6df;
+  font: 22px/1 sans-serif;
+  cursor: pointer;
+  border-radius: 3px;
+  touch-action: manipulation;
+}
+.itch-embed body {
+  display: block;
+  padding: 0;
+}
+.itch-embed body > main {
+  width: 100%;
+  height: 100dvh;
+  margin: 0;
+}
+/* These are legacy outer-page classes; actual index markup removes them. */
+.masthead,
+.intro,
+.title-row,
+.control-bar,
+.credit,
+.notes,
+.below-machine,
+.mobile-tip,
+.field-notes {
+  display: none !important;
+}
+/* Solarum */
+.journey {
+  height: 100%;
+  min-height: 0;
+  max-height: none;
+  width: 100%;
+  border: 0;
+  box-sizing: border-box;
+}
+.journey .overlay {
+  padding: 38px 6%;
+}
+.journey .intro-copy h1 {
+  font-size: clamp(32px, 5.2cqw, 54px);
+}
+.journey .intro-orbit {
+  right: 8%;
+  opacity: 0.45;
+}
+.journey .hud {
+  top: 70px;
+}
+.journey .game-top {
+  top: 22px;
+}
+.journey .game-bottom {
+  bottom: 18px;
+}
+.journey ~ .touch-controls {
+  position: absolute;
+  bottom: 8px;
+  left: 12px;
+  right: 12px;
+  z-index: 6;
+  margin: 0;
+  max-width: 500px;
+}
+/* Color Theft Story: contain preserves the real landscape pixel-art framing. */
+.game-shell {
+  height: 100%;
+  border: 0;
+  display: flex;
+  flex-direction: column;
+  box-shadow: none;
+  box-sizing: border-box;
+}
+.game-shell .stage {
+  flex: 1;
+  min-height: 0;
+  aspect-ratio: auto;
+}
+.game-shell canvas {
+  object-fit: contain;
+  background: #0a151c;
+}
+.game-shell .statusbar {
+  padding-right: 50px;
+  flex-shrink: 0;
+}
+.game-shell .game-bottom {
+  flex-shrink: 0;
+}
+.game-shell .briefing h2 {
+  font-size: clamp(24px, 3.4cqw, 34px);
+}
+.game-shell ~ .touch-controls {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 8px;
+  z-index: 6;
+  padding: 0;
+  pointer-events: none;
+}
+.game-shell ~ .touch-controls button {
+  pointer-events: auto;
+}
+/* Corona Invaders: the cabinet fills its host; HUD, menus and touch controls
+ * stay inside the game surface. */
+.cabinet {
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+}
+.cabinet .itch-fullscreen {
+  top: 6px;
+  right: 8px;
+  width: 34px;
+  height: 32px;
+  border: 1px solid #2f5f5a;
+  border-radius: 4px;
+  background: #0a1619;
+  color: #91ffce;
+  font-size: 20px;
+}
+.cabinet .itch-fullscreen:hover {
+  border-color: #91ffce;
+}
+@media (max-width: 420px) {
+  .cabinet .itch-fullscreen {
+    top: 5px;
+    width: 30px;
+    height: 30px;
+  }
+}
+@media (pointer: coarse) {
+  .cabinet .itch-fullscreen {
+    top: 3px;
+    width: 44px;
+    height: 44px;
+  }
+}
+@media (pointer: coarse) {
+  .journey .game-bottom {
+    display: none;
+  }
+  .game-shell .game-bottom {
+    padding-bottom: 66px;
+  }
+  .game-shell .palette {
+    gap: 4px;
+  }
+}
+@media (max-width: 520px) {
+  body {
+    padding: 8px;
+  }
+  .game-only:not(.itch-embed) body > main {
+    height: min(640px, calc(100dvh - 16px));
+  }
+}
+@media (max-height: 500px) {
+  .journey .game-top,
+  .journey .game-bottom {
+    display: none;
+  }
+  .journey .hud {
+    top: 18px;
+  }
+  .journey h1 {
+    font-size: 32px;
+    margin: 14px 0;
+  }
+  .journey .intro-copy p {
+    margin-bottom: 12px;
+  }
+  .journey .start-hint {
+    margin-top: 10px;
+  }
+  .game-shell .statusbar {
+    min-height: 32px;
+    padding-top: 4px;
+    padding-bottom: 4px;
+  }
+  .game-shell .game-bottom {
+    padding-top: 4px;
+    padding-bottom: 4px;
+  }
+}

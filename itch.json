@@ -1,0 +1,11 @@
+{
+  "slug": "corona-invaders",
+  "title": "Corona Invaders 3D",
+  "embed": {
+    "width": 960,
+    "height": 640,
+    "clickToPlay": true,
+    "fullscreenButton": true,
+    "mobileFriendly": "Test physical devices before enabling"
+  }
+}
