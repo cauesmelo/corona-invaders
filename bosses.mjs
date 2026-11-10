@@ -200,7 +200,7 @@ export function createBoss(s, type, { startCard = 0, world = 1 } = {}) {
   const def = BOSSES[type];
   const hpScale = diff(s).hp;
   // Card HP reads the same hook as popcorn HP (levels.stageDps).
-  const hps = def.cards.map((c) => cardHp(c, hpScale, stageDps(s.wave ?? 1)));
+  const hps = def.cards.map((c) => cardHp(c, hpScale, stageDps(s.wave ?? 1, s)));
   const cards = def.cards.map((c, i) => ({ ...c, hp: hps[i], floor: hps.slice(i + 1).reduce((a, b) => a + b, 0), timeout: timeoutFor(c) }));
   const maxHp = hps.reduce((a, b) => a + b, 0);
   const b = {
@@ -473,7 +473,8 @@ export function bombBoss(s) {
   const c = b.cards[b.card];
   if (b.state !== 'fight' || c.type === 'survival') return;
   const target = c.nodes ? living(s).find((p) => p.part === 'node') : living(s).find((p) => isVulnerable(s, b, p));
-  if (target) damageBoss(s, target, Math.max(1, Math.ceil(c.hp * RULES.bombBossFraction)), 'soap');
+  // SURFACTANT raises the bite (5% / 7%); the base kit's fraction is RULES'.
+  if (target) damageBoss(s, target, Math.max(1, Math.ceil(c.hp * (s.kit?.bombBossFraction ?? RULES.bombBossFraction))), 'soap');
 }
 
 function runPatterns(s, b, dt) {

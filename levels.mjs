@@ -30,6 +30,7 @@
  *   U BUDDER, H HIJACKER, C INFECTED CELL)
  */
 import { RULES } from './core.mjs';
+import { expectedPotency } from './cards.mjs';
 
 /** Sectors, one magnification step deeper each (RESEARCH_V1.md 5.1). `note`
  * is the FIELD NOTE shown after the sector's boss; `music` the arrangement
@@ -583,10 +584,13 @@ export function entryPower(stage) {
 }
 /** The HP hook (RESEARCH_V1.md A4 / RESEARCH_CARDS.md 5.3): the expected
  * effective DPS at a stage's entry. Every HP path reads it: popcorn HP, boss
- * and midboss card HP and SOAP / burst damage. The card draft multiplies it
- * by its expected potency; patterns never scale. */
-export function stageDps(stage) {
-  return RULES.powerDps[entryPower(stage) - 1];
+ * and midboss card HP and SOAP / burst damage. With the ADJUVANT draft on
+ * (`s.drafts`), it is the guaranteed mRNA power's DPS x the random drafter's
+ * median potency at that stage (cards.mjs EXPECTED_POTENCY, measured): the
+ * median deck keeps the authored time-to-kill. It never reads the player's
+ * own deck, and patterns never scale. */
+export function stageDps(stage, s = null) {
+  return RULES.powerDps[entryPower(stage) - 1] * (s?.drafts ? expectedPotency(stage, STAGE_COUNT) : 1);
 }
 /** Base HP (or base damage defined against HP) scaled for a stage. */
-export const stageHp = (base, stage) => (base * stageDps(stage)) / RULES.referenceDps;
+export const stageHp = (base, stage, s = null) => (base * stageDps(stage, s)) / RULES.referenceDps;

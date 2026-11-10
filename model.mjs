@@ -27,6 +27,11 @@ import {
 import { BOSSES, createBoss, updateBoss, damageBoss, bombBoss, bossStatus, voidCapture, bossVulnerable, bossIntangible } from './bosses.mjs';
 import { awardKill, breakChain, tickChain, chainMultiplier, addScore, r0Of, r0Bonus } from './scoring.mjs';
 import { sweptHit, bulletGap, needleSegment, pointSegDist2, segSegDist2, beamHits, NEEDLE, BODY_RADIUS, INJECT, needleTip } from './hitboxes.mjs';
+// Adjuvants (RESEARCH_CARDS.md): the pure draft and modifier set, and the
+// behaviours that need the board. With `drafts: false` (the default for
+// fixtures) s.kit equals the base rules and every hook below is inert.
+import { kitOf, createRun, openDraft, pick, resample, discard, bossCleared, reviveRun, expectedPotency, needleMul, abMul, needlesPerVolley, CARD } from './cards.mjs';
+import { tickKit, absorbHit, updateJet, splitNeedle, innateShot, dropAliquot, aimUp, roomFor } from './syringe-kit.mjs';
 
 /** Enemy collider: a circle, or a capsule along x for elongated bodies
  * (RNA WORM, BUDDER). */
@@ -43,6 +48,15 @@ const PLAYING = ['playing', 'transition'];
 function setPower(ship, level) {
   ship.power = Math.max(1, Math.min(RULES.maxPower, level));
   ship.mrna = POWER_STEPS[ship.power - 1];
+}
+/** The syringe's modifier set: recomputed when the deck, the mRNA power, the
+ * stage or the difficulty changes (autoFire re-checks the power each volley).
+ * STANDARD ISSUE (practice and tray starts with drafts on) is the reference
+ * syringe: no deck, damage x the stage's expected potency (RESEARCH_CARDS 2.6). */
+export function refreshKit(s) {
+  const scale = s.drafts && !s.run ? expectedPotency(s.wave, STAGE_COUNT) : 1;
+  s.kit = kitOf(s.run?.deck ?? [], { power: s.ship?.power ?? 1, difficulty: s.difficulty, titer: s.run?.titer ?? 0, stage: s.wave, scale });
+  return s.kit;
 }
 function freshShip(s, power = 1) {
   return {
@@ -64,6 +78,14 @@ function freshShip(s, power = 1) {
     // INJECT: the plunger is loaded when injectReload is 0.
     injectReload: 0,
     injectReloadMax: INJECT.reload,
+    // Adjuvant state (inert on the base kit).
+    coat: 0,
+    coatTimer: 0,
+    fever: 0,
+    feverCount: 0,
+    innateCooldown: 0,
+    ringBusy: false,
+    jetOn: false,
   };
 }
 
@@ -73,7 +95,7 @@ function setupSector(s, stage, { card = null } = {}) {
   const level = getLevel(stage);
   // Time-to-kill stays put as power grows: HP scales with the expected DPS
   // (levels.stageDps, the draft's hook).
-  s.dpsRef = stageDps(stage);
+  s.dpsRef = stageDps(stage, s);
   Object.assign(s, {
     wave: stage,
     stageId: stage,
@@ -126,7 +148,16 @@ function setupSector(s, stage, { card = null } = {}) {
     dive: null,
     choir: null,
     injections: 0,
+    absorbs: 0,
+    aliquotUsed: false,
+    touch: 0,
+    keys: 0,
   };
+  s.foam = null;
+  refreshKit(s);
+  // The coating is full at every sample start (and respawn).
+  s.ship.coat = s.kit.coatMax;
+  s.ship.coatTimer = 0;
   if (level.kind === 'boss') {
     const b = createBoss(s, level.boss, { world: level.world, startCard: card ?? 0 });
     if (card !== null) b.practiceCard = card;
@@ -189,6 +220,8 @@ export function createState({ seed = 0x51a7c0de, stage = 1, difficulty = 'normal
     draft: null,
     vialBonus: 0,
     events: [],
+    // The adjuvant run (cards.mjs): deck, pity, tokens, titer, offer.
+    run: drafts ? createRun(seed, { inject: true }) : null,
   };
   s.ship = freshShip(s);
   s.health = s.lives = diff(s).health;
@@ -207,6 +240,10 @@ function makeCheckpoint(s) {
     rngState: s.rngState,
     power: s.ship.power,
     extendsGiven: [...s.extendsGiven],
+    // The build the stage was entered with: a continue restores it.
+    run: s.run ? structuredClone(s.run) : null,
+    health: s.health,
+    bombs: s.ship?.bombs,
   };
 }
 
@@ -250,12 +287,17 @@ export function restartGame(s, { assist = false, easy = false } = {}) {
     practice: practice ? { ...practice, result: null } : null,
   });
   setPower(s.ship, checkpoint.power ?? 1);
+  // Adjuvants are never lost on death: the entry build comes back.
+  s.run = checkpoint.run ? structuredClone(checkpoint.run) : null;
+  refreshKit(s);
+  s.ship.coat = s.kit.coatMax;
+  s.ship.bombs = Math.max(s.ship.bombs, s.kit.bombsPerVial);
   if (practice) setupPractice(s, practice);
   s.rngState = checkpoint.rngState;
   s.sector.entryScore = s.score;
   s.sector.entryPower = s.ship.power;
   s.sector.assisted = useAssist;
-  s.health = s.lives = practice ? 1 : diff(s).health + (useAssist ? 1 : 0);
+  s.health = s.lives = practice ? 1 : s.kit.maxVials + (useAssist ? 1 : 0);
   return s;
 }
 export function selectStage(s, stage) {
@@ -264,7 +306,11 @@ export function selectStage(s, stage) {
   Object.assign(s, createState({ seed: s.seed, stage, difficulty, drafts: s.drafts }), { phase: 'playing', unlockedStage, medals });
   // A sample started from the tray begins with the power the campaign
   // guarantees on arrival, so it is never harder than playing through.
+  // With drafts on, a start past 1-1 has no run (builds are a run thing): it
+  // plays on STANDARD ISSUE, the reference syringe.
+  if (s.drafts && stage > 1) s.run = null;
   setPower(s.ship, entryPower(stage));
+  refreshKit(s);
   s.sector.entryPower = s.ship.power;
   s.checkpoint = makeCheckpoint(s);
   return true;
@@ -294,7 +340,9 @@ export function startPractice(s, stage, { card = null, boss = null } = {}) {
   const { unlockedStage, medals, difficulty, seed } = s;
   Object.assign(s, createState({ seed, stage, difficulty, drafts: s.drafts }), { phase: 'playing', unlockedStage, medals });
   s.practice = { stage, card, boss: card !== null ? type : null, result: null };
+  s.run = null; // practice measures skill on STANDARD ISSUE (A8)
   setPower(s.ship, entryPower(stage));
+  refreshKit(s);
   s.sector.entryPower = s.ship.power;
   setupPractice(s, s.practice);
   s.health = s.lives = 1;
@@ -302,10 +350,11 @@ export function startPractice(s, stage, { card = null, boss = null } = {}) {
   return true;
 }
 export function togglePause(s) {
-  if (PLAYING.includes(s.phase)) s.paused = !s.paused;
+  if (PLAYING.includes(s.phase) || s.phase === 'draft') s.paused = !s.paused;
 }
 export function setDifficulty(s, difficulty) {
   if (DIFFICULTY[difficulty]) s.difficulty = difficulty;
+  if (s.ship) refreshKit(s);
 }
 /** World-clear LAB REPORT waits for a deliberate press. */
 export function confirmReport(s) {
@@ -345,6 +394,8 @@ export function useBomb(s) {
 function hurt(s, cause) {
   const ship = s.ship;
   if (ship.invulnerable > 0 || ship.dying > 0 || ship.respawn > 0 || s.phase !== 'playing') return false;
+  // ENTERIC COATING / LNP SHELL: an extra hit charge on this same core test.
+  if (absorbHit(s, cause)) return true;
   // Easy's auto-bomb spends one SOAP instead of a vial.
   if (diff(s).autoBomb && ship.bombs > 0 && !s.soapRing) {
     s.pendingCause = cause;
@@ -353,7 +404,19 @@ function hurt(s, cause) {
     pushEvent(s, 'auto-bomb', { by: cause.by });
     return true;
   }
-  ship.dying = diff(s).deathbomb;
+  // EPIPEN: with 2+ SOAP the pen spends 2 and fires one for you (scored like
+  // a deathbomb: the capture is voided and the vial kept).
+  const pen = CARD.epipen.fx.cost;
+  if (s.kit.epipen && ship.bombs >= pen && !s.soapRing) {
+    ship.bombs -= pen - 1;
+    s.pendingCause = cause;
+    ship.dying = 1e-6;
+    useBomb(s);
+    pushEvent(s, 'epipen', { by: cause.by, left: ship.bombs });
+    return true;
+  }
+  // REFLEX ARC widens the deathbomb window (kit.deathbomb = diff on a base kit).
+  ship.dying = s.kit.deathbomb;
   s.pendingCause = cause;
   pushEvent(s, 'hit-core', { x: ship.x, z: ship.z, by: cause.by });
   return true;
@@ -389,7 +452,15 @@ function die(s) {
     Object.assign(s.pickups.at(-1), { life: RULES.strandTime, restore: POWER_STEPS[lost - 1] });
   }
   if (s.health <= 0) return lose(s, cause);
-  ship.bombs = Math.max(ship.bombs, diff(s).bombs);
+  dropAliquot(s, ship.x, ship.z);
+  ship.bombs = Math.max(ship.bombs, s.kit.bombsPerVial);
+  // A respawn restores one coating charge (ENTERIC's only one; LNP's second
+  // re-forms on its timer): two full LNP charges per vial measured 30 hits
+  // to game over with the defensive stack, over the 24 ceiling (BALANCE.md).
+  if (s.kit.coatMax && ship.coat < 1) {
+    ship.coat = 1;
+    ship.coatTimer = ship.coat < s.kit.coatMax ? s.kit.coatReform : 0;
+  }
   ship.respawn = RULES.respawnTime;
   ship.respawnFrom = { x: ship.x, z: RULES.front - 0.2 };
   ship.respawnTo = { x: clamp(ship.x, -6, 6), z: RULES.shipZ };
@@ -439,12 +510,17 @@ function moveShip(s, input, dt) {
   if (focus !== ship.focus) pushEvent(s, 'focus', { on: focus });
   ship.focus = focus;
   // Instant: the speed of the step is the speed of the held keys (core.mjs).
-  ship.speed = focus ? RULES.focusSpeed : RULES.shipSpeed;
+  // Adjuvants scale the normal speed only (10.5-12.9 u/s); focus stays 5.0.
+  ship.speed = focus ? s.kit.focusSpeed : s.kit.speed;
   let ax = input.axisX ?? input.axis ?? 0,
     az = input.axisZ ?? 0;
   ax = clamp(Number(ax) || 0, -1, 1);
   az = clamp(Number(az) || 0, -1, 1);
   const len = Math.hypot(ax, az);
+  // Which device moved the syringe this sample (the draft hides speed cards
+  // from touch players: a 1:1 drag makes speed meaningless).
+  if (input.drag) s.sector.touch++;
+  else if (len > 1e-6 || Number.isFinite(input.targetX)) s.sector.keys++;
   if (len > 1e-6) {
     // Diagonals are normalised: never faster than straight movement.
     const k = Math.min(1, len) / len;
@@ -456,7 +532,7 @@ function moveShip(s, input, dt) {
     // spend most of its speed pushing into the edge).
     const tx = clamp(Number.isFinite(input.targetX) ? input.targetX : ship.x, bounds.minX, bounds.maxX),
       tz = clamp(Number.isFinite(input.targetZ) ? input.targetZ : ship.z, bounds.minZ, bounds.maxZ);
-    const cap = (input.drag ? RULES.dragSpeed : ship.focus ? RULES.focusSpeed : RULES.pointerSpeed) * dt;
+    const cap = (input.drag ? RULES.dragSpeed : ship.focus ? s.kit.focusSpeed : s.kit.pointerSpeed) * dt;
     const dx = tx - ship.x,
       dz = tz - ship.z,
       d = Math.hypot(dx, dz);
@@ -487,35 +563,62 @@ export function optionOffsets(power, focus) {
 function autoFire(s) {
   const ship = s.ship;
   if (!canAct(s) || ship.dying > 0) return;
-  const damage = ship.powerups.booster > 0 ? RULES.boosterMultiplier : 1;
+  if (s.kit.power !== ship.power) refreshKit(s);
+  const kit = s.kit;
+  const booster = ship.powerups.booster > 0 ? RULES.boosterMultiplier : 1;
+  // Needle damage: 1 x booster on the base kit; adjuvants add their buckets
+  // (capped at +70%), then the titer limit (cards.mjs needleMul).
+  const damage = kit.active ? booster * needleMul(kit, { focus: ship.focus, ringBusy: ship.ringBusy, fever: ship.fever > 0 }) : booster;
   // Needles leave the drawn needle tip.
   const muzzle = ship.z - INJECT.reach;
-  const push = (x, z, angle) =>
-    s.shots.push({ id: nextId(s), x, z, vx: Math.sin(angle) * RULES.needleSpeed, vz: -Math.cos(angle) * RULES.needleSpeed, radius: 0.12, damage });
+  const pierce = kit.pierce || ship.fever > 0 ? 1 : 0;
+  const push = (x, z, angle, dmg = damage, extra = null) => {
+    if (kit.active && !roomFor(s)) return false;
+    const shot = { id: nextId(s), x, z, vx: Math.sin(angle) * RULES.needleSpeed, vz: -Math.cos(angle) * RULES.needleSpeed, radius: 0.12, damage: dmg };
+    if (kit.active) Object.assign(shot, { baseDamage: dmg, pierce, hitIds: [] }, extra);
+    s.shots.push(shot);
+    return true;
+  };
   if (ship.fireCooldown <= 0) {
-    ship.fireCooldown += RULES.fireInterval;
-    if (ship.fireCooldown <= 0) ship.fireCooldown = RULES.fireInterval;
+    const interval = 1 / kit.fireRate;
+    ship.fireCooldown += interval;
+    if (ship.fireCooldown <= 0) ship.fireCooldown = interval;
     let n = 0;
-    if (ship.focus) {
-      const count = ship.power >= 4 ? 5 : ship.power >= 3 ? 4 : 3;
+    if (ship.focus && kit.jet) {
+      // JET INJECTOR: the focused needles become the jet (updateJet).
+    } else if (ship.focus) {
+      const count = needlesPerVolley(kit, true);
       for (let i = 0; i < count; i++) push(ship.x + (i - (count - 1) / 2) * RULES.needleSpacing, muzzle, 0);
       n = count;
     } else {
-      const angles = ship.power >= 3 ? [-2, -1, 0, 1, 2] : [-1, 0, 1];
-      for (const k of angles) push(ship.x, muzzle, k * RULES.sprayAngle);
-      n = angles.length;
+      // SPRAY at RULES.sprayAngle steps; TWIN BARREL adds the next step (3->5, 5->7).
+      const count = needlesPerVolley(kit, false),
+        half = (count - 1) / 2;
+      for (let k = -half; k <= half; k++) push(ship.x, muzzle, k * RULES.sprayAngle);
+      n = count;
     }
     s.shotsFired++;
     s.projectilesFired += n;
-    pushEvent(s, 'shot', { x: ship.x, z: muzzle, focus: ship.focus });
+    pushEvent(s, 'shot', { x: ship.x, z: muzzle, focus: ship.focus, jet: ship.focus && kit.jet });
   }
-  if (ship.power >= 2 && ship.antibodyCooldown <= 0) {
-    ship.antibodyCooldown = RULES.antibodyInterval;
-    // Focused antibodies converge on the needle line 9 u ahead (they sit
-    // outside a 0.6 u target's reach at +/-0.75 u), so focus concentrates
-    // every needle on one target; unfocused they splay slightly outward.
-    for (const [ox, oz] of optionOffsets(ship.power, ship.focus)) push(ship.x + ox, ship.z + oz - 0.4, ship.focus ? -Math.atan2(ox, 9) : Math.sign(ox) * 0.05);
-    s.projectilesFired += optionOffsets(ship.power, ship.focus).length;
+  const abPower = kit.abPower ?? ship.power;
+  if (abPower >= 2 && ship.antibodyCooldown <= 0) {
+    ship.antibodyCooldown = 1 / kit.abRate;
+    const offsets = optionOffsets(abPower, ship.focus);
+    const abDamage = kit.active ? booster * abMul(kit) : damage;
+    const herd = CARD['herd-immunity'].fx;
+    for (const [ox, oz] of offsets) {
+      const x = ship.x + ox,
+        z = ship.z + oz - 0.4;
+      // Focused antibodies converge on the needle line 9 u ahead (they sit
+      // outside a 0.6 u target's reach at +/-0.75 u), so focus concentrates
+      // every needle on one target; unfocused they splay slightly outward.
+      // HERD IMMUNITY instead aims each at the nearest virus within 9 u,
+      // clamped to +/-60 degrees of straight up the board.
+      const aimed = kit.herd ? aimUp(s, x, z, herd.aim, herd.arc) : null;
+      push(x, z, aimed ?? (ship.focus ? -Math.atan2(ox, 9) : Math.sign(ox) * 0.05), abDamage, kit.active ? { ab: true, pierce: 0 } : null);
+    }
+    s.projectilesFired += offsets.length;
   }
 }
 
@@ -544,11 +647,12 @@ export function collectPickup(s, pickup) {
     const before = ship.power;
     ship.mrna = Math.max(ship.mrna + 1, pickup.restore ?? 0);
     ship.power = powerOf(ship.mrna);
+    if (ship.power !== before) refreshKit(s);
     if (ship.power === before && before === RULES.maxPower) addScore(s, 1000);
     pushEvent(s, 'power', { power: ship.power, mrna: ship.mrna, up: ship.power > before });
   } else if (pickup.kind === 'booster') ship.powerups.booster = RULES.boosterTime;
   else if (pickup.kind === 'mask') ship.powerups.mask = RULES.maskTime;
-  else if (pickup.kind === 'soap') ship.bombs = Math.min(RULES.maxBombs, ship.bombs + 1);
+  else if (pickup.kind === 'soap') ship.bombs = Math.min(s.kit.maxBombs, ship.bombs + 1);
   else if (pickup.kind === 'vial') s.health = s.lives = s.health + 1;
   s.pickupsCaught++;
   addScore(s, 100);
@@ -589,7 +693,9 @@ function updateAntigens(s, dt) {
     a.z += (dz / (d || 1)) * v;
     if (d < 0.6 || a.age > 1.4) {
       a.dead = true;
-      addScore(s, RULES.antigenScore * chainMultiplier(s.chain.count));
+      addScore(s, RULES.antigenScore * s.kit.antigenScore * chainMultiplier(s.chain.count));
+      // ANTIGEN HARVEST (when INJECT is cut): each token is 0.25 graze.
+      if (s.kit.antigenProgress) grazeTowardSoap(s, s.kit.antigenProgress);
     }
   }
   if (s.antigens.some((a) => a.dead)) {
@@ -623,6 +729,8 @@ function killEnemy(s, e, source) {
 
 /** One damage rule for needles, SOAP and cell pops. */
 function damageEnemy(s, e, amount, source) {
+  // OPSONIN TAG: a tagged virus (bosses included) takes +15% from every source.
+  if (e.taggedUntil > s.waveElapsed) amount *= 1 + CARD['opsonin-tag'].fx.tag;
   if (e.kind === 'boss') {
     const r = damageBoss(s, e, amount, source);
     if (!r.blocked && source === 'shot') s.hits++;
@@ -671,7 +779,8 @@ function updateInject(s) {
 function inject(s, e) {
   const ship = s.ship;
   const elite = e.kind === 'boss' || ELITES.has(e.kind);
-  ship.injectReload = ship.injectReloadMax = elite ? INJECT.reloadElite : INJECT.reload;
+  // RETRACTABLE NEEDLE reloads 30% faster (kit.injectReload 0.7; 1 otherwise).
+  ship.injectReload = ship.injectReloadMax = (elite ? INJECT.reloadElite : INJECT.reload) * s.kit.injectReload;
   s.injections++;
   s.sector.injections++;
   requestHitstop(s, INJECT.hitstop);
@@ -696,7 +805,7 @@ function inject(s, e) {
 
 /** Damage that is defined against base HP (cell pops, SOAP) scales with the
  * same ratio as enemy HP, so "kills popcorn" stays true in every world. */
-const hpRatio = (s) => stageHp(1, s.wave ?? 1);
+const hpRatio = (s) => stageHp(1, s.wave ?? 1, s);
 function updateBursts(s, dt) {
   const ready = [];
   for (const b of s.bursts) if ((b.timer -= dt) <= 0) ready.push(b);
@@ -721,14 +830,24 @@ function updateSoap(s, dt) {
   const r2 = ring.r * ring.r;
   void r2;
   // Exactly what the drawn bubble touches: bullet solids and enemy bodies.
-  cancelBullets(s, { reason: 'soap', filter: (b) => bulletGap(b, ring.x, ring.z) < ring.r });
+  ring.cleared = (ring.cleared || 0) + cancelBullets(s, { reason: 'soap', filter: (b) => bulletGap(b, ring.x, ring.z) < ring.r });
   for (const e of s.enemies) {
     if (!e.alive || e.kind === 'boss' || ring.hit.includes(e.id)) continue;
     if (enemyPointDist(e, ring.x, ring.z) > ring.r + e.radius) continue;
     ring.hit.push(e.id);
-    damageEnemy(s, e, RULES.bombDamage * hpRatio(s), 'soap');
+    damageEnemy(s, e, RULES.bombDamage * hpRatio(s) * s.kit.soapDamage, 'soap');
   }
-  if (ring.t >= RULES.bombGrow + 0.15) s.soapRing = null;
+  // AUTOCLAVE: a SOAP that clears 30+ bullets refunds itself (once).
+  if (s.kit.autoclave && !ring.refunded && ring.cleared >= CARD.autoclave.fx.refund) {
+    ring.refunded = true;
+    s.ship.bombs = Math.min(s.kit.maxBombs, s.ship.bombs + 1);
+    pushEvent(s, 'autoclave', { bombs: s.ship.bombs, refund: true });
+  }
+  if (ring.t >= RULES.bombGrow + 0.15) {
+    s.soapRing = null;
+    // FOAM: a 5 u disc where the SOAP burst, for 2.5 s (syringe-kit tickKit).
+    if (s.kit.foam) s.foam = { x: ring.x, z: ring.z, r: CARD.foam.fx.radius, t: CARD.foam.fx.time, max: CARD.foam.fx.time };
+  }
 }
 
 function updateShots(s, dt) {
@@ -747,14 +866,30 @@ function updateShots(s, dt) {
     let done = false;
     for (const e of targets) {
       if (!e.alive) continue;
+      if (shot.hitIds?.includes(e.id)) continue; // a pierce never hits the same virus twice
       const reach = e.radius + NEEDLE.r;
       const d2 = e.half ? segSegDist2(ax, az, bx, bz, ...enemyAxis(e)) : pointSegDist2(e.x, e.z, ax, az, bx, bz);
       if (d2 > reach * reach) continue;
-      shot.dead = done = true;
-      damageEnemy(s, e, shot.damage ?? 1, 'shot');
+      done = true;
+      const r = damageEnemy(s, e, shot.damage ?? 1, 'shot');
+      if (shot.hitIds) {
+        // OPSONIN TAG: antibody needles tag what they hit for 2 s.
+        if (shot.ab && s.kit.tag && !r?.blocked) e.taggedUntil = s.waveElapsed + CARD['opsonin-tag'].fx.tagTime;
+        if (!e.alive) splitNeedle(s, shot);
+        // HOLLOW BORE / FEVER: through the first virus, 60% on a second
+        // (100% with both). A spark (closed bud) stops the needle.
+        if (shot.pierce > 0 && !r?.blocked) {
+          shot.pierce--;
+          shot.hitIds.push(e.id);
+          shot.damage = (shot.baseDamage ?? shot.damage) * (s.kit.pierce && s.ship.fever > 0 ? 1 : CARD['hollow-bore'].fx.pierce);
+          continue;
+        }
+      }
+      shot.dead = true;
       break;
     }
-    if (done) continue;
+    if (shot.dead) continue;
+    if (done && !shot.hitIds) continue;
     for (const b of shootable) {
       if (b.dead || pointSegDist2(b.x, b.z, ax, az, bx, bz) > (b.hit + NEEDLE.r) ** 2) continue;
       shot.dead = true;
@@ -770,9 +905,25 @@ function updateShots(s, dt) {
 /** Bullet vs core and graze. Grazing counts once per bullet; a bullet that
  * hits the core never also grazes. The MASK absorbs droplets, aerosol and
  * spikes in a 120 degree frontal arc (never globs or beams). */
+/** Graze progress toward the next SOAP (CLOSE CALL lowers the threshold;
+ * the stock cap is the kit's). */
+function grazeTowardSoap(s, amount) {
+  const ship = s.ship;
+  ship.grazeProgress += amount;
+  if (ship.grazeProgress >= s.kit.grazePerBomb) {
+    ship.grazeProgress = 0;
+    if (ship.bombs < s.kit.maxBombs) {
+      ship.bombs++;
+      pushEvent(s, 'graze-soap', { bombs: ship.bombs });
+    }
+  }
+}
 function updateHazards(s) {
   const ship = s.ship;
   const live = ship.respawn <= 0 && ship.dying <= 0;
+  // LIVE CULTURE reads whether any bullet solid is inside the drawn 1.0 u
+  // ring this step (the same gap test as grazing, nothing wider).
+  ship.ringBusy = false;
   const mask = ship.powerups.mask > 0;
   const r = ship.radius;
   const sx0 = ship.px ?? ship.x,
@@ -790,6 +941,7 @@ function updateHazards(s) {
     const far = hit + (b.half || 0) + RULES.grazeRadius + 1;
     if (dx * dx + dz * dz > far * far) continue;
     const gap = bulletGap(b, ship.x, ship.z);
+    if (gap < RULES.grazeRadius) ship.ringBusy = true;
     // MASK: the drawn 120 degree frontal arc absorbs droplets, aerosol and
     // spikes (never globs, RNA or beams).
     if (mask && (b.family === 'droplet' || b.family === 'aerosol' || b.family === 'spike') && gap < RULES.maskRadius && dz < 0 && Math.abs(Math.atan2(dx, -dz)) < RULES.maskArc) {
@@ -810,15 +962,16 @@ function updateHazards(s) {
       s.grazes++;
       s.sector.grazes++;
       addScore(s, RULES.grazeScore);
-      ship.grazeProgress++;
-      if (ship.grazeProgress >= RULES.grazePerBomb) {
-        ship.grazeProgress = 0;
-        if (ship.bombs < RULES.maxBombs) {
-          ship.bombs++;
-          pushEvent(s, 'graze-soap', { bombs: ship.bombs });
-        }
-      }
+      grazeTowardSoap(s, 1);
       pushEvent(s, 'graze', { x: b.x, z: b.z });
+      // FEVER: every 40th graze, 5 s of +20% and pierce.
+      if (s.kit.fever && ++ship.feverCount >= CARD.fever.fx.every) {
+        ship.feverCount = 0;
+        ship.fever = CARD.fever.fx.time;
+        pushEvent(s, 'fever', { x: ship.x, z: ship.z });
+      }
+      // INNATE RESPONSE: each graze fires an aimed needle (<= 10/s).
+      if (s.kit.innate) innateShot(s);
     }
   }
   for (const beam of s.beams) {
@@ -977,7 +1130,8 @@ function finishSector(s, level) {
   }
   const value = r0Of(s);
   const bonusRatio = s.sector.bonusTotal ? s.sector.bonusHits / s.sector.bonusTotal : 0;
-  const medal = medalFor(level, { vialsLost: s.sector.vialsLost, r0: value, bonusRatio });
+  // An absorb (ENTERIC / LNP) counts as a lost vial for the medal.
+  const medal = medalFor(level, { vialsLost: s.sector.vialsLost + (s.sector.absorbs || 0), r0: value, bonusRatio });
   let bonus = clearBonus(level, value);
   if (level.kind === 'bonus' && s.sector.bonusHits === s.sector.bonusTotal) bonus += 5000;
   addScore(s, bonus);
@@ -1000,7 +1154,15 @@ function finishSector(s, level) {
     difficulty: s.difficulty,
   };
   s.medals[s.wave] = result;
-  Object.assign(s, { shots: [], enemyShots: [], telegraphs: [], beams: [], bursts: [], emitters: [], quarantine: null, soapRing: null });
+  // SEQUENCING: a non-final boss raises the titer and pays RESAMPLE tokens;
+  // the share of its cards NEUTRALIZED lifts the boosted draft's odds.
+  if (s.run && level.kind === 'boss' && s.wave !== STAGE_COUNT && s.boss) {
+    const capturable = s.boss.cards.filter((c) => c.type !== 'phase').length;
+    const share = capturable ? s.boss.results.filter((r) => r.neutralized).length / capturable : 0;
+    bossCleared(s.run, share);
+    s.run.lastShare = share;
+  }
+  Object.assign(s, { shots: [], enemyShots: [], telegraphs: [], beams: [], bursts: [], emitters: [], quarantine: null, soapRing: null, foam: null });
   s.enemies = [];
   s.failures = 0;
   s.assist = false;
@@ -1033,8 +1195,14 @@ function enterDraft(s) {
   const cards = s.medals[s.wave]?.cards ?? [];
   const draft = { stage: s.wave, code: level.code, boss: level.kind === 'boss', sequenced: cards.filter((c) => c.neutralized).length, cards: cards.length, vesicleBonus: false };
   s.draft = draft;
+  // The ADJUVANT offer (cards.mjs): rolled on the run's own stream.
+  if (s.drafts && s.run) {
+    s.run.input = s.sector.touch > s.sector.keys ? 'touch' : 'keys';
+    const offer = openDraft(s.run, draftCtx(s));
+    Object.assign(draft, { ids: [...offer.ids], tiers: [...offer.tiers], share: offer.share });
+  }
   pushEvent(s, 'draft', draft);
-  if (!s.drafts) return endDraft(s);
+  if (!s.drafts || !s.run) return endDraft(s);
   s.phase = 'draft';
 }
 export function endDraft(s) {
@@ -1044,16 +1212,141 @@ export function endDraft(s) {
   return true;
 }
 
+// ---- FORMULATE: the adjuvant draft in the hook above (RESEARCH_CARDS §2.2) --
+/** Draft context: the next stage's guaranteed power decides antibody
+ * eligibility; touch players never see speed cards. */
+function draftCtx(s) {
+  const level = getLevel(s.wave);
+  return {
+    power: entryPower(Math.min(STAGE_COUNT, s.wave + 1)),
+    difficulty: s.difficulty,
+    input: s.run.input,
+    stage: s.wave,
+    boosted: level.kind === 'boss' && s.wave < STAGE_COUNT,
+    share: s.run.lastShare ?? 0.5,
+    stageCount: STAGE_COUNT,
+  };
+}
+/** INJECT the adjuvant in slot `index` and begin the next stage. */
+export function pickAdjuvant(s, index) {
+  if (s.phase !== 'draft' || s.paused || !s.run?.offer) return null;
+  const card = pick(s.run, index);
+  if (!card) return null;
+  refreshKit(s);
+  // One-off effects at the moment of the pick.
+  if (card.id === 'extra-dose') s.health = Math.min(s.kit.maxVials + (s.vialBonus || 0), s.health + 1);
+  if (card.id === 'glass-syringe') s.health = Math.min(s.kit.maxVials + (s.vialBonus || 0), s.health);
+  if (card.id === 'lather') s.ship.bombs = Math.min(s.kit.maxBombs, s.ship.bombs + CARD.lather.fx.soapNow);
+  s.lives = s.health;
+  pushEvent(s, 'adjuvant', { id: card.id, tier: card.tier, stacks: s.run.deck.filter((d) => d.id === card.id).length });
+  endDraft(s);
+  return card;
+}
+/** RESAMPLE: spend a token to redraw the offer (same rules). */
+export function resampleAdjuvants(s) {
+  if (s.phase !== 'draft' || s.paused || !s.run?.offer || s.run.tokens <= 0) return null;
+  const offer = resample(s.run, draftCtx(s));
+  pushEvent(s, 'resample', { ids: [...offer.ids], tiers: [...offer.tiers], tokens: s.run.tokens });
+  return offer;
+}
+/** DISCARD: take none; +1 SOAP (up to the cap) and +3 incubation. */
+export function discardAdjuvants(s) {
+  if (s.phase !== 'draft' || s.paused || !s.run || !discard(s.run)) return false;
+  s.ship.bombs = Math.min(s.kit.maxBombs, s.ship.bombs + 1);
+  pushEvent(s, 'discard', { bombs: s.ship.bombs });
+  endDraft(s);
+  return true;
+}
+/** The run as stored (guarded, versioned): at stage entry it is the entry
+ * snapshot; mid-draft it holds the open offer, so a reload can neither
+ * reroll it nor refund a token. Null outside a run. */
+export const RUN_SAVE_VERSION = 1;
+export function exportRun(s) {
+  if (!s.run || s.practice || !['playing', 'transition', 'draft', 'lost'].includes(s.phase)) return null;
+  const draft = s.phase === 'draft';
+  const c = s.checkpoint;
+  return {
+    v: RUN_SAVE_VERSION,
+    seed: s.seed,
+    difficulty: s.difficulty,
+    phase: draft ? 'draft' : 'playing',
+    stage: draft ? s.wave : c.stage,
+    score: draft ? s.score : c.score,
+    kills: draft ? s.kills : c.kills,
+    hits: draft ? s.hits : c.hits,
+    shotsFired: draft ? s.shotsFired : c.shotsFired,
+    projectilesFired: draft ? s.projectilesFired : c.projectilesFired,
+    rngState: draft ? s.rngState : c.rngState,
+    power: draft ? s.ship.power : c.power,
+    health: draft ? s.health : c.health,
+    bombs: draft ? s.ship.bombs : c.bombs,
+    pendingHeal: s.pendingHeal,
+    vialBonus: s.vialBonus || 0,
+    extendsGiven: [...(draft ? s.extendsGiven : c.extendsGiven || [])],
+    medals: structuredClone(s.medals || {}),
+    run: structuredClone(draft ? s.run : c.run),
+  };
+}
+/** RESUME RUN from a stored run. Returns false (and leaves `s` alone) for a
+ * missing, foreign or corrupt save; never throws. */
+export function resumeRun(s, data) {
+  try {
+    if (!data || data.v !== RUN_SAVE_VERSION || !Number.isInteger(data.stage) || data.stage < 1 || data.stage > STAGE_COUNT) return false;
+    const run = reviveRun(data.run);
+    if (!run) return false;
+    const num = (x, lo, hi) => Number.isFinite(x) && x >= lo && x <= hi;
+    if (!num(data.score, 0, 1e9) || !num(data.power, 1, RULES.maxPower) || !num(data.health, 1, 99) || !num(data.rngState, 1, 0xffffffff)) return false;
+    if (data.phase === 'draft' && (!run.offer || data.stage >= STAGE_COUNT)) return false;
+    const { unlockedStage } = s;
+    const difficulty = DIFFICULTY[data.difficulty] ? data.difficulty : 'normal';
+    Object.assign(s, createState({ seed: data.seed >>> 0, stage: data.stage, difficulty, drafts: true }), { unlockedStage: Math.max(unlockedStage || 1, data.stage) });
+    Object.assign(s, {
+      score: data.score,
+      kills: data.kills | 0,
+      hits: data.hits | 0,
+      shotsFired: data.shotsFired | 0,
+      projectilesFired: data.projectilesFired | 0,
+      extendsGiven: Array.isArray(data.extendsGiven) ? data.extendsGiven.filter((x) => RULES.extends.includes(x)) : [],
+      medals: data.medals && typeof data.medals === 'object' ? data.medals : {},
+      run,
+      pendingHeal: ['boss', 'full', 'none', 'one'].includes(data.pendingHeal) ? data.pendingHeal : 'none',
+      vialBonus: num(data.vialBonus, 0, 9) ? data.vialBonus : 0,
+    });
+    setPower(s.ship, data.power);
+    refreshKit(s);
+    s.health = s.lives = Math.min(data.health, s.kit.maxVials + 2 + s.vialBonus);
+    s.ship.bombs = num(data.bombs, 0, s.kit.maxBombs) ? data.bombs : s.kit.bombsPerVial;
+    s.ship.coat = s.kit.coatMax;
+    s.rngState = data.rngState >>> 0;
+    s.sector.entryScore = s.score;
+    s.sector.entryPower = s.ship.power;
+    if (data.phase === 'draft') {
+      // The stage was cleared: an empty board under the open offer.
+      const level = getLevel(s.wave);
+      Object.assign(s, { enemies: [], boss: null, emitters: [], enemyShots: [] });
+      s.draft = { stage: s.wave, code: level.code, boss: level.kind === 'boss', sequenced: 0, cards: 0, vesicleBonus: false, ids: [...run.offer.ids], tiers: [...run.offer.tiers] };
+      s.phase = 'draft';
+    } else {
+      s.phase = 'playing';
+      s.checkpoint = makeCheckpoint(s);
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function beginNextSector(s) {
   const heal = s.pendingHeal;
   setupSector(s, s.wave + 1);
   s.phase = 'playing';
-  const max = diff(s).health + (s.vialBonus || 0);
+  // EXTRA DOSE / GLASS SYRINGE move the cap (kit.maxVials = diff on a base kit).
+  const max = s.kit.maxVials + (s.vialBonus || 0);
   if (heal === 'boss') s.health = Math.max(s.health, Math.min(max, s.health + 1));
   else if (heal === 'full') s.health = Math.max(s.health, max);
   s.lives = s.health;
   s.ship.invulnerable = 1.2;
-  s.ship.bombs = Math.max(s.ship.bombs, diff(s).bombs);
+  s.ship.bombs = Math.max(s.ship.bombs, s.kit.bombsPerVial);
   s.checkpoint = makeCheckpoint(s);
   pushEvent(s, 'wave-start', { wave: s.wave, code: getLevel(s.wave).code });
 }
@@ -1115,6 +1408,10 @@ function substep(s, dt, input) {
   updateTelegraphs(s, dt);
   updateBullets(s, dt);
   updateShots(s, dt);
+  if (s.kit.active) {
+    tickKit(s, dt);
+    updateJet(s, dt, { damageEnemy, awardKill });
+  }
   updateBursts(s, dt);
   updateSoap(s, dt);
   updateInject(s);

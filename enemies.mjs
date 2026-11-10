@@ -31,7 +31,7 @@ const PUDDLE_TIME = 1.6; // max wait for the gate before a puddle evaporates
 export function makeEnemy(s, kind, x, z, extra = {}) {
   const a = ARCHETYPES[kind];
   // One HP route: levels.stageHp (the draft's hook), x0.85 on Easy.
-  const hp = Math.max(1, Math.round(stageHp(a.hp, s.wave ?? 1) * (s.difficulty === 'easy' ? 0.85 : 1)));
+  const hp = Math.max(1, Math.round(stageHp(a.hp, s.wave ?? 1, s) * (s.difficulty === 'easy' ? 0.85 : 1)));
   return {
     id: `s${s.wave}-${kind}-${nextId(s)}`,
     kind,
@@ -437,7 +437,7 @@ function mutate(s, e) {
   e.mutating = 0;
   if (e.kind === 'wild') {
     const a = ARCHETYPES.heavy,
-      hp = Math.max(1, Math.round(stageHp(a.hp, s.wave ?? 1) * (s.difficulty === 'easy' ? 0.85 : 1)));
+      hp = Math.max(1, Math.round(stageHp(a.hp, s.wave ?? 1, s) * (s.difficulty === 'easy' ? 0.85 : 1)));
     Object.assign(e, { kind: 'heavy', label: a.label, hp, maxHp: hp, radius: a.radius, mutated: true });
     pushEvent(s, 'mutated', { id: e.id, x: e.x, z: e.z, into: 'heavy', kind: 'heavy' });
     return;
