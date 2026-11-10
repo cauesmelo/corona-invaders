@@ -138,3 +138,41 @@ Earlier art pass: real Chrome with SwiftShader WebGL at 960×640, 390×844 and 3
 Input and flow checks: moving the mouse with no button held left the syringe in place, and a held-button drag moved it. Space during the 1 s loss lock kept the loss screen; a fresh press after it retried. After three losses, Easy was the focused, highlighted button. The first visit showed the Easy start offer. At 390×844 and 320×844 the fullscreen button no longer overlaps pause, and the portrait cabinet is 828 px tall.
 
 SwiftShader frame rates after the 3D art pass (lit meshes, rim light, contact shadows, layered board): title 60 fps, the 60-corona grid 55, a boss spiral 60, 4-3 OUTBREAK 60, and the 600-bullet fixture 43 (was 19; the brief's 55 fps software floor is still not met there). Real gameplay peaks near 140 bullets. Over 1.5 s after a start the median frame is 17 ms, but one long frame remains: 517 ms at the first 1-1 start, 317 ms at ALPHA, 283 ms at OMICRON and none at 4-3. That is after the boot prewarm (every shape compiled and rendered hidden), DOM writes only on change, and no width or display changes at boss entry. A CPU profile of those 1.5 s shows under 60 ms of script with the main thread otherwise idle, so the frame is lost in SwiftShader's GPU or compositor process. It has not been measured on a hardware GPU.
+
+## Adjuvants: the v1.0 draft (2026-11-10, measured on the real 12-stage model)
+
+Brief: [RESEARCH_CARDS.md](./RESEARCH_CARDS.md). Pure tests: `tests/cards.test.mjs` (37); whole runs: `npm run test:balance` (`tests/balance.mjs`, 30 seeds × 6 pairs, 6 workers, about 70 s). Measurements below come from `cards.mjs` and the shipped campaign, not from the brief's scratch model.
+
+**Draft odds (6,000 simulated 12-stage runs, random drafter).** Every per-draft mean of §4.6 within ±0.03, every P(legendary) within ±1.5 points. No legendary offered in 23.2% of runs (brief 23.3%, band 20–27%). Legendaries picked 0/1/2: 61.6 / 32.7 / 5.7% (brief 63 / 32 / 5.5). Rarest-first drafter: 22.6 / 43.8 / 33.6% (brief 23 / 44 / 33). The 18-stage fallback fixture (§4.7): 1.58 legendaries shown per run, 17.9% offered none, rarest-first two legendaries in 47.6% (brief 49%).
+
+**EXPECTED_POTENCY (frozen, 2,000 seeds; re-measured within 5% by test 10).** 12 stages: 1.00 1.00 1.056 1.094 1.15 1.206 1.27 1.329 1.313 1.388 1.449 1.511 (brief planning 1.00 1.00 1.04 1.09 1.13 1.19 1.25 1.30 1.29 1.36 1.43 1.49). Enemy and card HP follow it through `levels.stageDps(stage, s)` only when `s.drafts` is on.
+
+**Tuning changed by measurement (the brief's number → shipped):**
+
+| Rule | Brief | Shipped | Why (measured) |
+| --- | --- | --- | --- |
+| T3 potency limit | ×2.2 | **×2.15** | Greedy offense reached 1.503× the random median entering 4-2, over the 1.5× ceiling; now ≤ 1.5× at every stage |
+| Coating on respawn | full | **one charge** (LNP's second re-forms) | LNP with the defensive stack measured 30 hits to game over (ceiling 24) |
+| Coating re-form floor | 15 s | **20 s** | LNP × 0.75 on two ENTERIC copies then measured 25 hits; at 20 s, 19 |
+
+**Ceilings (unit tests).** No deck exceeds its titer limit (10,000 random decks). Greedy offense ≤ 1.5× the random median at every stage. STRONGEST_BUILD ends a card at ≥ 0.7 × E ÷ limit of its TTK: **44.7%** at worst (2-2's midboss), against the 40% floor. Hits to game over (core hit every 6 s, no input, real model): Normal 3, Easy 20, the worst non-legendary Normal deck (EXTRA DOSE ×2, LATHER ×2, EPIPEN, ENTERIC ×2, BACKUP ALIQUOT) **18** (≤ 20), plus LNP 19, plus AUTOCLAVE 22 (≤ 24). **Known excess:** LNP and AUTOCLAVE together on that stack measure 29 in an endless stage. Single legendaries: LNP alone +4 hits, ENTERIC +3 (one per vial at 3 vials, over the rare budget of +2), EPIPEN +3.
+
+**Whole runs (test 12, 30 seeds, Normal, 3 credits).** With SOAP the 150 ms reactive player deathbombs so well that every pair clears on one credit, so the no-SOAP pass is the informative one:
+
+| Pair | 1CC (SOAP on) | 1CC (no SOAP) | Credits used (no SOAP) | Boss time (s) | Vials lost per 4-x stage | Legendaries 0/1/2 |
+| --- | --- | --- | --- | --- | --- | --- |
+| autopilot × random | 30/30 | 30/30 | 0.00 | 70.6 | 0.00 | 14/15/1 |
+| reactive × random | 30/30 | 24/30 | 0.37 | 105.2 | 0.59 | 16/13/1 |
+| reactive × greedy offense | 30/30 | 24/30 | 0.23 | 83.9 | 0.24 | 8/14/8 |
+| reactive × greedy defense | 30/30 | 29/30 | 0.03 | 94.9 | 0.06 | 6/21/3 |
+| reactive × placebo (discard all) | 30/30 | 9/30 | 1.43 | 128.5 | 1.34 | 30/0/0 |
+| reactive × reference syringe (drafts off) | 30/30 | 10/30 | 0.93 | 106.6 | 1.17 | — |
+
+- **Pass (both passes):** autopilot 1CC ≥ 96%; random finishes within 3 credits (29/30 without SOAP); offense 1CC ≥ random; offense boss time 79–80% of random (band 70–90%); placebo boss time 1.22× random (≥ 1.2×); placebo finishes 26/30 (≥ 80%); greedy offense never ends a card under **42%** of its TTK (measured, T6 floor 40%).
+- **Miss (no-SOAP pass only):**
+  - 2b: random decks 1CC 24/30 against the reference syringe's 10/30. The target is ±10 points.
+  - 4a: defense decks lose 0.06 vials per sector-4 stage against 0.59. The target is ≥ 25% of random.
+  - 4b: defense core hits per minute 0.35 against 0.39. The target is ≥ random.
+- **Cause, not yet fixed:** any deck helps the no-SOAP player far beyond what its potency predicts. Greedy offense, with no defensive cards at all, also 1CCs 24/30. Potency measures focused single-target DPS on a boss. This player sprays at popcorn, where TWIN BARREL's +2 spray needles, pierce, split and spare vials are not priced. Stopping the coating's respawn refill moved none of these numbers (24/30 again), so that change was not kept.
+- **Next step:** price spray coverage in the popcorn HP curve, using a spray-DPS expected potency for formation HP, and re-run this table.
+- **Not run:** targets 6 and 7 (the ladders and FAIR-150 with random decks and at the 10.58 / 12.88 u/s extremes), and the favour-one-card bands of §5.5.

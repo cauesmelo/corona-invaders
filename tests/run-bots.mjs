@@ -15,8 +15,9 @@ import { createReactive } from './reactive.mjs';
 
 export const LEGENDARY = Object.freeze(Object.values(CARD).filter((c) => c.tier === 'legendary').map((c) => c.id));
 
-export function playRun({ seed = 42, player = 'autopilot', policy = 'random', difficulty = 'normal', credits = 3, frameBudget = 60 * 60 * 40, bombs = true } = {}) {
-  const s = createState({ seed, difficulty, drafts: true });
+export function playRun({ seed = 42, player = 'autopilot', policy = 'random', difficulty = 'normal', credits = 3, frameBudget = 60 * 60 * 40, bombs = true, drafts = true } = {}) {
+  // drafts: false is the authored game (no adjuvants, no expected-potency HP).
+  const s = createState({ seed, difficulty, drafts });
   newRun(s, seed);
   const reactive = player === 'reactive' ? createReactive({ bombs }) : null;
   const input = (frame) => (reactive ? reactive(s, frame) : chooseInput(s, frame));
@@ -41,7 +42,7 @@ export function playRun({ seed = 42, player = 'autopilot', policy = 'random', di
       stageStart = frame;
       continue;
     }
-    if (s.phase === 'draft') {
+    if (s.phase === 'draft' && s.run) {
       const offer = s.run.offer;
       const ctx = { power: entryPower(s.wave + 1), difficulty: s.difficulty, stage: s.wave + 1 };
       const i = choose(s.run, offer, policy, ctx, bot);
@@ -64,6 +65,7 @@ export function playRun({ seed = 42, player = 'autopilot', policy = 'random', di
         st.vialsLost += ev.vialsLost;
         st.medal = ev.medal;
         st.cards = ev.cards;
+        st.boss = getLevel(ev.stage).boss || null;
       }
     }
     if (s.wave !== before) stageStart = frame;
@@ -73,7 +75,7 @@ export function playRun({ seed = 42, player = 'autopilot', policy = 'random', di
   return {
     seed,
     player,
-    policy: typeof policy === 'string' ? policy : `favour:${policy.favour}`,
+    policy: !drafts ? 'reference' : typeof policy === 'string' ? policy : `favour:${policy.favour}`,
     won: s.phase === 'won',
     oneCredit: s.phase === 'won' && spent === 0,
     creditsSpent: spent,
