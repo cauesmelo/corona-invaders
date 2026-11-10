@@ -1,33 +1,36 @@
 /** Camera framing, independent of WebGL so portrait regressions can be tested.
  *
- * For each viewport aspect we search camera pitch and field of view, then fit
- * the complete play envelope (FRAMING_POINTS) tightly inside a 6% safe inset on
- * both axes and center it vertically. The chosen layout maximizes the on-screen
- * size of back-row enemies, while limiting how much bigger the near row may get
- * (perspective ratio) so the far formation never shrinks to specks. Portrait
- * screens therefore pick a steeper, taller framing instead of letterboxing.
+ * Bullet-hell readability (RESEARCH_BULLET_HELL.md 3.3): a real perspective
+ * camera, but steep and narrow so scale is nearly uniform across the board.
+ * The search window is pitch 64-74 degrees and FOV 24-32 degrees, and the far /
+ * near depth ratio (back rim vs front rim) is capped at 1.35, so a bullet at
+ * the back is never drawn much smaller than one by the syringe. The camera is
+ * fixed: no follow, no sway.
+ *
+ * For each viewport we fit the whole board (FRAMING_POINTS) inside a 6% safe
+ * inset, keeping a top band free for the VIRAL LOAD bar. In landscape the board
+ * becomes a centred column with the instrument HUD in the side columns; in
+ * portrait it fills the width and is anchored under the HUD strip, leaving the
+ * thumb zone below.
  */
 export const FRAMING_POINTS = Object.freeze([
-  // Ship travel envelope (full width, front of the cabinet).
-  ...[-9.2, 9.2].flatMap((x) => [0.15, 1.25].flatMap((y) => [8.3, 12.4].map((z) => [x, y, z]))),
-  // Back corners of the arena, and the top of a tall boss at the back.
-  ...[-8.8, 8.8].flatMap((x) => [
-    [x, 0, -12.8],
-    [x, 3.8, -10.5],
-  ]),
+  // Board corners at the floor and at the bullet / enemy plane.
+  ...[-9.4, 9.4].flatMap((x) => [0, 1.1].flatMap((y) => [-13.2, 12.9].map((z) => [x, y, z]))),
+  // The syringe at the bottom of its box (barrel, plunger and thumb rest).
+  [0, 1.2, 13.4],
 ]);
 const SAFE = 0.935;
-// The top band of the stage (84 px) is reserved for the VIRAL LOAD bar and the
-// sector intro tape, so neither ever covers the back row or a boss.
-const TOP_BAND_PX = 84;
-const BACK_ROW = [0, 0.8, -9.2];
-const FRONT_ROW = [0, 0.8, 10.4];
+// Reserved for the VIRAL LOAD bar and its mutation card tape, so they never
+// cover a boss: 80 px over the landscape column, 100 px under the portrait strip.
+export const TOP_BAND = Object.freeze({ strip: 100, side: 80 });
+const BACK = [0, 0.55, -12.5];
+const FRONT = [0, 0.55, 12.4];
+export const MAX_DEPTH_RATIO = 1.35;
 
 function basis(position, target) {
   const f = target.map((t, i) => t - position[i]);
   const n = Math.hypot(...f);
   const fw = f.map((v) => v / n);
-  // Right is world +x (no yaw); camera up = right x forward.
   const up = [0, -fw[2], fw[1]];
   return { fw, up };
 }
@@ -45,7 +48,6 @@ function place(pitch, distance, tz) {
   const rad = (pitch * Math.PI) / 180;
   return { target: [0, 0, tz], position: [0, Math.sin(rad) * distance, tz + Math.cos(rad) * distance] };
 }
-let TOP = SAFE;
 function extent(layout) {
   let maxX = 0,
     minY = Infinity,
@@ -59,59 +61,55 @@ function extent(layout) {
   }
   return { maxX, minY, maxY };
 }
-/** Tight fit: shrink the distance until the envelope touches the safe inset,
- * recentering the target vertically between passes. In portrait the width is
- * the limit, so the spare height is moved below the ship (`anchorTop`), where
- * it becomes the thumb's drag zone instead of an empty band above the arena. */
-function fit(aspect, pitch, fov, anchorTop = false) {
+function fit(aspect, pitch, fov, top, anchorTop) {
   let tz = 0,
     best = null;
   for (let pass = 0; pass < 6; pass++) {
     let lo = 8,
-      hi = 140;
-    for (let i = 0; i < 40; i++) {
+      hi = 260;
+    for (let i = 0; i < 42; i++) {
       const mid = (lo + hi) / 2;
       const e = extent({ ...place(pitch, mid, tz), fov, aspect });
-      const fits = e && e.maxX <= SAFE && e.maxY <= TOP && e.minY >= -SAFE;
+      const fits = e && e.maxX <= SAFE && e.maxY <= top && e.minY >= -SAFE;
       if (fits) hi = mid;
       else lo = mid;
     }
     best = { ...place(pitch, hi, tz), fov, aspect, distance: hi };
     const e = extent(best);
-    const offset = anchorTop ? e.maxY - TOP : (e.maxY + e.minY - TOP + SAFE) / 2;
-    if (Math.abs(offset) < 0.004) break;
-    // Moving the target toward +z (the ship) moves the picture up on screen.
+    const offset = anchorTop ? e.maxY - top : (e.maxY + e.minY - top + SAFE) / 2;
+    if (Math.abs(offset) < 0.003) break;
     tz -= offset * hi * Math.tan((fov * Math.PI) / 360) * 0.9;
   }
   return best;
 }
+export const depthRatio = (layout) => projectPoint(BACK, layout).depth / projectPoint(FRONT, layout).depth;
+
 const cache = new Map();
-export function cameraLayout(width, height) {
+/** `topPx`: pixels reserved at the top (the boss bar); defaults by layout. */
+export function cameraLayout(width, height, { topPx } = {}) {
   const aspect = Math.max(0.05, width / Math.max(1, height));
-  const key = `${Math.round(width)}x${Math.round(height)}`;
-  TOP = Math.max(0.6, Math.min(SAFE, 1 - TOP_BAND_PX / Math.max(1, height / 2)));
-  if (cache.has(key)) return structuredClone(cache.get(key));
-  let best = null;
   const portrait = aspect < 0.9;
-  for (let pitch = 44; pitch <= (portrait ? 78 : 74); pitch += 2)
-    for (const fov of [30, 36, 42, 48]) {
-      const layout = fit(aspect, pitch, fov, portrait);
-      const back = projectPoint(BACK_ROW, layout),
-        front = projectPoint(FRONT_ROW, layout);
-      // Screen size of a 1 u object scales with 1 / (depth * tan(fov/2)).
-      const t = Math.tan((fov * Math.PI) / 360);
-      const backScale = 1 / (back.depth * t);
-      const ratio = back.depth / front.depth;
-      if (ratio > 1.9) continue;
-      if (!best || backScale > best.score) best = { score: backScale, layout };
+  const band = topPx ?? (portrait ? TOP_BAND.strip : TOP_BAND.side);
+  const key = `${Math.round(width)}x${Math.round(height)}:${band}`;
+  if (cache.has(key)) return structuredClone(cache.get(key));
+  const top = Math.max(0.6, Math.min(SAFE, 1 - band / Math.max(1, height / 2)));
+  let best = null;
+  for (let pitch = 64; pitch <= 74; pitch += 1)
+    for (const fov of [24, 26, 28, 30, 32]) {
+      const layout = fit(aspect, pitch, fov, top, portrait);
+      if (depthRatio(layout) > MAX_DEPTH_RATIO) continue;
+      // Maximise the on-screen size of the back row (the smallest bullets).
+      const back = projectPoint(BACK, layout);
+      const score = 1 / (back.depth * Math.tan((fov * Math.PI) / 360));
+      if (!best || score > best.score) best = { score, layout };
     }
   const { target, position, fov } = best.layout;
-  const out = {
-    aspect,
-    fov,
-    target: target.map((v) => +v.toFixed(4)),
-    position: position.map((v) => +v.toFixed(4)),
-  };
+  const out = { aspect, fov, target: target.map((v) => +v.toFixed(4)), position: position.map((v) => +v.toFixed(4)), band };
   cache.set(key, out);
   return structuredClone(out);
+}
+/** Pixels per world unit at a board point (for minimum on-screen sizes). */
+export function pxPerUnit(layout, height, point) {
+  const q = projectPoint(point, layout);
+  return height / 2 / (q.depth * Math.tan((layout.fov * Math.PI) / 360));
 }
