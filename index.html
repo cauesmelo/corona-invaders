@@ -64,8 +64,11 @@
           <span class="pad-hint" id="pad-hint">DRAG ANYWHERE · AUTO-FIRE</span>
         </div>
         <button id="touch-bomb" type="button" aria-label="Soap burst"><span id="touch-bomb-count">2</span><small>SOAP</small></button>
-        <div class="formulate" id="formulate" role="dialog" aria-modal="true" aria-label="Formulate: pick one adjuvant" hidden>
-          <div class="f-panel" id="formulate-panel"></div>
+        <!-- FORMULATE: the draft is drawn in 3D on the canvas (draft3d.mjs);
+             this layer only takes pointer input and holds the control bar and
+             the screen-reader summary. -->
+        <div class="formulate" id="formulate" role="dialog" aria-modal="true" aria-label="Formulate: pick one adjuvant. Arrows or 1 to 3 select, Enter injects, R resamples, S twice discards." tabindex="-1" hidden>
+          <div class="f-bar" id="formulate-panel" role="group" aria-label="Draft controls"></div>
           <p class="sr-only" id="formulate-live" aria-live="polite"></p>
         </div>
         <div class="overlay" id="overlay" data-screen="title">

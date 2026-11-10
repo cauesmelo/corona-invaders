@@ -3,7 +3,7 @@
  * seven-segment LEDs, doses are vaccine vials (cyan fluid), samples are petri
  * dishes, SOAP is bubbles, power is an mRNA helix and R0 is an analog dial.
  */
-const FONT = {
+export const FONT = {
   A: '.###.#...##...#######...##...##...#',
   B: '####.#...##...#####.#...##...#####.',
   C: '.###.#...##....#....#....#...#.###.',

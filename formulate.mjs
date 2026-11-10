@@ -1,14 +1,16 @@
-/** FORMULATE: the adjuvant draft screen and the owned-adjuvant rack, as pure
- * HTML builders (no DOM access), plus the input gate the screen uses. The
- * look is the lab instrument's: three glass specimen slides under a lamp, a
- * tier band that never relies on colour alone (word + pips + frame style),
- * and NOW -> AFTER numbers from the kit diff (RESEARCH_CARDS §6.1).
+/** FORMULATE: the DOM side of the adjuvant draft, as pure HTML builders (no
+ * DOM access), plus the input gate the screen uses. The draft itself is 3D
+ * (draft3d.mjs: vaccine cartridges in the lab view); what stays DOM is only
+ * the control bar (RESAMPLE / INJECT / DISCARD, keyboard, mouse and touch
+ * controls), the owned-adjuvant rack in the HUD and the pause list.
  *
- * Palette (one meaning per colour): grey glass = common, cyan rim = rare,
- * cobalt double rim = epic, amber with a moving sweep = legendary. The only
- * pink is the COST line, because a cost is a risk.
+ * The rack speaks the cartridges' material language (RESEARCH_DIFFICULTY
+ * §6.4): each owned adjuvant is a small cartridge, clear glass (common),
+ * frosted (rare), cobalt (epic) or a gold crown cap with glowing serum
+ * (legendary), with the tier's cap grooves; the serum is the line colour.
+ * The only pink is a trade-off's COST, because a cost is a risk.
  */
-import { CARD, TIER_LABEL, LINES, cardText, cardCost, previewPick, stacksOf, limitOf, legendariesIn } from './cards.mjs';
+import { CARD, LINES, cardText, cardCost, legendariesIn } from './cards.mjs';
 
 const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
 export const PIPS = { common: 1, rare: 2, epic: 3, legendary: 4 };
@@ -20,56 +22,44 @@ export const LINE_GLYPH = {
   DOSE: '<rect x="8" y="3" width="8" height="18" rx="2"/><path d="M8 12h8M10 3V1.5h4V3"/>',
   SOAP: '<circle cx="12" cy="13" r="7"/><circle cx="9.5" cy="10.5" r="1.6"/><circle cx="18" cy="5" r="2"/>',
   GRAZE: '<circle cx="12" cy="12" r="8" stroke-dasharray="3 2.4"/><circle cx="12" cy="12" r="2"/>',
+  // INJECT: a thumb rest pressing a plunger into a barrel.
+  INJECT: '<path d="M7 3h10M12 3v7M8 10h8v8l-4 4-4-4z"/>',
 };
+LINE_GLYPH.EXPOSURE = LINE_GLYPH.GRAZE; // the difficulty brief's name for GRAZE
 export function glyph(line, cls = 'glyph') {
   return `<svg class="${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${LINE_GLYPH[line] || LINE_GLYPH.NEEDLE}</svg>`;
 }
-/** Numbers in an effect sentence set in the seven-segment face. */
-const numbers = (text) => esc(text).replace(/([+−-]?\d+(?:\.\d+)?(?:%|×| s| u|°)?)/g, '<b class="num">$1</b>');
-
-/** One specimen slide. `ctx` is the kit context for the NOW -> AFTER line. */
-export function slideHTML(id, slot, deck, ctx, { selected = false } = {}) {
-  const c = CARD[id];
-  const have = stacksOf(deck, id);
-  const preview = previewPick(deck, id, ctx);
-  const cost = cardCost(id);
-  const pips = Array.from({ length: 4 }, (_, i) => `<i class="${i < PIPS[c.tier] ? 'on' : ''}"></i>`).join('');
-  return `<button type="button" class="slide tier-${c.tier}${selected ? ' selected' : ''}" data-slot="${slot}" style="--i:${slot}" aria-label="${esc(`${c.name}, ${TIER_LABEL[c.tier].toLowerCase()}, ${c.line.toLowerCase()} line. ${cardText(id, have + 1)} ${cost}`)}">
-  <span class="slide-glass" aria-hidden="true"></span>
-  <span class="band"><span class="tier-word">${TIER_LABEL[c.tier]}</span><span class="pips" aria-hidden="true">${pips}</span><span class="key" aria-hidden="true">${slot + 1}</span></span>
-  <span class="title">${glyph(c.line)}<strong>${esc(c.name)}</strong></span>
-  <span class="tags">${[c.line, ...c.tags.filter((t) => t.toUpperCase() !== c.line)].map(esc).join(' · ')}</span>
-  <span class="effect">${numbers(cardText(id, have + 1))}</span>
-  ${cost ? `<span class="cost">${numbers(cost)}</span>` : ''}
-  <span class="after">${preview.lines.map((l) => `<span>${esc(l)}</span>`).join('')}</span>
-  ${preview.synergy ? `<span class="synergy">SYNERGY: ${esc(preview.synergy)}</span>` : ''}
-  <span class="stack">${c.max > 1 ? `STACK ${have} → ${have + 1} / ${c.max}` : 'UNIQUE'}</span>
-  <span class="inject-cta" aria-hidden="true">INJECT</span>
-</button>`;
-}
-
-/** Header, three slides and the footer for an open offer. */
-export function formulateHTML({ run, stageCode, boss, bossName, sequenced, cards, ctx, selected = -1, touch = false, confirmDiscard = false }) {
-  const titer = Array.from({ length: 3 }, (_, i) => (i < run.titer ? '◆' : '◇')).join('');
-  const head = boss ? `${esc(bossName || 'VARIANT')} SEQUENCED ${sequenced}` : `${esc(stageCode)} CLEARED · PICK 1 ADJUVANT`;
-  const slides = run.offer.ids.map((id, i) => slideHTML(id, i, run.deck, ctx, { selected: i === selected })).join('');
-  const key = (k) => (touch ? '' : `<kbd>${k}</kbd> `);
-  return `<header class="f-head"><span class="f-title">FORMULATE</span><span class="f-sub">${head}</span><span class="f-titer" title="Titer: bosses defeated">TITER ${titer}</span></header>
-<div class="slides" role="group" aria-label="Three adjuvants">${slides}</div>
-<footer class="f-foot">
-  <button type="button" class="f-btn inject" data-act="inject" ${selected < 0 ? 'disabled' : ''}>${key(touch ? '' : 'ENTER')}INJECT</button>
-  <button type="button" class="f-btn" data-act="resample" ${run.tokens > 0 ? '' : 'disabled'}>${key('R')}RESAMPLE <b>×${run.tokens}</b></button>
-  <button type="button" class="f-btn${confirmDiscard ? ' confirm' : ''}" data-act="discard">${key('S')}${confirmDiscard ? 'CONFIRM DISCARD' : 'DISCARD'} <b>+1 SOAP</b></button>
-</footer>
-<div class="f-rack">${rackHTML(run.deck, { limit: limitOf(run.titer), potency: cards?.potency })}</div>`;
+/** The control bar: RESAMPLE, INJECT (the primary, the 72 px thumb button on
+ * phones) and DISCARD. Controls, not card content (§6.7), styled as the
+ * instrument's machined keys. Keycaps are hidden on touch. */
+export function controlsHTML({ tokens = 0, confirm = false, touch = false } = {}) {
+  const key = (k) => (touch ? '' : `<kbd>${k}</kbd>`);
+  return `<button type="button" class="f-key" data-act="resample" ${tokens > 0 ? '' : 'disabled'} aria-label="Resample the offer, ${tokens} left">${key('R')}<span>RESAMPLE</span><b>×${tokens}</b></button>
+<button type="button" class="f-key inject" data-act="inject" aria-label="Inject the selected adjuvant">${key('ENTER')}<span>INJECT</span></button>
+<button type="button" class="f-key${confirm ? ' confirm' : ''}" data-act="discard" aria-label="${confirm ? 'Confirm discard: take none, plus one soap' : 'Discard all three, plus one soap'}">${key('S')}<span>${confirm ? 'CONFIRM' : 'DISCARD'}</span><b>+1 SOAP</b></button>`;
 }
 /** The aria-live summary: "Three adjuvants: CONCENTRATE, common; ...". */
 export function offerSummary(run) {
   return `Three adjuvants: ${run.offer.ids.map((id) => `${CARD[id].name}, ${CARD[id].tier}`).join('; ')}.`;
 }
 
-/** The owned formulation as vial chips grouped by line, with stack pips;
- * legendaries are larger amber chips on top. Up to 15 chips, then +n. */
+/** Serum colours by line (draft3d.mjs LINE_SERUM, kept here so the HUD does
+ * not import the 3D module). */
+const SERUM = { NEEDLE: '#59dcff', INJECT: '#eef6ff', ANTIBODY: '#6f8dff', EXPOSURE: '#c7a6ff', GRAZE: '#c7a6ff', SOAP: '#bff6ff', DOSE: '#ffc46b' };
+const CAP = { common: '#aeb8bd', rare: '#e6edf1', epic: '#ffffff', legendary: '#f2c14e' };
+/** One owned adjuvant as a small upright cartridge (12 x 26 px): the cap with
+ * the tier's 1-4 grooves, the glass (clear, frosted, cobalt), the serum. */
+export function cartridgeChip(tier, line) {
+  const t = PIPS[tier] ? tier : 'common';
+  const serum = SERUM[line] || SERUM.NEEDLE;
+  const notches = Array.from({ length: PIPS[t] }, (_, i) => `<path d="M3.2 ${(1.6 + i * 0.95).toFixed(2)}h5.6"/>`).join('');
+  const crown = t === 'legendary' ? '<path class="crown" d="M3.4 0.9l1.1-0.9 1.5 0.9 1.5-0.9 1.1 0.9z"/>' : '';
+  const veil = { common: '', rare: '<rect class="frost" x="1.5" y="6" width="9" height="19" rx="2"/>', epic: '<rect class="cobalt" x="1.5" y="6" width="9" height="19" rx="2"/>', legendary: '' }[t];
+  return `<svg class="cart tier-${t}" viewBox="0 0 12 26" aria-hidden="true"><rect class="serum" x="2.6" y="8.6" width="6.8" height="15.4" rx="1.4" fill="${serum}"/>${veil}<rect class="glass" x="1.5" y="6" width="9" height="19" rx="2"/><rect class="sheen" x="2.5" y="7" width="1.1" height="16.5" rx="0.5"/><rect class="neck" x="4" y="4.6" width="4" height="1.6"/><rect class="capbody" x="3" y="0.8" width="6" height="4" rx="1" fill="${CAP[t]}"/><g class="notch">${notches}</g>${crown}</svg>`;
+}
+
+/** The owned formulation as cartridge chips grouped by line, with stack pips;
+ * legendaries are larger gold-capped chips on top. Up to 15 chips, then +n. */
 export function rackHTML(deck, { limit = null, potency = null, max = 15, compact = false } = {}) {
   const seen = new Map();
   for (const d of deck) seen.set(d.id, (seen.get(d.id) || 0) + 1);
@@ -78,11 +68,11 @@ export function rackHTML(deck, { limit = null, potency = null, max = 15, compact
   const chip = (id) => {
     const c = CARD[id],
       n = seen.get(id);
-    return `<span class="chip tier-${c.tier} line-${c.line.toLowerCase()}" title="${esc(`${c.name}${n > 1 ? ` ×${n}` : ''}: ${cardText(id, n)}`)}"><i class="fill"></i>${glyph(c.line, 'chip-glyph')}${n > 1 ? `<em>${'•'.repeat(n)}</em>` : ''}</span>`;
+    return `<span class="chip tier-${c.tier} line-${c.line.toLowerCase()}" title="${esc(`${c.name}${n > 1 ? ` ×${n}` : ''}: ${cardText(id, n)}`)}">${cartridgeChip(c.tier, c.line)}${n > 1 ? `<em>${'•'.repeat(n)}</em>` : ''}</span>`;
   };
   const shown = others.slice(0, max);
   const more = others.length - shown.length;
-  const legendHTML = legends.length ? `<span class="legends">${legends.map((id) => `<span class="chip legend" title="${esc(`${CARD[id].name}: ${cardText(id, 1)}`)}">${glyph(CARD[id].line, 'chip-glyph')}<b>${esc(CARD[id].name)}</b></span>`).join('')}</span>` : '';
+  const legendHTML = legends.length ? `<span class="legends">${legends.map((id) => `<span class="chip legend" title="${esc(`${CARD[id].name}: ${cardText(id, 1)}`)}">${cartridgeChip('legendary', CARD[id].line)}<b>${esc(CARD[id].name)}</b></span>`).join('')}</span>` : '';
   if (compact) return legendHTML;
   const readout = potency !== null && limit !== null ? `<span class="potency">POTENCY <b>×${potency.toFixed(2)}</b> / ${limit.toFixed(2)}${potency >= limit - 1e-9 ? ' MAX' : ''}</span>` : '';
   return `${legendHTML}<span class="chips">${shown.map(chip).join('')}${more > 0 ? `<span class="more">+${more}</span>` : ''}${deck.length ? '' : '<span class="empty">NO ADJUVANTS YET</span>'}</span>${readout}`;
