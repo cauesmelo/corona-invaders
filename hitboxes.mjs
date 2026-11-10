@@ -37,6 +37,16 @@ export const COLLIDERS = Object.freeze({
 export const NEEDLE = Object.freeze({ r: 0.06, length: 0.9 });
 /** The syringe body that catches supplies (the drawn barrel's half-width). */
 export const BODY_RADIUS = 0.4;
+/** The core marker: a flat disc on the collision plane itself (not lifted
+ * above it, so perspective cannot enlarge or shift it), whose outer edge is
+ * the collider. The 128 px texture draws that edge at radius `texEdge` of a
+ * `texHalf` half-width, so the quad spans 2 r texHalf / texEdge u. */
+export const MARKER = Object.freeze({ r: RULES.shipRadius, y: RULES.bulletY, texEdge: 60, texHalf: 64 });
+export const markerQuad = () => (2 * MARKER.r * MARKER.texHalf) / MARKER.texEdge;
+/** The graze ring as drawn: a thin band whose outer edge is the graze radius,
+ * on the collision plane. A bullet grazes when its solid edge crosses that
+ * outer edge (model.mjs updateHazards). */
+export const GRAZE_RING = Object.freeze({ outer: RULES.grazeRadius, inner: RULES.grazeRadius - 0.04, y: RULES.bulletY });
 
 /** Sprite layout for a bullet family: the canvas is drawn at K px per u with
  * the solid capsule of radius R_PX px, plus a glow margin. The quad is sized

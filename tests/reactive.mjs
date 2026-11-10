@@ -8,6 +8,9 @@
  *   - commits to one keyboard direction until its next decision,
  *   - bombs only if `bombs` is enabled and a seen bullet is about to land.
  * It still never edits state: it returns ordinary inputs.
+ * `threads: true` lets it read what the RNA thread draws on screen: the line
+ * a sine strand travels along and how far it swings (used by the per-pattern
+ * fairness audit; the curve tables keep the naive player).
  */
 const CORE = 0.2;
 /** Distance from (px, pz) to a seen bullet's solid (capsules along travel). */
@@ -48,7 +51,9 @@ function perceive(s) {
       .filter((b) => Math.abs(b.x - s.ship.x) < 8 && b.z > s.ship.z - 9 && b.z < s.ship.z + 4)
       .map((b) => {
         const [vx, vz] = seenVelocity(s, b);
-        return { x: b.x, z: b.z, vx, vz, r: (b.hit ?? b.radius ?? 0.16) + CORE, half: b.half || 0, curved: !!b.sine };
+        // The drawn RNA thread shows a strand's wave: its base line and width.
+        const thread = b.sine && b.strand ? { x: b.bx ?? b.x, z: b.bz ?? b.z, vx: b.vx * (s.twist?.scale ?? 1), vz: b.vz * (s.twist?.scale ?? 1), amp: b.sine.amp } : null;
+        return { x: b.x, z: b.z, vx, vz, r: (b.hit ?? b.radius ?? 0.16) + CORE, half: b.half || 0, curved: !!b.sine, thread };
       }),
     lanes: (s.emitters || []).filter((em) => em.preset === 'jet' && em.state === 'tele').flatMap((em) => (em.lanes || []).map((l) => ({ x: l.x, w: l.width, fromZ: l.fromZ }))),
     beams: s.beams.map((b) => ({ x: b.x, w: b.width, fromZ: b.fromZ })),
@@ -64,7 +69,7 @@ const DIRS = [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1], [0.707, 0.707], [0.707, 
 
 /** `phase` shifts when the player samples the world, so a retry does not replay
  * the identical sequence of decisions (a person never does). */
-export function createReactive({ sampleEvery = 6, lagFrames = 9, phase = 0, bombs = false, preferZ = 7.5 } = {}) {
+export function createReactive({ sampleEvery = 6, lagFrames = 9, phase = 0, bombs = false, preferZ = 7.5, threads = false } = {}) {
   const seen = [];
   let move = [0, 0, false],
     bomb = false;
@@ -125,6 +130,17 @@ export function createReactive({ sampleEvery = 6, lagFrames = 9, phase = 0, bomb
           const ex = Math.max(-8.9, Math.min(8.9, sx + dx * speed * 0.38)),
             ez = Math.max(-3, Math.min(12, sz + dz * speed * 0.38));
           for (const b of v.shots) {
+            if (threads && b.thread) {
+              // Stay out of the band the thread sweeps (base line +/- amp).
+              const th = b.thread,
+                tx = th.x + th.vx * lag,
+                tz = th.z + th.vz * lag,
+                w2 = th.vx * th.vx + th.vz * th.vz;
+              if (w2 < 1e-6) continue;
+              const k = Math.max(0, Math.min(2, ((ex - tx) * th.vx + (ez - tz) * th.vz) / w2));
+              if (Math.hypot(tx + th.vx * k - ex, tz + th.vz * k - ez) < b.r + th.amp + 0.2) risk += 6;
+              continue;
+            }
             const bx = b.x + b.vx * lag,
               bz = b.z + b.vz * lag,
               v2 = b.vx * b.vx + b.vz * b.vz;

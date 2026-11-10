@@ -50,7 +50,7 @@ test('graze counts once per bullet, scores 10, and every 100 grazes gives a SOAP
   assert.equal(s.ship.grazeProgress, 0);
 });
 
-test('normal speed 11.5 u/s, focus 5.0 u/s with a 60 ms blend, diagonals normalised', () => {
+test('normal speed 11.5 u/s, focus 5.0 u/s with an instant switch, diagonals normalised', () => {
   let s = quiet();
   s.ship.x = -6;
   update(s, 0.5, { axisX: 1 });

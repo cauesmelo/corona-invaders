@@ -414,11 +414,11 @@ function moveShip(s, input, dt) {
     ship.z = ship.respawnFrom.z + (ship.respawnTo.z - ship.respawnFrom.z) * e;
     return;
   }
-  ship.focus = !!input.focus;
-  // 60 ms blend between normal and focus speed; no other inertia.
-  const want = ship.focus ? RULES.focusSpeed : RULES.shipSpeed;
-  const rate = ((RULES.shipSpeed - RULES.focusSpeed) / RULES.speedBlend) * dt;
-  ship.speed = want > ship.speed ? Math.min(want, ship.speed + rate) : Math.max(want, ship.speed - rate);
+  const focus = !!input.focus;
+  if (focus !== ship.focus) pushEvent(s, 'focus', { on: focus });
+  ship.focus = focus;
+  // Instant: the speed of the step is the speed of the held keys (core.mjs).
+  ship.speed = focus ? RULES.focusSpeed : RULES.shipSpeed;
   let ax = input.axisX ?? input.axis ?? 0,
     az = input.axisZ ?? 0;
   ax = clamp(Number(ax) || 0, -1, 1);
@@ -953,6 +953,10 @@ function substep(s, dt, input) {
       if (s.confirmQueued && s.holdTime >= 0.6) s.transitionHold = false;
     } else if ((s.transition -= dt) <= 0) beginNextSector(s);
     s.confirmQueued = false;
+    // Documented rule: a SOAP press between samples is ignored (it may have
+    // been the press that released the LAB REPORT). It never carries into
+    // the next sample, even when the transition ends inside this same call.
+    s.bombQueued = false;
     return;
   }
   s.confirmQueued = false;
@@ -1014,11 +1018,20 @@ export function update(s, seconds, input = {}) {
   if ((confirm && !s.prevConfirm) || (bomb && !s.prevBomb)) s.confirmQueued = true;
   s.prevBomb = bomb;
   s.prevConfirm = confirm;
-  if (s.paused || !PLAYING.includes(s.phase) || !Number.isFinite(seconds) || seconds <= 0) return s;
+  if (s.paused || !PLAYING.includes(s.phase)) {
+    // A press on the pause or loss screen belongs to that screen: it is
+    // dropped here instead of firing a SOAP on the first step after resume.
+    // Holding the key through the resume never fires either (prevBomb).
+    s.bombQueued = s.confirmQueued = false;
+    return s;
+  }
+  // No time passed: keep any press queued for the next call.
+  if (!Number.isFinite(seconds) || seconds <= 0) return s;
   for (const b of s.enemyShots) if (b.hit === undefined) normalizeBullet(b);
   const elapsed = Math.min(seconds, RULES.maxStep),
     count = Math.max(1, Math.ceil(elapsed / RULES.substep - 1e-9)),
     dt = elapsed / count;
+  let ran = false;
   for (let n = 0; n < count; n++) {
     if (!PLAYING.includes(s.phase)) break;
     s.clock += dt;
@@ -1035,9 +1048,13 @@ export function update(s, seconds, input = {}) {
       simDt *= 0.5;
     }
     substep(s, simDt, input);
+    ran = true;
   }
-  // A press that could not act this call (no stock, mid-respawn) expires.
-  s.bombQueued = false;
+  // A press that could not act (no stock, mid-respawn) expires once a step
+  // has run. While hitstop freezes every substep of a call, the press stays
+  // queued, so a SOAP (or a deathbomb) pressed during a freeze still fires
+  // on the first step after it (it used to be dropped).
+  if (ran) s.bombQueued = false;
   return s;
 }
 export function snapshot(s) {

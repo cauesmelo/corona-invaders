@@ -116,6 +116,11 @@ export function createAudio() {
           }
           break;
         }
+        case 'focus':
+          // A soft glass tick when Shift engages focus (feedback on the press);
+          // nothing on release, so tapping focus never chatters.
+          if (ev.on) tone(1560, 0.035, 'sine', 0.012, 0, 0.85);
+          break;
         case 'telegraph':
           if (ev.preset === 'sneeze') {
             // "ah... ah..." rising into the sneeze.

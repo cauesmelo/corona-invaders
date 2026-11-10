@@ -61,7 +61,7 @@ test('the syringe: one core at the barrel centre, drawn at exactly the collision
   assert.ok(close(SYRINGE.barrelRadius * SYRINGE.scale, BODY_RADIUS, 0.001), 'the drawn barrel half-width is the supply catcher');
   assert.ok(2 * RULES.shipRadius * 15 >= 6, 'about 6 px or more even at 15 px/u (320 px wide)');
   const src = readFileSync(new URL('../render.mjs', import.meta.url), 'utf8');
-  assert.ok(/const dotR = RULES\.shipRadius;/.test(src), 'the renderer draws the marker at the collider radius, never scaled up');
+  assert.ok(/tmp\.scale\.set\(markerQuad\(\), 1, markerQuad\(\)\)/.test(src) && /position\.set\(sh\.x, MARKER\.y, sh\.z\)/.test(src), 'the renderer draws the marker at the collider radius on the collision plane, never scaled up');
   assert.ok(!/BULLET_Y \+ bob/.test(src), 'enemies sit on the board plane (no bob offset)');
 });
 

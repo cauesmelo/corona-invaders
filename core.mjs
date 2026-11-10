@@ -27,7 +27,11 @@ export const RULES = Object.freeze({
   grazeRadius: 1,
   shipSpeed: 11.5, // crosses the board in about 1.5 s
   focusSpeed: 5, // 0.45x: fine micro-dodging, still escapes an aimed stream
-  speedBlend: 0.06, // 60 ms blend between speeds; no inertia otherwise
+  // No inertia and no speed blend: start, stop and the focus switch all take
+  // effect on the step of the press. A 60 ms blend used to carry the syringe
+  // 0.47 u (instead of 0.30 u) in the first 60 ms of focus, nearly one core
+  // radius of overshoot exactly when the player slows down to thread a gap
+  // (MOVEMENT_AUDIT.md), and made positions depend on the substep size.
   pointerSpeed: 11.5, // mouse: follow the cursor's board point at normal speed
   dragSpeed: 30, // touch: finger travel maps 1:1, capped at 30 u/s
   bulletY: 0.55, // every bullet, the hitbox dot and collision share one plane

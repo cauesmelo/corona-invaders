@@ -2,8 +2,8 @@
  * silhouette in render.mjs, and every bullet carries a family and a source
  * label, so the CONTAINMENT LOST card can always name what hit the player.
  *
- * Hit radius is ~62% of the visual radius, which favours the player (the
- * bullet-hell convention: the drawn bullet is bigger than its hitbox).
+ * The hit radius is the drawn solid body, dark rim included (hitboxes.mjs);
+ * only the soft glow outside it is larger than the collider.
  */
 import { RULES, clamp, nextId, pushEvent } from './core.mjs';
 import { COLLIDERS } from './hitboxes.mjs';

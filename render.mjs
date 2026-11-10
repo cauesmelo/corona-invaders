@@ -17,7 +17,7 @@ import * as THREE from './vendor/three.module.js';
 import { cameraLayout, FRAMING_POINTS, pxPerUnit } from './camera.mjs';
 import { RULES, getLevel, chainMultiplier, antibodyOffsets } from './model.mjs';
 import { SHAPES, SYRINGE, PALETTE, shapeFor } from './shapes.mjs';
-import { COLLIDERS, NEEDLE, spriteLayout, bulletQuad, enemyScale, bulletAxis, needleSegment } from './hitboxes.mjs';
+import { COLLIDERS, NEEDLE, MARKER, GRAZE_RING, markerQuad, spriteLayout, bulletQuad, enemyScale, bulletAxis, needleSegment } from './hitboxes.mjs';
 
 export { PALETTE };
 export const PICKUP_STYLE = Object.freeze({
@@ -379,11 +379,11 @@ function bulletTexture(kind) {
       g.closePath();
       g.fill();
     } else if (kind === 'dot') {
-      // The collision core marker: its outer edge (60 of 64 px) is exactly the
-      // collider. A dark rim, then the bright vaccine-white centre.
+      // The collision core marker: its outer edge (MARKER.texEdge of 64 px)
+      // is exactly the collider. A dark rim, then the bright vaccine-white centre.
       g.fillStyle = '#04161c';
       g.beginPath();
-      g.arc(0, 0, 60, 0, Math.PI * 2);
+      g.arc(0, 0, MARKER.texEdge, 0, Math.PI * 2);
       g.fill();
       g.fillStyle = '#7fe8ff';
       g.beginPath();
@@ -1048,7 +1048,7 @@ export function createRenderer({ canvas, stage, settings }) {
   const dot = pool('dot', 1, 80);
   dot.count = 1;
   const grazeRing = new THREE.Mesh(
-    new THREE.RingGeometry(RULES.grazeRadius - 0.04, RULES.grazeRadius, 48).rotateX(-Math.PI / 2),
+    new THREE.RingGeometry(GRAZE_RING.inner, GRAZE_RING.outer, 48).rotateX(-Math.PI / 2),
     new THREE.MeshBasicMaterial({ color: PALETTE.vaccine, transparent: true, opacity: 0, depthTest: false, depthWrite: false, toneMapped: false }),
   );
   grazeRing.renderOrder = 79;
@@ -1813,20 +1813,23 @@ export function createRenderer({ canvas, stage, settings }) {
     const tier = chainMultiplier(s.chain.count);
     fluidMat.emissiveIntensity = 0.6 + (tier - 1) * 0.2;
     shipLight.position.set(sh.x, 1.2, sh.z);
-    // The hitbox dot sits in the barrel, always drawn on top.
+    // The hitbox dot sits in the barrel, always drawn on top (depthTest off,
+    // so it can lie exactly on the collision plane without z-fighting).
     // The marker is exactly the collision core (0.2 u, >= 6 px everywhere).
-    const dotR = RULES.shipRadius;
-    tmp.position.set(sh.x, BULLET_Y + 0.02, sh.z);
+    tmp.position.set(sh.x, MARKER.y, sh.z);
     tmp.rotation.set(0, 0, 0);
-    // The marker's outer edge spans 60/64 of the quad.
-    tmp.scale.set((dotR * 2 * 64) / 60, 1, (dotR * 2 * 64) / 60);
+    // The marker's outer edge spans texEdge/texHalf of the quad.
+    tmp.scale.set(markerQuad(), 1, markerQuad());
     tmp.updateMatrix();
     dot.setMatrixAt(0, tmp.matrix);
     dot.instanceMatrix.needsUpdate = true;
     dot.visible = s.phase !== 'title';
-    // Focus: a faint cyan 1.0 u graze ring.
-    grazeRing.position.set(sh.x, BULLET_Y, sh.z);
-    grazeRing.material.opacity += ((sh.focus ? 0.38 : 0) - grazeRing.material.opacity) * ease(dt, 14);
+    // Focus: a faint cyan 1.0 u graze ring. It appears at full strength on
+    // the frame Shift goes down (feedback on the press, not 70 ms later) and
+    // only fades out on release.
+    grazeRing.position.set(sh.x, GRAZE_RING.y, sh.z);
+    if (sh.focus) grazeRing.material.opacity = 0.38;
+    else grazeRing.material.opacity += (0 - grazeRing.material.opacity) * ease(dt, 14);
     grazeRing.visible = s.phase !== 'title';
     const offs = antibodyOffsets(sh.power, sh.focus);
     options.forEach((o, i) => {
