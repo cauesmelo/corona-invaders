@@ -182,7 +182,7 @@ export const focusCount = (power) => Math.max(1, Math.min(4, power | 0));
 export const sprayCount = (power) => (power >= 4 ? 5 : Math.max(1, power | 0));
 
 /** The syringe's modifier set for a deck.
- * ctx: { power (mRNA level now), difficulty ('normal' | 'easy'), titer,
+ * ctx: { power (mRNA level now), difficulty ('normal' | 'easy' | 'hard'), titer,
  *        stage, clean (samples cleared without a lost vial since AFFINITY
  *        MATURATION was taken), scale (STANDARD ISSUE damage multiplier,
  *        practice only) }.
@@ -194,7 +194,10 @@ export function kitOf(deck = [], { power = 1, difficulty = 'normal', titer = 0, 
   const n = (id) => stacksOf(deck, id);
   const easy = difficulty === 'easy';
   const baseVials = easy ? 5 : 3;
-  const baseRefill = easy ? BASE.refillEasy : BASE.refill;
+  // HARD (core.mjs DIFFICULTY.hard): a lost vial refills no SOAP and the
+  // deathbomb window is 0.12 s, shorter than any reaction.
+  const hard = difficulty === 'hard';
+  const baseRefill = easy ? BASE.refillEasy : hard ? 0 : BASE.refill;
   const retract = has(deck, 'retractable-needle');
   const k = {
     power,
@@ -233,7 +236,7 @@ export function kitOf(deck = [], { power = 1, difficulty = 'normal', titer = 0, 
     maxBombs: Math.min(CAPS.maxBombs, BASE.maxBombs + (n('lather') >= 2 ? CARD.lather.fx.cap : 0)),
     soapDamage: 1,
     bombBossFraction: BASE.bombBossFraction,
-    deathbomb: easy ? 0.35 : BASE.deathbomb,
+    deathbomb: easy ? 0.35 : hard ? 0.12 : BASE.deathbomb,
     epipen: !easy && has(deck, 'epipen'),
     foam: has(deck, 'foam'),
     autoclave: has(deck, 'autoclave'),

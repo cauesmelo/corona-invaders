@@ -128,8 +128,19 @@ export const RULES = Object.freeze({
 export const DIFFICULTY = Object.freeze({
   // `credits`: continues per run (RESEARCH_V1.md 2.1): 3 on Normal,
   // unlimited on Easy.
-  normal: { count: 1, speed: 1, tele: 0, health: 3, bombs: 2, autoBomb: false, deathbomb: 0.18, hp: 1, overlap: 2, wallGap: 2, neutralized: 1, credits: 3 },
-  easy: { count: 0.6, speed: 0.85, tele: 0.15, health: 5, bombs: 3, autoBomb: true, deathbomb: 0.35, hp: 0.85, overlap: 1, wallGap: 2.8, neutralized: 0.5, credits: Infinity },
+  // `pace` scales how often the formation choir and the boss patterns start
+  // (1 = authored cadence, < 1 = more often). `refill` is the SOAP a lost
+  // vial and a stage start top up to (cards.mjs reads it through kitOf).
+  normal: { count: 1, speed: 1, tele: 0, health: 3, bombs: 2, refill: 1, autoBomb: false, deathbomb: 0.18, hp: 1, pace: 1, overlap: 2, wallGap: 2, neutralized: 1, credits: 3 },
+  easy: { count: 0.6, speed: 0.85, tele: 0.15, health: 5, bombs: 3, refill: 3, autoBomb: true, deathbomb: 0.35, hp: 0.85, pace: 1, overlap: 1, wallGap: 2.8, neutralized: 0.5, credits: Infinity },
+  // HARD (the owner found Normal too easy): the same patterns and the same
+  // fairness floor (telegraphs, gaps >= 2.0 u, speed bands, lead time), with
+  // more of them and less safety net: +20% bullets per attack, aimed bullets
+  // +6%, choir and boss cadence x0.85, +15% HP, 1 SOAP to start and none
+  // refilled by a lost vial (grazing is the only supply), a 0.12 s deathbomb
+  // (only anticipation saves, never a reaction) and 2 credits; a no-continue
+  // clear is a 1CC · HARD.
+  hard: { count: 1.2, speed: 1.06, tele: 0, health: 3, bombs: 1, refill: 0, autoBomb: false, deathbomb: 0.12, hp: 1.15, pace: 0.85, overlap: 2, wallGap: 2, neutralized: 1.5, credits: 2 },
 });
 export const diff = (s) => DIFFICULTY[s.difficulty] || DIFFICULTY.normal;
 

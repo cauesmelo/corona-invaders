@@ -536,7 +536,7 @@ function runPatterns(s, b, dt) {
       // never the deck): DELTA and OMICRON are their sectors' exams.
       // `fixed` patterns keep their authored cadence (BLOOD RUSH's walls: a
       // gap needs time to reach, measured as a forced hit at x0.75).
-      clock.clock = entry.every * (entry.fixed ? 1 : (s.pressure?.every ?? 1));
+      clock.clock = entry.every * (entry.fixed ? 1 : (s.pressure?.every ?? 1) * diff(s).pace);
     } else clock.clock = 0.1;
   });
 }

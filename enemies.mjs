@@ -14,7 +14,7 @@
  * The formation fires as a "choir": every 1.1-2.1 s, 2-4 front-row members of
  * one archetype fire their family together.
  */
-import { RULES, clamp, random, nextId, pushEvent, addTelegraph } from './core.mjs';
+import { RULES, clamp, random, nextId, pushEvent, addTelegraph, diff } from './core.mjs';
 import { ARCHETYPES, CODE_KIND, PATHS, attackFor as baseAttack, stageHp } from './levels.mjs';
 import { startPattern, emitterBusy, gateAllows } from './patterns.mjs';
 import { spawnBullet } from './bullets.mjs';
@@ -31,7 +31,7 @@ const PUDDLE_TIME = 1.6; // max wait for the gate before a puddle evaporates
 export function makeEnemy(s, kind, x, z, extra = {}) {
   const a = ARCHETYPES[kind];
   // One HP route: levels.stageHp (the draft's hook), x0.85 on Easy.
-  const hp = Math.max(1, Math.round(stageHp(a.hp, s.wave ?? 1, s) * (s.difficulty === 'easy' ? 0.85 : 1)));
+  const hp = Math.max(1, Math.round(stageHp(a.hp, s.wave ?? 1, s) * diff(s).hp));
   return {
     id: `s${s.wave}-${kind}-${nextId(s)}`,
     kind,
@@ -183,7 +183,7 @@ export function scheduleChoir(s, level, dt) {
   const k = 1 - members.length / total;
   const [slow, fast] = choir.interval;
   const surging = s.sector.surge > 0;
-  s.choirClock = (slow + (fast - slow) * k) * (surging ? 0.5 : 1);
+  s.choirClock = (slow + (fast - slow) * k) * (surging ? 0.5 : 1) * diff(s).pace;
   if (!budgetOk(s, level, 8)) {
     s.choirClock = 0.35;
     return;
@@ -438,7 +438,7 @@ function mutate(s, e) {
   e.mutating = 0;
   if (e.kind === 'wild') {
     const a = ARCHETYPES.heavy,
-      hp = Math.max(1, Math.round(stageHp(a.hp, s.wave ?? 1, s) * (s.difficulty === 'easy' ? 0.85 : 1)));
+      hp = Math.max(1, Math.round(stageHp(a.hp, s.wave ?? 1, s) * diff(s).hp));
     Object.assign(e, { kind: 'heavy', label: a.label, hp, maxHp: hp, radius: a.radius, mutated: true });
     pushEvent(s, 'mutated', { id: e.id, x: e.x, z: e.z, into: 'heavy', kind: 'heavy' });
     return;
