@@ -226,8 +226,12 @@ export function labelOf(id, copy = 1) {
   const c = Cards.CARD[id];
   if (!c) return { name: String(id || '?').toUpperCase(), stat: '', cost: '', tier: 'common', line: 'NEEDLE', tradeoff: false };
   const text = Cards.cardText?.(id, copy) || '';
-  const name = (field(c, ['labelName', 'short']) || c.name).toUpperCase();
-  const stat = (field(c, ['stat', 'statLine', 'labelStat', 'label']) || deriveStat(text)).toUpperCase();
+  // `label` is the card's own cartridge line (<= 16 characters: RETRACTABLE,
+  // AFFINITY); the full name stays in the caption, the HUD and the live
+  // region. Without it, "RETRACTABLE NEEDLE" and "AFFINITY MATURATION" were
+  // squeezed to 0.7 and 0.66 of the dot pitch to fit the plate.
+  const name = (field(c, ['labelName', 'short', 'label']) || c.name).toUpperCase();
+  const stat = (field(c, ['stat', 'statLine', 'labelStat']) || deriveStat(text)).toUpperCase();
   const tradeoff = !!(c.tradeoff || c.cost || (c.tags || []).some((t) => /trade/i.test(t)));
   let cost = field(c, ['costStat', 'costLine', 'costLabel']);
   if (!cost && tradeoff) {
@@ -235,6 +239,26 @@ export function labelOf(id, copy = 1) {
     cost = full && full.length <= 20 ? full : deriveStat(full) || 'TRADE-OFF';
   }
   return { name, stat, cost: cost ? `COST ${cost.replace(/^COST:?\s*/i, '')}`.toUpperCase().slice(0, 24) : '', tier: c.tier, line: c.line, tradeoff };
+}
+/** Names -> cartridge labels, so the SYNERGY row names the two cards the way
+ * their cartridges do ("RETRACTABLE + MASS VACCINATION" fits 44 characters;
+ * the full names did not and lost the end of the second one). */
+function shortSynergy(text) {
+  const label = Object.fromEntries((Cards.ALL_CARDS || []).map((c) => [c.name, c.label || c.name]));
+  return String(text)
+    .split(' + ')
+    .map((n) => label[n] ?? n)
+    .join(' + ');
+}
+/** Keep the first `room` rows; the last one loses whole words (never half a
+ * word) until it fits next to an ellipsis. */
+function clipRows(rows, room, width) {
+  if (rows.length <= room) return rows;
+  const out = rows.slice(0, room);
+  let words = out[room - 1].split(' ');
+  while (words.length > 1 && `${words.join(' ')}…`.length > width) words.pop();
+  out[room - 1] = `${words.join(' ')}…`;
+  return out;
 }
 /** The full text for screen readers and the caption (effect, cost, synergy). */
 export function captionOf(id, deck = [], ctx = {}) {
@@ -252,15 +276,14 @@ export function captionOf(id, deck = [], ctx = {}) {
   const synergy = preview?.synergy || Cards.synergyOf?.(deck, id) || '';
   const lines = [];
   // §6.5: the full effect sentence (parentheses dropped if that makes it
-  // fit two 36-character rows), else NOW -> AFTER; then SYNERGY or the COST.
-  const tail = synergy ? { text: `SYNERGY: ${String(synergy).toUpperCase()}`, tone: 'cyan' } : cost ? { text: cost.toUpperCase(), tone: 'pink' } : null;
+  // fit two 36-character rows), else the card's own two-row `brief`, else
+  // whole words and an ellipsis; then SYNERGY or the COST.
+  const tail = synergy ? { text: `SYNERGY: ${shortSynergy(synergy).toUpperCase()}`, tone: 'cyan' } : cost ? { text: cost.toUpperCase(), tone: 'pink' } : null;
   const room = tail ? 2 : 3;
   let wrapped = wrap(effect.toUpperCase(), 36);
   if (wrapped.length > room) wrapped = wrap(effect.replace(/\s*\([^)]*\)/g, '').toUpperCase(), 36);
-  if (wrapped.length > room) {
-    wrapped = wrapped.slice(0, room);
-    wrapped[room - 1] = `${wrapped[room - 1].slice(0, 34)}…`;
-  }
+  if (wrapped.length > room && c.brief) wrapped = wrap(String(c.brief).toUpperCase(), 36);
+  wrapped = clipRows(wrapped, room, 36);
   lines.push(...wrapped.map((t) => ({ text: t, tone: 'ink' })));
   if (tail) lines.push(tail);
   const full = `${c.name}, ${TIER_WORD[c.tier]?.toLowerCase() || c.tier}, ${String(c.line).toLowerCase()} line. ${effect}${cost ? ` ${cost}` : ''}${synergy ? ` Synergy: ${synergy}.` : ''}`;
@@ -310,6 +333,12 @@ const EXTRA = {
   '*': rows('.....', '#.#.#', '.###.', '#####', '.###.', '#.#.#', '.....'),
 };
 const glyphMap = (ch) => EXTRA[ch] || FONT[ch] || FONT[ch.toUpperCase()] || FONT[' '];
+/** True when `ch` has its own 5x7 glyph (anything else would print as a
+ * blank). Exported for the lettering test, so the test reads the real table
+ * and not a copy of it. */
+export const hasGlyph = (ch) => ch === ' ' || !!(EXTRA[ch] || FONT[ch] || FONT[String(ch).toUpperCase()]);
+/** The 35-cell bitmap of a character (row-major, '#' lit), as printed. */
+export const glyphBitmap = (ch) => String(glyphMap(ch));
 /** Dot advance in dot pitches: 5 dots + 1 gap. */
 export const textDots = (text) => Math.max(0, [...String(text)].length * 6 - 1);
 
