@@ -1503,6 +1503,10 @@ function draftCtx(s) {
     input: s.run.input,
     stage: s.wave,
     boosted: level.kind === 'boss' && s.wave < STAGE_COUNT,
+    // The boss that ends a sector opens the next one: slot 3 yields once to
+    // that sector's card (cards.mjs compose). It was never passed, so the
+    // card only appeared at the base pool rate (15 / 12 / 8%).
+    enterSector: level.kind === 'boss' && s.wave < STAGE_COUNT ? getLevel(s.wave + 1).world : 0,
     share: s.run.lastShare ?? 0.5,
     stageCount: STAGE_COUNT,
   };

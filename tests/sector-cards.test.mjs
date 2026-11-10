@@ -4,13 +4,11 @@
  *
  * The rule lives in cards.mjs compose() and reads `ctx.enterSector`. The
  * cards-level test below pins it. The second test drives the real model
- * (a boss cleared, the LAB REPORT confirmed, the draft opened) and is a
- * `todo` because model.mjs draftCtx() does not pass `enterSector`, so in the
- * game the rule never fires: measured 15 / 12 / 8% of the drafts after
- * ALPHA, BETA & GAMMA and DELTA carry the sector card (the base pool rate),
- * against 53% when the key is passed. One line in model.mjs draftCtx():
- *   enterSector: boss && s.wave < STAGE_COUNT ? getLevel(s.wave + 1).world : 0
- * Remove the `todo` once it lands. */
+ * (a boss cleared, the LAB REPORT confirmed, the draft opened): a regression
+ * test for a bug the draft check found. model.mjs draftCtx() did not pass
+ * `enterSector`, so in the game the rule never fired (15 / 12 / 8% of the
+ * drafts after ALPHA, BETA & GAMMA and DELTA carried the sector card, the base
+ * pool rate, against about 53% with the key). */
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createRun, openDraft, SECTOR_CARD, CARD } from '../cards.mjs';
@@ -44,7 +42,7 @@ test('entering a sector, the sector card takes a slot about half the time, at mo
   }
 });
 
-test('in the game, the draft after each sector boss offers the sector card about half the time', { todo: 'model.mjs draftCtx() must pass enterSector (measured 15 / 12 / 8%)' }, () => {
+test('in the game, the draft after each sector boss offers the sector card about half the time', () => {
   for (const { stage, world } of SECTORS) {
     const id = SECTOR_CARD[world];
     let drafts = 0,
