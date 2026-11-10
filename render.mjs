@@ -833,41 +833,98 @@ export function createRenderer({ canvas, stage, settings }) {
   // catches supplies (hitboxes.BODY_RADIUS); only the core can be hit.
   syringe.scale.setScalar(SYRINGE.scale);
   scene.add(ship);
-  const glassMat = new THREE.MeshStandardMaterial({ color: '#e8fbff', emissive: '#9fe9ff', emissiveIntensity: 0.25, transparent: true, opacity: 0.5, roughness: 0.05, metalness: 0.1, depthWrite: false });
-  const fluidMat = new THREE.MeshStandardMaterial({ color: PALETTE.vaccine, emissive: PALETTE.vaccine, emissiveIntensity: 1.1, roughness: 0.2 });
-  const steel = new THREE.MeshStandardMaterial({ color: '#f4fbff', emissive: '#bff4ff', emissiveIntensity: 0.6, roughness: 0.2, metalness: 0.6 });
-  const whitePlastic = new THREE.MeshStandardMaterial({ color: '#f2f7f8', roughness: 0.5 });
+  // Glass, vaccine, rubber, plastic and steel: lit, shaded and glossy, so the
+  // hero reads as a real 3D object at any size.
+  const glassMat = new THREE.MeshPhysicalMaterial({ color: '#e9fbff', transparent: true, opacity: 0.42, roughness: 0.04, metalness: 0, clearcoat: 1, clearcoatRoughness: 0.05, depthWrite: false, side: THREE.DoubleSide });
+  const fluidMat = new THREE.MeshStandardMaterial({ color: PALETTE.vaccine, emissive: '#1fb8d8', emissiveIntensity: 0.55, roughness: 0.15, metalness: 0 });
+  const chamberMat = new THREE.MeshBasicMaterial({ color: '#e9fdff', toneMapped: false });
+  const steel = new THREE.MeshStandardMaterial({ color: '#f1f6fa', roughness: 0.18, metalness: 0.9, emissive: '#6fcfe8', emissiveIntensity: 0.12 });
+  const plastic = new THREE.MeshPhysicalMaterial({ color: '#f4f8fa', roughness: 0.35, metalness: 0, clearcoat: 0.6, clearcoatRoughness: 0.3 });
+  const rubber = new THREE.MeshStandardMaterial({ color: '#1d2a33', roughness: 0.75, metalness: 0 });
+  const hubMat = new THREE.MeshPhysicalMaterial({ color: '#7fe8ff', transparent: true, opacity: 0.75, roughness: 0.2, clearcoat: 0.8 });
+  const outlineMat = new THREE.MeshBasicMaterial({ color: '#03080b', side: THREE.BackSide });
+  const flashMats = [glassMat, fluidMat, plastic, steel];
+  for (const m of flashMats) m.userData.emissive = (m.emissive ? m.emissive.clone() : null), (m.userData.ei = m.emissiveIntensity ?? 0);
+  const along = (geo) => geo.rotateX(Math.PI / 2); // cylinders run along z
   const plunger = new THREE.Group();
-  let fluid = null;
+  let fluid = null,
+    meniscus = null,
+    stopper = null;
+  const barrelLen = SYRINGE.parts.find((p) => p.role === 'barrel').length;
   for (const p of SYRINGE.parts) {
-    if (p.type === 'cylinder') {
-      const m = p.role === 'barrel' ? glassMat : p.role === 'fluid' ? fluidMat : p.role === 'needle' ? steel : whitePlastic;
-      const mesh = new THREE.Mesh(new THREE.CylinderGeometry(p.r, p.r * (p.role === 'needle' ? 0.35 : 1), p.length, 16), m);
-      mesh.rotation.x = Math.PI / 2;
-      mesh.position.z = p.z;
-      (p.role === 'plunger rod' ? plunger : syringe).add(mesh);
-      if (p.role === 'fluid') fluid = mesh;
+    if (p.type === 'cylinder' && p.role === 'barrel') {
+      syringe.add(new THREE.Mesh(along(new THREE.CylinderGeometry(p.r, p.r, p.length, 24, 1, true)), glassMat));
+      // Dark silhouette shell: keeps the barrel readable on any backdrop.
+      const shell = new THREE.Mesh(along(new THREE.CylinderGeometry(p.r * 1.09, p.r * 1.09, p.length * 1.01, 18)), outlineMat);
+      syringe.add(shell);
+      for (const z of [-p.length / 2, p.length / 2]) {
+        const lip = new THREE.Mesh(new THREE.TorusGeometry(p.r, 0.028, 6, 24), plastic);
+        lip.position.z = z;
+        syringe.add(lip);
+      }
+    } else if (p.role === 'fluid') {
+      // The vaccine: its level follows the Dose Chain; a domed meniscus caps it.
+      fluid = new THREE.Mesh(along(new THREE.CylinderGeometry(p.r, p.r, 1, 20)), fluidMat);
+      syringe.add(fluid);
+      meniscus = new THREE.Mesh(new THREE.SphereGeometry(p.r, 18, 8, 0, Math.PI * 2, 0, Math.PI / 2).rotateX(Math.PI / 2), fluidMat);
+      meniscus.scale.set(1, 1, 0.35);
+      syringe.add(meniscus);
+    } else if (p.role === 'vaccine chamber') {
+      // The glowing chamber at the barrel centre: the core is here.
+      const ch = new THREE.Mesh(new THREE.IcosahedronGeometry(p.r, 2), chamberMat);
+      ch.position.z = p.z;
+      syringe.add(ch, sprite('#bff6ff', 1.1, 0.55));
+    } else if (p.role === 'rubber stopper') {
+      stopper = new THREE.Group();
+      stopper.add(new THREE.Mesh(along(new THREE.CylinderGeometry(p.r, p.r, p.length, 20)), rubber));
+      for (const dz of [-p.length / 3, p.length / 3]) {
+        const rib = new THREE.Mesh(new THREE.TorusGeometry(p.r, 0.022, 6, 24), rubber);
+        rib.position.z = dz;
+        stopper.add(rib);
+      }
+      plunger.add(stopper);
+    } else if (p.role === 'hub') {
+      const hub = new THREE.Mesh(along(new THREE.CylinderGeometry(p.r * 0.55, p.r, p.length, 6)), hubMat);
+      hub.position.z = p.z;
+      syringe.add(hub);
+    } else if (p.role === 'needle') {
+      const needle = new THREE.Mesh(along(new THREE.CylinderGeometry(p.r * 0.7, p.r, p.length, 10)), steel);
+      needle.position.z = p.z;
+      const tip = new THREE.Mesh(along(new THREE.ConeGeometry(p.r * 0.7, 0.14, 8)).rotateX(Math.PI), steel);
+      tip.position.z = p.z - p.length / 2 - 0.07;
+      const outline = new THREE.Mesh(along(new THREE.CylinderGeometry(p.r * 2.1, p.r * 2.1, p.length, 6)), outlineMat);
+      outline.position.z = p.z;
+      syringe.add(needle, tip, outline);
+      const glint = sprite('#ffffff', 0.5, 0.8);
+      glint.position.z = tip.position.z - 0.05;
+      syringe.add(glint);
+    } else if (p.role === 'plunger rod') {
+      const rod = new THREE.Mesh(along(new THREE.CylinderGeometry(p.r, p.r, p.length, 10)), plastic);
+      rod.position.z = p.z;
+      plunger.add(rod);
     } else if (p.type === 'disc') {
-      const mesh = new THREE.Mesh(new THREE.CylinderGeometry(p.r, p.r, 0.08, 20), whitePlastic);
-      mesh.rotation.x = Math.PI / 2;
-      mesh.position.z = p.z;
-      plunger.add(mesh);
-    } else if (p.type === 'oval') {
-      // A small rounded oval, never a crossbar.
-      const mesh = new THREE.Mesh(new THREE.CylinderGeometry(1, 1, 0.07, 24), whitePlastic);
-      mesh.rotation.x = Math.PI / 2;
-      mesh.scale.set(p.rx, 1, p.rz);
-      mesh.position.z = p.z;
-      syringe.add(mesh);
+      const disc = new THREE.Mesh(along(new THREE.CylinderGeometry(p.r, p.r, 0.07, 24)), plastic);
+      disc.position.z = p.z;
+      const rim = new THREE.Mesh(new THREE.TorusGeometry(p.r, 0.03, 6, 24), plastic);
+      rim.position.z = p.z;
+      plunger.add(disc, rim);
+    } else if (p.type === 'collar') {
+      const collar = new THREE.Mesh(new THREE.TorusGeometry(0.34, 0.11, 10, 28), plastic);
+      collar.scale.set(p.rx / 0.45, 0.6, 1);
+      collar.position.z = p.z;
+      syringe.add(collar);
     } else if (p.type === 'marks') {
+      const markMat = new THREE.MeshBasicMaterial({ color: '#0e3640' });
       for (let i = 0; i < p.count; i++) {
-        const mark = new THREE.Mesh(new THREE.TorusGeometry(p.r, 0.012, 4, 24), new THREE.MeshBasicMaterial({ color: '#12343c' }));
-        mark.position.z = -0.6 + i * 0.28;
+        const mark = new THREE.Mesh(new THREE.TorusGeometry(p.r, i % 2 ? 0.008 : 0.014, 4, 24, i % 2 ? Math.PI * 0.6 : Math.PI * 1.1), markMat);
+        mark.rotation.z = Math.PI * 0.45;
+        mark.position.z = -barrelLen / 2 + 0.18 + i * ((barrelLen - 0.36) / (p.count - 1));
         syringe.add(mark);
       }
     }
   }
   syringe.add(plunger);
+  let shipFlash = 0;
   const shipLight = new THREE.PointLight(PALETTE.vaccine, 6, 5);
   scene.add(shipLight);
   // Antibody options: Y-shaped, cyan.
@@ -1204,7 +1261,15 @@ export function createRenderer({ canvas, stage, settings }) {
     else if (ev.type === 'damage') {
       fx.trauma += 0.5;
       fx.flash = 0.55;
-    } else if (ev.type === 'bomb') fx.trauma += 0.45;
+      shipFlash = 0.3;
+      addBurst(ev.x, ev.z, PALETTE.danger, 3);
+      addBurst(ev.x, ev.z, '#ffffff', 1.4);
+      spawnDebris(ev.x, ev.z, PALETTE.vaccine, 14, 1.3);
+    } else if (ev.type === 'hit-core') {
+      shipFlash = 0.3;
+      addBurst(ev.x, ev.z, PALETTE.danger, 1.8);
+    } else if (ev.type === 'respawn') addBurst(ev.x, Math.min(ev.z, 12.5), PALETTE.vaccine, 2);
+    else if (ev.type === 'bomb') fx.trauma += 0.45;
     else if (ev.type === 'phase-break') fx.trauma += 0.5;
     else if (ev.type === 'spark') addBurst(ev.x, ev.z, PALETTE.vaccine, 0.5);
     else if (ev.type === 'split') addBurst(ev.x, ev.z, '#ffffff', 1.6);
@@ -1596,11 +1661,29 @@ export function createRenderer({ canvas, stage, settings }) {
     // Respawn invulnerability flickers at 10 Hz (never hides the hitbox dot).
     ship.visible = sh.invulnerable <= 0 || !motion || Math.floor(visualTime * 20) % 2 === 0;
     plunger.position.z = Math.max(0, plunger.position.z - dt * 1.2);
-    // The barrel fills with cyan vaccine as the Dose Chain grows.
-    const fill = 0.35 + 0.65 * Math.min(1, s.chain.count / 32);
+    // The vaccine level rises with the Dose Chain: the stopper and the
+    // meniscus ride the level; the chamber at the core always glows.
+    const fill = 0.55 + 0.45 * Math.min(1, s.chain.count / 32);
+    const front = -0.82,
+      level = front + 1.64 * fill;
     if (fluid) {
-      fluid.scale.y = fill;
-      fluid.position.z = 0.05 + (1 - fill) * 0.7;
+      fluid.scale.set(1, 1, level - front);
+      fluid.position.z = (front + level) / 2;
+      meniscus.position.z = level;
+      stopper.position.z = level + 0.08 - 0.9;
+    }
+    // Hit state: a hot pink-white flash on every material for 0.3 s.
+    shipFlash = Math.max(0, shipFlash - dt);
+    const hot = shipFlash > 0 || sh.dying > 0;
+    for (const m of flashMats) {
+      if (!m.emissive) continue;
+      if (hot) {
+        m.emissive.set(Math.floor(visualTime * 30) % 2 ? '#ff4fa3' : '#ffffff');
+        m.emissiveIntensity = 0.9;
+      } else {
+        m.emissive.copy(m.userData.emissive);
+        m.emissiveIntensity = m.userData.ei;
+      }
     }
     const tier = chainMultiplier(s.chain.count);
     fluidMat.emissiveIntensity = 0.6 + (tier - 1) * 0.2;

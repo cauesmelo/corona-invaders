@@ -49,7 +49,7 @@ test('only bosses have faces: popcorn stays faceless, true to the sprite', () =>
 test('the syringe has no crossbars: nothing extends sideways beyond the barrel + 0.2 u, and the needle points up-field', () => {
   const limit = SYRINGE.barrelRadius + 0.2;
   for (const p of SYRINGE.parts) {
-    const half = p.type === 'oval' ? p.rx : p.r ?? 0;
+    const half = p.type === 'collar' ? p.rx : p.r ?? 0;
     assert.ok(half <= limit + 1e-9, `${p.role}: ${half} u sideways`);
     assert.ok(!PLANE_WORDS.test(p.role), p.role);
   }

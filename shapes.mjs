@@ -93,13 +93,17 @@ export const SYRINGE = Object.freeze({
   core: Object.freeze({ r: 0.2, z: 0 }),
   parts: [
     { type: 'cylinder', role: 'barrel', r: 0.3, length: 1.7, z: 0 },
-    { type: 'cylinder', role: 'fluid', r: 0.23, length: 1.4, z: 0.05 },
+    { type: 'cylinder', role: 'fluid', r: 0.255, length: 1.64, z: 0 },
+    { type: 'sphere', role: 'vaccine chamber', r: 0.13, z: 0 },
+    { type: 'cylinder', role: 'rubber stopper', r: 0.27, length: 0.16, z: 0.9 },
     { type: 'cylinder', role: 'hub', r: 0.16, length: 0.3, z: -0.98 },
-    { type: 'cylinder', role: 'needle', r: 0.035, length: 1.15, z: -1.7 },
-    { type: 'cylinder', role: 'plunger rod', r: 0.09, length: 0.55, z: 1.1 },
-    { type: 'disc', role: 'thumb rest', r: 0.3, z: 1.42 },
-    { type: 'oval', role: 'finger flange', rx: 0.46, rz: 0.13, z: 0.86 },
-    { type: 'marks', role: 'graduations', count: 5, r: 0.31 },
+    { type: 'cylinder', role: 'needle', r: 0.032, length: 1.1, z: -1.66 },
+    { type: 'cylinder', role: 'plunger rod', r: 0.085, length: 0.6, z: 1.12 },
+    { type: 'disc', role: 'thumb rest', r: 0.3, z: 1.44 },
+    // Finger grips: a rounded, squashed collar ring around the barrel end,
+    // never a flat crossbar (from above, crossbars read as wings).
+    { type: 'collar', role: 'finger grip', rx: 0.48, rz: 0.12, z: 0.86 },
+    { type: 'marks', role: 'graduations', count: 7, r: 0.31 },
   ],
 });
 
