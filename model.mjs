@@ -1379,6 +1379,12 @@ function sectorCleared(s, level) {
 }
 
 function finishSector(s, level) {
+  // A hit still inside its deathbomb window when the sector falls is forgiven:
+  // the clear wins. The pending death used to survive the transition and cost
+  // a vial (the last one: "CONTAINMENT LOST") right after the boss was beaten,
+  // at the start of the next stage (owner report, 2026-11-10).
+  s.ship.dying = 0;
+  s.pendingCause = null;
   if (s.practice) {
     s.practice.result = {
       stage: s.wave,
