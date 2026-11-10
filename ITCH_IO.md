@@ -2,7 +2,7 @@
 
 This project exports independently. Run `npm run build:itch` here, then upload `dist/corona-invaders-itch.zip` as an HTML Game on its own itch.io page. There is no shared launcher or server runtime in the ZIP.
 
-The entry is root `index.html`. The current export holds 28 files (about 0.55 MiB): runtime modules, `vendor/` Three.js r187 plus its license, and the Markdown docs (including the bullet-hell brief). All lettering is generated SVG (the original 16×16 corona and syringe sprites are transcribed as SVG pixels) and all audio is synthesized, so the game uses no font, image or audio files and loads nothing from a CDN. The exporter normalizes runtime module extensions to `.js`, preserves asset bytes, and writes the unpacked site to `dist/itch/` plus a hash/size report to `dist/build-report.json`.
+The entry is root `index.html`. The current export holds 29 files (about 0.57 MiB): runtime modules, `vendor/` Three.js r187 plus its license, and the Markdown docs (including the bullet-hell brief). All lettering is generated SVG (the original 16×16 corona and syringe sprites are transcribed as SVG pixels) and all audio is synthesized, so the game uses no font, image or audio files and loads nothing from a CDN. The exporter normalizes runtime module extensions to `.js`, preserves asset bytes, and writes the unpacked site to `dist/itch/` plus a hash/size report to `dist/build-report.json`.
 
 Standalone index.html is a plain green page with only the actual game centered. The same game fills its iframe, with its HUD and controls inside the game surface; no surrounding website or shared launcher is included.
 

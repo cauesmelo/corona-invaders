@@ -6,11 +6,11 @@ All numbers are from `core.mjs`, `patterns.mjs`, `levels.mjs` and `bosses.mjs`, 
 
 | Rule | Value | Why |
 | --- | --- | --- |
-| Core hitbox | 0.16 u radius, drawn ≥ 6.7 px at every width (white dot, dark rim) | Bullet-hell convention; hits are exactly what is drawn |
+| Core hitbox | 0.2 u radius, drawn as the glowing vaccine chamber at exactly that radius (9.0 px at 960×640, 7.3 px at 390, 6.0 px at 320) | The user found the old hitbox imprecise; the marker is the collider, never larger |
 | Graze ring | 1.0 u; +10 points, +1 graze, once per bullet; a SOAP per 100 grazes | Rewards near misses without rewarding sitting in fire |
 | Speed | 11.5 u/s; FOCUS 5.0 u/s (0.43×); linear 60 ms blend; diagonals normalised | Crosses the board in ~1.5 s; focus still escapes an aimed stream |
 | Box | x ±8.9, z −3..12; the formation stops at z = −4 | Room for macro-dodges and point-blank |
-| Auto-fire | 8 volleys/s, needles 34 u/s, 1 damage; SPRAY 3 (5 from L3) at ±9°; NEEDLE 3/3/4/5 parallel, 0.25 u apart; antibodies 4 needles/s each (2 from L2, 4 at L4), tucked to ±0.6–1.0 u in focus | Calm stream (the user asked for a lower fire rate earlier) |
+| Auto-fire | 8 volleys/s, needles 34 u/s, 1 damage; SPRAY 3 (5 from L3) at ±4°; NEEDLE 3/3/4/5 parallel, 0.25 u apart; antibodies 4 needles/s each (2 from L2, 4 at L4), tucked to ±0.6–1.0 u in focus | Calm stream (the user asked for a lower fire rate earlier) |
 | Power | L2 at 1 mRNA, L3 at 3, L4 at 5 | Guaranteed supplies give L2 in W1, L3 in W2, L4 in W3 |
 | SOAP | 2 per vial (Easy 3), max 5; ring to 15 u in 0.6 s; 12 damage (scaled with HP); 3% of a boss card; 2.0 s invulnerability; voids the capture | Soap breaks the lipid envelope; panic button with a cost |
 | Deathbomb | 0.18 s (Easy 0.35 s) | Forgives a late reaction |
@@ -19,19 +19,40 @@ All numbers are from `core.mjs`, `patterns.mjs`, `levels.mjs` and `bosses.mjs`, 
 | Supplies | 3% of eligible kills, 12 s cooldown (booster ×1.5 for 8 s, mask 10 s 120° arc, soap +1); mRNA guaranteed from vesicles and midbosses; +1 vial at 250k and 750k | Rare random power-ups (user request) |
 | Dose Chain | 2.0 s window, ×2..×6 at 5/10/16/24/32 kills | Kept from revision four |
 
+## Hitboxes (hitboxes.mjs, tests/hitboxes.test.mjs)
+
+One module defines every collider and how it is drawn, and the tests compare each against the renderer's sprite or mesh sizes.
+
+| Thing | Collider | Drawn as |
+| --- | --- | --- |
+| Syringe | core circle r 0.2 | the chamber marker, outer edge = r; the rest of the syringe never collides |
+| Droplet / spike protein | capsules r 0.15, half 0.12 / r 0.13, half 0.16, along the travel | the solid sprite body (rim included); the glow is outside it |
+| Aerosol / RNA bead / virion / glob | circles r 0.15 / 0.15 / 0.2 / 0.42 | the solid sprite body |
+| Enemies and bosses | body sphere (capsules for BUDDER 0.62 + 0.28 and RNA WORM 0.38 + 0.9) | the body mesh is scaled to the collider; spikes are decoration for needles, contact and SOAP alike |
+| Needle | segment from the tip back 0.9 u, r 0.06 | the drawn needle, tip at the shot position |
+| Lane beam | its rectangle, exact width | drawn at exactly that width |
+| SOAP ring / supplies | the drawn ring radius / supply r + the 0.4 u barrel | ring clipped to the board; supply sprite 2r |
+
+Collisions are swept over each 1/120 s substep in the bullet's frame, so a fast bullet cannot pass through the core between two substeps (tested with a bullet at 120 u/s; needles at 34 u/s are tested the same way against the smallest virus). The dev overlay (`?hitboxes=1` or `__game.hitboxes(true)`) draws every collider on the board plane. The smallest bullet solid measures 5.0 px at the far edge at 960×640, 4.5 px at 390 and 3.7 px at 320.
+
 **Easy vs Normal:** bullets per emitter ×0.6 (fan parity kept), speed ×0.85, telegraphs +0.15 s, 5 vials and 3 SOAP per vial, auto-SOAP on hit, 0.35 s deathbomb, enemy HP ×0.85, one live pattern family instead of two, 2.8 u wall gaps, NEUTRALIZED ×0.5.
 
 ## Time-to-kill as power grows
 
-Card HP = TTK × the effective DPS of the power the campaign guarantees there: 24 at power 1–2, 30 at 3, 42 at 4. Popcorn HP, cell pops and SOAP damage scale by the same ratio (×1, ×1.25, ×1.75). Pools: ALPHA 1920, BIG SNEEZER 480, AEROSOL CLOUD 528, BETA & GAMMA 2580, MOTHER CELL 1200, DELTA 4536, LAMBDA 1512, OMICRON PRIME 5460. Without this, measured world 3–4 bosses died in half their TTK and the curve flattened.
+Card HP = round(TTK × the effective DPS of the power the campaign guarantees there × 0.7): 24 at power 1–2, 30 at 3, 42 at 4. Popcorn HP, cell pops and SOAP damage scale by the same ratio (×1, ×1.25, ×1.75). Without the power scaling, measured world 3–4 bosses died in half their TTK and the curve flattened.
+
+The ×0.7 card factor and the ±4° spray answer a playtest: cards ended on the timer, because at ±9° the side needles missed a boss at range. An outside test bot measured boss stages at 124–210 s before and 62–137 s after. A test now requires every card's HP, at 75% of the reference DPS, to fall within 80% of its timeout. SPIKE CROWN had a 35 s TTK against a 30 s phase timeout (it could never be cleared); it is now 20 s, and its shielded core is intangible so needles reach the nodes. Pools: ALPHA 1344, BIG SNEEZER 336, AEROSOL CLOUD 370, BETA & GAMMA 1806, MOTHER CELL 840, DELTA 2999, LAMBDA 1058, OMICRON PRIME 3381.
 
 ## Pressure by world
 
 | | W1 | W2 | W3 | W4 |
 | --- | --- | --- | --- | --- |
 | Stage cap (Normal peak, non-boss) | 30 (1-1) / 45 | 70 | 95 | 120 |
-| Choir interval (full → thin) / size | 1.8 → 1.2 s / 2–3 | 1.45 → 1.0 s / 3–4 | 1.15 → 0.8 s / 3–5 | 1.05 → 0.72 s / 4–6 |
-| Measured boss peak (card arena) | ALPHA 59 | BETA & GAMMA 44 | DELTA 31 | OMICRON 130 |
+| Choir interval (full → thin) / size | 1-1: 2.5 → 1.8 s / 1–2; then 1.8 → 1.2 s / 2–3 | 1.45 → 1.0 s / 3–4 | 1.15 → 0.8 s / 3–5 | 0.95 → 0.65 s / 4–6 |
+| Mid-stage surge (choir twice as often, +1 singer) | 5 s | 6 s | 7 s | 8 s |
+| Measured boss peak (card arena) | ALPHA 58 | BETA & GAMMA 40 | DELTA 31 | OMICRON 139 |
+
+1-1 was softened (a slower, thinner choir) and every stage from 1-2 to 4-3 gets a surge after its second grid, so a stage has a peak instead of a flat line.
 
 Measured live campaign peaks stay under the caps (tested): every sample ≤ its cap, bosses ≤ 90 / 120 / 150 / 200.
 
@@ -49,20 +70,22 @@ Measured live campaign peaks stay under the caps (tested): every sample ≤ its 
 
 | Card | Hits (5 starts) | Card | Hits |
 | --- | --- | --- | --- |
-| ALPHA COUGH COUGH | 0 0 0 0 0 | DELTA TRIANGULATE | 0 0 0 0 0 |
-| ALPHA FIRST SNEEZE | 0 0 0 0 1 | DELTA LANE SNEEZE | 2 1 0 1 1 |
-| ALPHA SPIKE BLOOM | 0 1 0 0 0 | DELTA HALVES | 0 0 0 0 0 |
-| ALPHA CORONA | 0 0 0 0 0 | DELTA BLOOD RUSH | 1 1 1 2 0 |
+| ALPHA COUGH COUGH | 0 0 0 0 0 | DELTA TRIANGULATE | 0 0 0 0 1 |
+| ALPHA FIRST SNEEZE | 0 0 0 0 0 | DELTA LANE SNEEZE | 0 0 0 0 0 |
+| ALPHA SPIKE BLOOM | 0 0 0 0 0 | DELTA HALVES | 0 0 0 0 0 |
+| ALPHA CORONA | 0 0 0 0 0 | DELTA BLOOD RUSH | 0 0 1 0 1 |
 | B&G PING-PONG | 0 0 0 0 0 | DELTA Δ CASCADE | 0 0 0 0 0 |
-| B&G CROSS INFECTION | 0 0 0 0 0 | OMICRON SPIKE CROWN | 0 0 1 0 0 |
-| B&G MIRROR STRAIN | 0 0 1 0 1 | OMICRON SNEEZE STORM | 0 0 0 0 0 |
-| B&G DOUBLE HELIX | 2 0 1 1 1 | OMICRON MUTATION SPIRAL | 0 0 0 1 0 |
-| BIG SNEEZER ACHOO! | 0 0 1 0 0 | OMICRON QUARANTINE | 1 0 1 0 0 |
-| AEROSOL CLOUD MIST | 1 0 0 0 0 | OMICRON CORONA FLARE | 0 0 1 1 2 |
-| MOTHER BUDDING / LYSIS / CELL BURST | 0s / 0s / 1 1 1 0 0 | OMICRON R0 > 1 | 0 0 0 0 0 |
-| LAMBDA TRACKING / MIRROR | 1 0 0 0 0 / 0s | | |
+| B&G CROSS INFECTION | 0 0 0 0 0 | OMICRON SPIKE CROWN | 0 0 0 0 0 |
+| B&G MIRROR STRAIN | 0 0 0 0 0 | OMICRON SNEEZE STORM | 0 0 0 0 0 |
+| B&G DOUBLE HELIX | 0 0 0 0 0 | OMICRON MUTATION SPIRAL | 1 1 0 0 0 |
+| BIG SNEEZER ACHOO! | 0 0 0 0 0 | OMICRON QUARANTINE | 0 0 0 0 0 |
+| AEROSOL CLOUD MIST | 0 0 0 0 0 | OMICRON CORONA FLARE | 0 0 0 0 0 |
+| MOTHER BUDDING / LYSIS / CELL BURST | 0s / 0s / 0s | OMICRON R0 > 1 | 0 1 2 0 0 |
+| LAMBDA TRACKING / MIRROR | 0s / 0s | | |
 
-Two structural problems found this way were fixed rather than tuned around: MIRROR STRAIN let both twins stack on one column (the front twin sparked every needle, so the card could only time out), and LAMBDA paired a tracker with an aimed stream.
+The same runs also test that every card ends by damage, not on the timer, from at least 4 of 5 starts. All of them do, from all five starts, except one BLOOD RUSH start that timed out. Hits are lower than in the previous table, as expected with cards about 30% shorter.
+
+Two structural problems found this way were fixed rather than tuned around: MIRROR STRAIN let both twins stack on one column (the front twin sparked every needle, so the card could only time out), and LAMBDA paired a tracker with an aimed stream. LAMBDA MIRROR was then still the hardest card in playtest (2.5 hits per run for the outside bot): its jet ran down LAMBDA's own column, the only place to hit it. The jet now locks where the syringe stood at telegraph start and LAMBDA mirrors you 3 u aside, so its damage spot is never inside the beam (0 hits for that bot, 0 here).
 
 ## The difficulty curve (tests/curve.test.mjs)
 
@@ -70,21 +93,21 @@ Each sample was played from its tray entry by the reactive player on eight seeds
 
 | Sample | Lost | Near | Sample | Lost | Near |
 | --- | --- | --- | --- | --- | --- |
-| 1-1 FIRST CONTACT | 0.00 | 0.26 | 3-1 CIRCULATION | 1.25 | 1.03 |
-| 1-2 GESUNDHEIT | 0.00 | 0.26 | 3-2 HIJACK | 0.50 | 0.73 |
-| 1-3 BUDDING | 0.25 | 1.00 | 3-3 VARIANT SURGE | 1.13 | 0.95 |
-| 1-4 ALPHA | 0.38 | 0.95 | 3-4 DELTA | 0.38 | 0.96 |
-| 2-1 GAS EXCHANGE | 0.13 | 0.52 | 4-1 AGAR | 1.13 | 1.02 |
-| 2-2 AEROSOL | 0.13 | 0.88 | 4-2 MUTATION | 0.25 | 0.79 |
-| 2-3 DEEP BREATH | 0.38 | 0.71 | 4-3 OUTBREAK | 1.25 | 2.46 |
-| 2-4 BETA & GAMMA | 0.75 | 1.44 | 4-4 OMICRON PRIME | 1.38 | 1.65 |
+| 1-1 FIRST CONTACT | 0.00 | 0.22 | 3-1 CIRCULATION | 0.38 | 1.23 |
+| 1-2 GESUNDHEIT | 0.00 | 0.38 | 3-2 HIJACK | 0.25 | 0.65 |
+| 1-3 BUDDING | 0.00 | 0.77 | 3-3 VARIANT SURGE | 0.63 | 0.97 |
+| 1-4 ALPHA | 0.13 | 0.83 | 3-4 DELTA | 1.00 | 0.75 |
+| 2-1 GAS EXCHANGE | 0.13 | 0.59 | 4-1 AGAR | 0.50 | 1.12 |
+| 2-2 AEROSOL | 0.13 | 0.63 | 4-2 MUTATION | 0.38 | 0.70 |
+| 2-3 DEEP BREATH | 0.13 | 0.96 | 4-3 OUTBREAK | 1.50 | 1.67 |
+| 2-4 BETA & GAMMA | 0.63 | 1.22 | 4-4 OMICRON PRIME | 1.00 | 1.47 |
 
 | World mean | W1 | W2 | W3 | W4 |
 | --- | --- | --- | --- | --- |
-| Vials lost (no SOAP) | 0.16 | 0.34 | 0.81 | 1.00 |
-| Bullets near the core | 0.62 | 0.89 | 0.92 | 1.48 |
+| Vials lost (no SOAP) | 0.03 | 0.25 | 0.56 | 0.84 |
+| Bullets near the core | 0.55 | 0.85 | 0.90 | 1.24 |
 
-Both rise strictly by world (tested, with W4 ≥ 1.8× W1). With SOAP allowed, the same player clears every sample within three tries on every seed, and every world-1 sample and B1 on the first try. Single-sample vial losses are noisy (small changes move one sample by ±1), which is why the table uses eight seeds and the pressure metric; the W2→W3 pressure margin is the thinnest.
+Both rise strictly by world (tested, with W4 ≥ 1.8× W1). Without SOAP the reactive player cleared every sample on the first try on all eight seeds, except 4-3 on seed 99 (two retries). With SOAP allowed, the same player clears every sample within three tries on every seed, and every world-1 sample and B1 on the first try. Single-sample vial losses are noisy (small changes move one sample by ±1), which is why the table uses eight seeds and the pressure metric; the W2→W3 pressure margin (0.85 → 0.90) is the thinnest.
 
 ## Controller campaign (tests/model.test.mjs)
 
@@ -92,12 +115,16 @@ Both rise strictly by world (tested, with W4 ≥ 1.8× W1). With SOAP allowed, t
 
 | Seed | Result | Frames (1/60 s) | Vials lost | SOAP used | Grazes | Kills | Score |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| 42 | won, all 18 | 79,076 | 0 | 0 | 799 | 804 | 2,145,128 |
-| 1 | won, all 18 | 78,416 | 0 | 0 | 794 | 803 | 2,001,113 |
-| 7 | won, all 18 | 79,279 | 0 | 1 | 842 | 801 | 2,123,657 |
+| 42 | won, all 18 | 58,344 | 0 | 0 | 543 | 783 | 2,547,457 |
+| 1 | won, all 18 | 57,850 | 0 | 0 | 593 | 775 | 2,509,551 |
+| 7 | won, all 18 | 56,000 | 0 | 1 | 583 | 797 | 2,459,550 |
 
-Frame budget for the root suite: `60 * 1800` (108,000).
+Frame budget for the root suite: `60 * 1800` (108,000), unchanged. Shorter boss cards cut the campaign from about 79k to 56–58k frames.
 
 ## Browser evidence
 
-Real Chrome with SwiftShader WebGL at 960×640, 390×844 and 320×844 (throwaway Playwright script outside the repo): title, every world, all 25 boss and midboss cards, focus hitbox, SOAP, pause, game over, tray, MUTATION LAB and portrait views, with no console errors; the packaged itch build ran in a sandboxed iframe with its fullscreen control, keyboard movement, focus, SOAP and pause (audio suspended). Measured: hitbox 7.3 px (960) / 6.9 px (390) / 6.7 px (320); smallest bullet ≥ 7 px at the far edge (5 px at 320); the board column is 428 px at 960×640. SwiftShader frame times: title 60 fps, the 60-corona grid 57 fps, boss cards 60 fps, 4-3 OUTBREAK about 50 fps; a 600-bullet fixture about 19 fps (the brief's 55 fps software floor is not met).
+Real Chrome with SwiftShader WebGL at 960×640, 390×844 and 320×844 (throwaway Playwright scripts outside the repo): title, every world, all 25 boss and midboss cards, the hitbox overlay on four busy cards, the syringe (normal and hit flash), focus, SOAP, pause, game over, tray, MUTATION LAB and portrait views, with no console errors. A scratch copy of the root browser suite (`ONLY="Corona Invaders"`, run outside `common/` so it wrote no shared evidence) passed 14/14 on the packaged ZIP. Measured: core marker 9.0 px (960) / 7.3 px (390) / 6.0 px (320) across, the same as the collider; the board column is 428 px at 960×640.
+
+Input and flow checks: moving the mouse with no button held left the syringe in place, and a held-button drag moved it. Space during the 1 s loss lock kept the loss screen; a fresh press after it retried. After three losses, Easy was the focused, highlighted button. The first visit showed the Easy start offer. At 390×844 and 320×844 the fullscreen button no longer overlaps pause, and the portrait cabinet is 828 px tall.
+
+SwiftShader frame rates after the 3D art pass (lit meshes, rim light, contact shadows, layered board): title 60 fps, the 60-corona grid 55, a boss spiral 60, 4-3 OUTBREAK 60, and the 600-bullet fixture 43 (was 19; the brief's 55 fps software floor is still not met there). Real gameplay peaks near 140 bullets. Over 1.5 s after a start the median frame is 17 ms, but one long frame remains: 517 ms at the first 1-1 start, 317 ms at ALPHA, 283 ms at OMICRON and none at 4-3. That is after the boot prewarm (every shape compiled and rendered hidden), DOM writes only on change, and no width or display changes at boss entry. A CPU profile of those 1.5 s shows under 60 ms of script with the main thread otherwise idle, so the frame is lost in SwiftShader's GPU or compositor process. It has not been measured on a hardware GPU.
