@@ -14,7 +14,8 @@ import { cameraLayout, projectPoint } from '../camera.mjs';
 import { PRESETS, startPattern, upgradeParams } from '../patterns.mjs';
 import { ARCHETYPES, attackFor } from '../levels.mjs';
 import { createReactive } from './reactive.mjs';
-import { quiet, running, bullet } from './helpers.mjs';
+import { quiet, running, bullet, cardArena } from './helpers.mjs';
+import { STEP as CLOCK_STEP, createClock, advanceClock, capturePositions, interpolatedView } from '../clock.mjs';
 
 const STEP = 1 / 120;
 const near = (a, b, eps = 1e-9) => Math.abs(a - b) <= eps;
@@ -111,6 +112,128 @@ test('edge clamping: keyboard, mouse and touch stop at the same box edges, and w
   update(s, 0.1, { axisX: 1, axisZ: -1 });
   assert.equal(s.ship.x, RULES.moveMaxX);
   assert.ok(near(8 - s.ship.z, RULES.shipSpeed * Math.SQRT1_2 * 0.1, 1e-9));
+});
+
+// ---- A2 frame-rate independence --------------------------------------------------
+/** The browser loop (game.js): one input record per rendered frame, applied to
+ * each whole 1/120 s step the clock releases during that frame. */
+function playFrames(make, frames, inputAt) {
+  const s = make(),
+    clock = createClock(),
+    trace = [];
+  let t = 0,
+    steps = 0;
+  for (const dt of frames) {
+    const input = inputAt(t);
+    advanceClock(clock, dt);
+    for (let i = 0; i < clock.steps; i++) {
+      update(s, CLOCK_STEP, input);
+      if (++steps % 30 === 0) trace.push([steps, s.ship.x, s.ship.z, s.enemyShots.length, s.score, s.damageTaken]);
+    }
+    t += dt;
+  }
+  return { s, trace, steps };
+}
+// Inputs change every 0.4 s and focus every 0.7 s: boundaries every frame
+// rate shares (multiples of 1/30 s), so every rate sees the same inputs.
+const scripted = (t) => {
+  const k = Math.floor(t / 0.4 + 1e-6) % 4,
+    f = Math.floor(t / 0.7 + 1e-6) % 2;
+  return { axisX: [1, 0, -1, 0][k], axisZ: [0, -1, 0, 1][k], focus: f === 1 };
+};
+function frameRuns(make, seconds = 12) {
+  const runs = {};
+  for (const hz of [30, 60, 120, 240]) runs[`${hz} Hz`] = playFrames(make, Array(seconds * hz).fill(1 / hz), scripted);
+  // Hitches: frames of 0-100 ms (random multiples of 1/240 s) that never
+  // straddle an input change, so the inputs per step stay the same.
+  let seed = 3;
+  const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  const frames = [];
+  for (let tick = 0, total = seconds * 240; tick < total; ) {
+    let n = rnd() < 0.25 ? 1 + Math.floor(rnd() * 24) : 4;
+    const edge = Math.min(Math.ceil((tick + 1) / 8) * 8, total); // next 1/30 s boundary
+    n = Math.min(n, edge - tick);
+    frames.push(n / 240);
+    tick += n;
+  }
+  runs.hitches = playFrames(make, frames, scripted);
+  return runs;
+}
+test('A2: the same inputs give the same positions and outcome at 30/60/120/240 Hz and through 0-100 ms hitches', (t) => {
+  const makers = {
+    'ALPHA card': () => cardArena('alpha', 0, { x: 0 }),
+    '2-2 stage': () => running(42, 6),
+  };
+  for (const [name, make] of Object.entries(makers)) {
+    const runs = frameRuns(make);
+    const ref = runs['60 Hz'];
+    for (const [label, r] of Object.entries(runs)) {
+      let dmax = 0;
+      for (const [i, row] of r.trace.entries()) dmax = Math.max(dmax, Math.hypot(row[1] - ref.trace[i][1], row[2] - ref.trace[i][2]));
+      t.diagnostic(`${name} ${label}: ${r.steps} steps, max syringe deviation ${dmax} u, score ${r.s.score}, hits ${r.s.damageTaken}`);
+      assert.equal(r.steps, ref.steps, label);
+      assert.deepEqual(r.trace, ref.trace, `${name} ${label}: identical trace`);
+      assert.deepEqual(
+        r.s.enemyShots.map((b) => [b.x, b.z]),
+        ref.s.enemyShots.map((b) => [b.x, b.z]),
+        `${name} ${label}: identical bullets`,
+      );
+    }
+  }
+});
+test('A2: arbitrary (off-grid) hitches never change the simulation, only when it is shown', () => {
+  let seed = 11;
+  const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  const input = () => ({ axisX: 1, axisZ: -1, focus: true });
+  const ref = playFrames(() => running(1, 10), Array(60 * 10).fill(1 / 60), input);
+  const frames = [];
+  // Frames over 50 ms advance only 50 ms, so play a little longer.
+  for (let t = 0; t < 12; ) {
+    const dt = rnd() < 0.2 ? rnd() * 0.1 : 1 / 60 + (rnd() - 0.5) * 0.004;
+    frames.push(dt);
+    t += dt;
+  }
+  const r = playFrames(() => running(1, 10), frames, input);
+  const n = Math.min(r.trace.length, ref.trace.length);
+  assert.ok(n >= 38, `${n} rows`);
+  assert.deepEqual(r.trace.slice(0, n), ref.trace.slice(0, n));
+});
+test('A2 pacing: 60 Hz with vsync jitter runs 2 steps a frame and draws the latest step; 144 Hz interpolates', () => {
+  let c = createClock(),
+    seed = 5;
+  const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  const counts = [];
+  for (let i = 0; i < 600; i++) counts.push(advanceClock(c, 1 / 60 + (rnd() - 0.5) * 0.0008).steps);
+  assert.ok(counts.every((n) => n === 2), 'no 1-3 step stutter from jitter');
+  assert.equal(c.smooth, false, 'no interpolation delay at 60 Hz');
+  advanceClock(c, 0.037); // one hitch
+  for (let i = 0; i < 3; i++) advanceClock(c, 1 / 60);
+  assert.equal(c.smooth, false, 'a single hitch does not switch modes');
+  for (const hz of [30, 120, 240]) {
+    c = createClock();
+    let steps = 0;
+    for (let i = 0; i < hz; i++) steps += advanceClock(c, 1 / hz).steps;
+    assert.equal(steps, 120, `${hz} Hz: 120 steps per second`);
+    assert.equal(c.smooth, false, `${hz} Hz draws the latest step`);
+  }
+  c = createClock();
+  let steps = 0;
+  for (let i = 0; i < 144; i++) steps += advanceClock(c, 1 / 144).steps;
+  assert.ok(Math.abs(steps - 120) <= 1);
+  assert.equal(c.smooth, true, '144 Hz interpolates between steps');
+  // A 1 s stall advances only 50 ms.
+  c = createClock();
+  assert.equal(advanceClock(c, 1).steps, 6);
+  // The interpolated view blends positions and never touches the state.
+  const s = quiet();
+  s.enemyShots.push({ ...bullet(0, 0), vz: 6 });
+  const prev = capturePositions(s);
+  update(s, CLOCK_STEP, { axisX: 1 });
+  const before = JSON.stringify(s);
+  const v = interpolatedView(s, prev, 0.25);
+  assert.equal(JSON.stringify(s), before);
+  assert.ok(near(v.ship.x, s.ship.px + (s.ship.x - s.ship.px) * 0.25, 1e-12));
+  assert.ok(near(v.enemyShots[0].z, 0.25 * 6 * CLOCK_STEP, 1e-12));
 });
 
 // ---- A3 lost and phantom inputs ----------------------------------------------------
@@ -223,7 +346,9 @@ function projectedRadius(layout, width, height, x, y, z, r) {
     [, bot] = px([x, y, z + r]);
   return { w: (rr - l) / 2, h: (bot - top) / 2 };
 }
-const VIEWPORTS = [[960, 640], [390, 844], [320, 568]];
+// The game stage (canvas) inside 960x640, 390x844 and 320x568 windows, as
+// measured in Chrome (`__game.renderer().viewport`).
+const VIEWPORTS = [[928, 608], [374, 768], [304, 492]];
 const POSITIONS = [[0, RULES.shipZ], [RULES.moveMinX, RULES.moveMinZ], [RULES.moveMaxX, RULES.moveMaxZ], [4, 2]];
 export function markerTable() {
   const rows = [];
@@ -243,7 +368,8 @@ test('C1/F hitbox: the drawn core marker projects to exactly the collision radiu
   for (const r of markerTable()) {
     t.diagnostic(`${r.viewport} (${r.x}, ${r.z}): marker ${(2 * r.drawnW).toFixed(3)} x ${(2 * r.drawnH).toFixed(3)} px, collider ${(2 * r.colliderW).toFixed(3)} x ${(2 * r.colliderH).toFixed(3)} px`);
     assert.ok(near(r.drawnW, r.colliderW, 1e-9) && near(r.drawnH, r.colliderH, 1e-9), JSON.stringify(r));
-    assert.ok(2 * r.colliderW >= 5.5, `${r.viewport}: marker ${2 * r.colliderW} px is still visible`);
+    // Smallest case: a 320x568 window, top corner of the box (5.0 px wide).
+    assert.ok(2 * r.colliderW >= 4.9, `${r.viewport}: marker ${2 * r.colliderW} px is still visible`);
   }
 });
 

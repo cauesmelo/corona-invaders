@@ -262,6 +262,30 @@ function familyTexture(family) {
     }
   });
 }
+/** QA probe only: the solid region of a sprite (a bullet family's capsule,
+ * or the core marker's disc) as plain white, laid out exactly like the real
+ * texture, so the drawn solid can be measured without its glow or rim. */
+function solidMask(kind) {
+  if (kind === 'dot')
+    return canvasTexture(128, 128, (g, w, h) => {
+      g.fillStyle = '#ffffff';
+      g.beginPath();
+      g.arc(w / 2, h / 2, MARKER.texEdge, 0, Math.PI * 2);
+      g.fill();
+    });
+  const L = spriteLayout(kind);
+  return canvasTexture(L.width, L.height, (g, w, h) => {
+    const cx = w / 2,
+      cy = h / 2;
+    g.fillStyle = '#ffffff';
+    g.beginPath();
+    g.arc(cx, cy - L.halfPx, L.r, Math.PI, 0);
+    g.lineTo(cx + L.r, cy + L.halfPx);
+    g.arc(cx, cy + L.halfPx, L.r, 0, Math.PI);
+    g.closePath();
+    g.fill();
+  });
+}
 function bulletTexture(kind) {
   if (COLLIDERS[kind]) return familyTexture(kind);
   return canvasTexture(128, 128, (g, w, h) => {
@@ -1986,6 +2010,42 @@ export function createRenderer({ canvas, stage, settings }) {
     },
     setHitboxes(on) {
       hitboxesOn = !!on;
+    },
+    /** QA measurement only: draw one layer alone on black ('marker' = the core
+     * dot, 'bullets', 'graze' = the focus ring), so its pixels can be
+     * measured against the projected collider (MOVEMENT_AUDIT.md). The next
+     * normal render restores everything. Shake is skipped. */
+    probe(s, layer) {
+      const solid = layer.endsWith('-solid'),
+        base = solid ? layer.slice(0, -6) : layer;
+      const keep = { marker: [dot], bullets: Object.values(bullets), graze: [grazeRing] }[base];
+      if (!keep) return false;
+      this.render(s, 0);
+      const vis = scene.children.map((c) => c.visible);
+      const bg = scene.background;
+      // '-solid': swap in white masks of the solid regions (same quads).
+      const swaps = solid ? keep.map((m) => [m, m.material.map]) : [];
+      for (const [m] of swaps) {
+        const kind = m === dot ? 'dot' : FAM.find((f) => bullets[f] === m);
+        const mask = solidMask(kind);
+        mask.generateMipmaps = false;
+        mask.minFilter = THREE.LinearFilter;
+        m.material.map = mask;
+        m.material.needsUpdate = true;
+      }
+      scene.children.forEach((c) => (c.visible = keep.includes(c)));
+      scene.background = new THREE.Color('#000000');
+      camera.position.set(...layout.position);
+      camera.lookAt(...layout.target);
+      renderer.render(scene, camera);
+      for (const [m, map] of swaps) {
+        m.material.map.dispose();
+        m.material.map = map;
+        m.material.needsUpdate = true;
+      }
+      scene.children.forEach((c, i) => (c.visible = vis[i]));
+      scene.background = bg;
+      return true;
     },
     get hitboxes() {
       return hitboxesOn;

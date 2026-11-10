@@ -5,7 +5,8 @@
  *
  * One control scheme (RESEARCH_BULLET_HELL.md 3.2):
  *   keyboard  arrows / WASD move in 2D, hold Shift to FOCUS, Space (or X) SOAP
- *   mouse     the syringe follows the cursor, hold left = focus, right = SOAP
+ *   mouse     hold the left button over the board to steer (the syringe
+ *             follows the cursor), right button = SOAP; Shift is focus
  *   touch     relative drag anywhere (1:1 on the board, capped at 30 u/s), the
  *             72 px SOAP button; touch needs no focus key
  *   fire is automatic during play; P / Esc pause, R retries the sample.
@@ -35,8 +36,11 @@ import {
   getWorld,
   chainMultiplier,
   useBomb,
+  playBounds,
 } from './model.mjs';
+import { clamp } from './core.mjs';
 import { normalizeBullet } from './bullets.mjs';
+import { STEP, createClock, advanceClock, capturePositions, interpolatedView } from './clock.mjs';
 import { chooseInput } from './autopilot.mjs';
 import { createAudio } from './audio.mjs';
 import { TOP_BAND } from './camera.mjs';
@@ -107,13 +111,22 @@ function applySoundPref() {
 }
 for (const type of ['pointerdown', 'keydown', 'touchstart']) window.addEventListener(type, applySoundPref, { capture: true, passive: true });
 
-const keys = new Set();
+// Keyboard state. `held` is every physically held key (keydown/keyup on the
+// window, on every screen), so a direction or Shift held through a pause or a
+// sample start keeps working. `locked` holds SOAP keys that were already down
+// when play started or resumed: they count only after a release, so the Space
+// that pressed PLAY (or its key repeat) never fires a SOAP (A3 in
+// MOVEMENT_AUDIT.md). The mouse and touch pad must press again too.
+const held = new Set(),
+  locked = new Set();
+const EDGE_KEYS = ['Space', 'KeyX'];
+const active = (code) => held.has(code) && !locked.has(code);
 let view = null,
   inputEnabled = true,
   pointer = null, // mouse: { x, z } board target
   mouseFocus = false,
   mouseBomb = false,
-  drag = null, // touch: { id, fx, fz, sx, sz, x, z }
+  drag = null, // touch: { id, px, pz (last finger board point), x, z (target) }
   bombPulse = 0,
   lastFrame = 0,
   runId = 1;
@@ -676,15 +689,28 @@ function wake() {
 function focusGame() {
   canvas.focus({ preventScroll: true });
 }
+/** Blur or a hidden tab: keyups may never arrive, so forget everything. */
 function releaseAll() {
-  keys.clear();
+  held.clear();
+  locked.clear();
+  lockHeld();
+}
+/** Play starts or resumes: held SOAP keys must be released first; held
+ * movement and Shift stay live; pointer steering needs a fresh press. */
+function lockHeld() {
+  for (const k of EDGE_KEYS) if (held.has(k)) locked.add(k);
   pointer = null;
   mouseFocus = mouseBomb = false;
   drag = null;
+  bombPulse = 0;
+}
+function resume() {
+  togglePause(state);
+  if (!state.paused) lockHeld();
 }
 function beginPlay(action) {
   wake();
-  releaseAll();
+  lockHeld();
   audio.resume();
   ui.mapOpen = ui.controlsOpen = false;
   action();
@@ -702,7 +728,7 @@ function primaryAction() {
   if (!inputEnabled) return;
   const screen = currentScreen();
   if (screen === 'pause') {
-    togglePause(state);
+    resume();
     syncUI();
     focusGame();
   } else if (screen === 'lost' || screen === 'practice') beginPlay(() => restartGame(state));
@@ -715,7 +741,7 @@ function primaryAction() {
 }
 function openMap() {
   wake();
-  releaseAll();
+  lockHeld();
   ui.mapReturn = null;
   if (state.phase !== 'title') {
     if (state.phase === 'lost') recordScore();
@@ -811,7 +837,8 @@ $('#tray-rows').addEventListener('click', (event) => {
 });
 $('#pause-button').addEventListener('click', () => {
   if (state.phase === 'title') return;
-  togglePause(state);
+  if (state.paused) resume();
+  else togglePause(state);
   audio.setSuspended(!!state.paused);
   ui.controlsOpen = false;
   syncUI();
@@ -827,6 +854,7 @@ function moveFocus(delta) {
   items[index < 0 ? 0 : (index + delta + items.length) % items.length].focus({ preventScroll: true });
 }
 window.addEventListener('keydown', (event) => {
+  held.add(event.code);
   if (!inputEnabled) return;
   const code = event.code;
   const onButton = event.target instanceof HTMLButtonElement;
@@ -850,7 +878,7 @@ window.addEventListener('keydown', (event) => {
         ui.controlsOpen = false;
         syncUI();
       } else if (screen === 'pause') {
-        togglePause(state);
+        resume();
         syncUI();
         focusGame();
       }
@@ -864,7 +892,7 @@ window.addEventListener('keydown', (event) => {
     if (screen === 'lost' && (code === 'Space' || code === 'Enter') && $('#easy-button').classList.contains('primary')) return $('#easy-button').click();
     if ((code === 'Space' || code === 'Enter') && !['map', 'controls', 'pause'].includes(screen)) return primaryAction();
     if (code === 'KeyP' && screen === 'pause') {
-      togglePause(state);
+      resume();
       syncUI();
       focusGame();
       return;
@@ -877,7 +905,6 @@ window.addEventListener('keydown', (event) => {
     return;
   }
   if (onButton && ['Space', 'Enter'].includes(code)) return;
-  keys.add(code);
   if (MOVE_KEYS.includes(code)) pointer = null;
   if (event.repeat) return;
   // Latch a SOAP tap for a couple of frames: a press and release between two
@@ -890,7 +917,10 @@ window.addEventListener('keydown', (event) => {
   }
   if (code === 'KeyR' && state.phase !== 'title') retrySector();
 });
-window.addEventListener('keyup', (event) => keys.delete(event.code));
+window.addEventListener('keyup', (event) => {
+  held.delete(event.code);
+  locked.delete(event.code);
+});
 window.addEventListener('blur', () => {
   releaseAll();
   if (['playing', 'transition'].includes(state.phase) && !state.paused) {
@@ -921,6 +951,14 @@ const onBoard = (p) => p && Math.abs(p.x) <= RULES.halfWidth && p.z >= RULES.bac
 canvas.addEventListener('pointermove', (event) => {
   if (!inputEnabled || event.pointerType !== 'mouse') return;
   ui.idle = 0;
+  // A button released outside the page sends no pointerup here: trust the
+  // live button mask, so a stuck "held" state can never steer the syringe
+  // (or hold the SOAP edge down and swallow Space presses).
+  if (mouseFocus && !(event.buttons & 1)) {
+    mouseFocus = false;
+    pointer = null;
+  }
+  if (mouseBomb && !(event.buttons & 2)) mouseBomb = false;
   if (!mouseFocus) return;
   const p = boardPoint(event);
   if (onBoard(p)) pointer = p;
@@ -958,14 +996,20 @@ function padDown(event, element) {
   const p = boardPoint(event) || { x: 0, z: 0 };
   // Relative drag: finger travel maps 1:1 onto the board, so the finger never
   // has to cover the syringe.
-  drag = { id: event.pointerId, fx: p.x, fz: p.z, sx: state.ship.x, sz: state.ship.z, x: state.ship.x, z: state.ship.z };
+  drag = { id: event.pointerId, px: p.x, pz: p.z, x: state.ship.x, z: state.ship.z };
   $('#pad-hint').classList.add('used');
 }
+/** The target moves with the finger and stops at the box edge: travel past
+ * an edge is not banked, so coming back moves the syringe at once (an
+ * absolute offset left a dead zone as wide as the overshoot). */
 function dragMove(event) {
   const p = boardPoint(event);
   if (!p || !drag) return;
-  drag.x = drag.sx + (p.x - drag.fx);
-  drag.z = drag.sz + (p.z - drag.fz);
+  const b = playBounds(state);
+  drag.x = clamp(drag.x + p.x - drag.px, b.minX, b.maxX);
+  drag.z = clamp(drag.z + p.z - drag.pz, b.minZ, b.maxZ);
+  drag.px = p.x;
+  drag.pz = p.z;
 }
 function padUp(event) {
   if (drag && drag.id !== event.pointerId) return;
@@ -995,21 +1039,34 @@ overlay.addEventListener('pointerdown', () => {
 });
 
 function currentInput() {
-  const axisX = (keys.has('ArrowRight') || keys.has('KeyD') ? 1 : 0) - (keys.has('ArrowLeft') || keys.has('KeyA') ? 1 : 0);
-  const axisZ = (keys.has('ArrowDown') || keys.has('KeyS') ? 1 : 0) - (keys.has('ArrowUp') || keys.has('KeyW') ? 1 : 0);
+  const axisX = (active('ArrowRight') || active('KeyD') ? 1 : 0) - (active('ArrowLeft') || active('KeyA') ? 1 : 0);
+  const axisZ = (active('ArrowDown') || active('KeyS') ? 1 : 0) - (active('ArrowUp') || active('KeyW') ? 1 : 0);
   const input = {
     axisX,
     axisZ,
-    focus: keys.has('ShiftLeft') || keys.has('ShiftRight'),
-    bomb: keys.has('Space') || keys.has('KeyX') || mouseBomb || bombPulse > 0,
+    focus: active('ShiftLeft') || active('ShiftRight'),
+    bomb: active('Space') || active('KeyX') || mouseBomb || bombPulse > 0,
   };
+  if (drag) {
+    // During the respawn glide the finger's target follows the syringe, so
+    // control resumes from where it appears, never by zipping back to where
+    // it was hit; a QUARANTINE narrows the target with the syringe.
+    const b = playBounds(state);
+    if (state.ship.respawn > 0) [drag.x, drag.z] = [state.ship.x, state.ship.z];
+    drag.x = clamp(drag.x, b.minX, b.maxX);
+    drag.z = clamp(drag.z, b.minZ, b.maxZ);
+  }
   if (!axisX && !axisZ) {
     if (drag) Object.assign(input, { targetX: drag.x, targetZ: drag.z, drag: true });
     else if (pointer) Object.assign(input, { targetX: pointer.x, targetZ: pointer.z });
   }
-  // A one-press pulse: release for a frame after it so the next tap is a fresh edge.
-  if (bombPulse > 0) bombPulse--;
   return input;
+}
+/** A SOAP tap is latched for a couple of simulated frames: a press and
+ * release between two steps must still count as one burst. The pulse only
+ * runs down on frames that simulate (at 240 Hz every other frame does not). */
+function spendPulse() {
+  if (bombPulse > 0) bombPulse--;
 }
 
 // ---- Attract mode: logo -> live demo -> top scores -> controls -------------------
@@ -1092,6 +1149,8 @@ window.__game = {
     view?.render(state, 0);
     return !!view?.hitboxes;
   },
+  /** Dev-only: draw one layer alone ('marker', 'bullets', 'graze') for pixel measurement. */
+  probe: (layer) => !!view?.probe(state, layer),
   setDifficulty: (d) => {
     store.difficulty = d === 'easy' ? 'easy' : 'normal';
     setDifficulty(state, store.difficulty);
@@ -1148,22 +1207,42 @@ async function boot() {
   syncLayout();
   view.render(state, 0);
   syncUI();
+  const clock = createClock();
+  // QA: ?smooth=1 forces the interpolated view a 144 Hz display would get.
+  const forceSmooth = new URLSearchParams(location.search).get('smooth') === '1';
+  let prevPositions = null,
+    prevOf = null;
   function frame(timestamp) {
-    // Simulation steps are capped at 50 ms so a stalled frame never jumps play
-    // forward; menu timers (idle, countdown) use real elapsed time instead.
+    // The simulation runs whole 1/120 s steps on a fixed grid (clock.mjs):
+    // stalls advance at most 50 ms; menu timers (idle, countdown) use real
+    // elapsed time instead.
     const real = lastFrame ? Math.min((timestamp - lastFrame) / 1000, 1) : 0;
     const dt = Math.min(real, 0.05);
     lastFrame = timestamp;
     tickAttract(real);
-    let shown = state;
-    if (ui.attract === 'demo' && ui.demo) {
-      update(ui.demo, dt, chooseInput(ui.demo, ui.demoFrame++));
-      handleEvents(ui.demo.events, ui.demo, false);
-      shown = ui.demo;
-    } else {
-      update(state, dt, currentInput());
-      handleEvents(state.events, state, true);
+    advanceClock(clock, real);
+    if (forceSmooth) clock.smooth = true;
+    const demo = ui.attract === 'demo' && ui.demo;
+    const shown = demo ? ui.demo : state;
+    // One input record per rendered frame, applied to each of its steps; a
+    // press is an edge on the first of them only (model.mjs).
+    const input = demo ? null : currentInput();
+    for (let i = 0; i < clock.steps; i++) {
+      if (i === clock.steps - 1) {
+        prevPositions = clock.smooth ? capturePositions(shown) : null;
+        prevOf = shown;
+      }
+      if (demo) {
+        // The autopilot decides once per 1/60 s, as in the tests.
+        if ((ui.demoSteps = (ui.demoSteps || 0) + 1) % 2 === 1 || !ui.demoInput) ui.demoInput = chooseInput(ui.demo, ui.demoFrame++);
+        update(ui.demo, STEP, ui.demoInput);
+        handleEvents(ui.demo.events, ui.demo, false);
+      } else {
+        update(state, STEP, input);
+        handleEvents(state.events, state, true);
+      }
     }
+    if (clock.steps && !demo) spendPulse();
     audio.setSuspended(!!shown.paused);
     audio.tick(shown, shown.phase === 'playing' && !shown.paused && ui.attract !== 'demo');
     if (ui.screen === 'lost') {
@@ -1178,7 +1257,8 @@ async function boot() {
         ui.idle = 0;
       }
     }
-    const flash = view.render(shown, dt);
+    const drawn = clock.smooth && prevOf === shown ? interpolatedView(shown, prevPositions, clock.alpha) : shown;
+    const flash = view.render(drawn, dt);
     $('#damage-flash').style.opacity = String(flash);
     syncUI();
     requestAnimationFrame(frame);

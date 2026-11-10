@@ -400,6 +400,21 @@ function lose(s, cause) {
   pushEvent(s, 'lost', { by: cause.by });
 }
 
+/** Where the core may be: the 2D box, narrowed by a QUARANTINE (its soft
+ * walls keep the whole core inside). Keyboard, mouse and touch all clamp to
+ * this one rectangle. */
+export function playBounds(s) {
+  const q = s.quarantine;
+  if (!q) return { minX: RULES.moveMinX, maxX: RULES.moveMaxX, minZ: RULES.moveMinZ, maxZ: RULES.moveMaxZ };
+  const r = RULES.shipRadius;
+  return {
+    minX: Math.max(RULES.moveMinX, q.x - q.half + r),
+    maxX: Math.min(RULES.moveMaxX, q.x + q.half - r),
+    minZ: Math.max(RULES.moveMinZ, q.z - q.half + r),
+    maxZ: Math.min(RULES.moveMaxZ, q.z + q.half - r),
+  };
+}
+
 function moveShip(s, input, dt) {
   const ship = s.ship;
   ship.px = ship.x;
@@ -414,6 +429,7 @@ function moveShip(s, input, dt) {
     ship.z = ship.respawnFrom.z + (ship.respawnTo.z - ship.respawnFrom.z) * e;
     return;
   }
+  const bounds = playBounds(s);
   const focus = !!input.focus;
   if (focus !== ship.focus) pushEvent(s, 'focus', { on: focus });
   ship.focus = focus;
@@ -430,8 +446,11 @@ function moveShip(s, input, dt) {
     ship.x += ax * k * ship.speed * dt;
     ship.z += az * k * ship.speed * dt;
   } else if (Number.isFinite(input.targetX) || Number.isFinite(input.targetZ)) {
-    const tx = Number.isFinite(input.targetX) ? input.targetX : ship.x,
-      tz = Number.isFinite(input.targetZ) ? input.targetZ : ship.z;
+    // The target is clamped into the box first, so a cursor beyond an edge
+    // still slides the syringe along that edge at full speed (it used to
+    // spend most of its speed pushing into the edge).
+    const tx = clamp(Number.isFinite(input.targetX) ? input.targetX : ship.x, bounds.minX, bounds.maxX),
+      tz = clamp(Number.isFinite(input.targetZ) ? input.targetZ : ship.z, bounds.minZ, bounds.maxZ);
     const cap = (input.drag ? RULES.dragSpeed : ship.focus ? RULES.focusSpeed : RULES.pointerSpeed) * dt;
     const dx = tx - ship.x,
       dz = tz - ship.z,
@@ -442,14 +461,9 @@ function moveShip(s, input, dt) {
       ship.z += (dz / d) * cap;
     }
   }
-  ship.x = clamp(ship.x, RULES.moveMinX, RULES.moveMaxX);
-  ship.z = clamp(ship.z, RULES.moveMinZ, RULES.moveMaxZ);
-  const q = s.quarantine;
-  if (q) {
-    // Soft walls: the box confines, it never damages.
-    ship.x = clamp(ship.x, q.x - q.half + 0.2, q.x + q.half - 0.2);
-    ship.z = clamp(ship.z, q.z - q.half + 0.2, q.z + q.half - 0.2);
-  }
+  // Soft walls: the box (and a QUARANTINE) confines, it never damages.
+  ship.x = clamp(ship.x, bounds.minX, bounds.maxX);
+  ship.z = clamp(ship.z, bounds.minZ, bounds.maxZ);
 }
 
 /** Antibody option offsets (u from the core). They tuck in while focused. */
