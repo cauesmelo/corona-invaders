@@ -2460,3 +2460,318 @@ kbd {
   gap: 3px;
   margin-right: 8px;
 }
+
+/* ---- Difficulty switch (title) ------------------------------------------- */
+/* A three-part instrument selector. The chosen part is filled, bold and carries
+   a solid pip; the others are outlined with a hollow pip, so the choice never
+   rests on colour alone. */
+.mode-switch {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0;
+  width: min(300px, 100%);
+  margin: 12px auto 0;
+  border: 1px solid #24433f;
+  border-radius: 3px;
+  background: #0b191c;
+  overflow: hidden;
+}
+.mode-switch[hidden],
+.mode-note[hidden] {
+  display: none;
+}
+.mode-switch button {
+  min-height: 42px;
+  padding: 0 6px;
+  background: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  letter-spacing: 0.14em;
+  border-left: 1px solid #24433f;
+}
+.mode-switch button:first-child {
+  border-left: 0;
+}
+.mode-switch button b {
+  font-weight: 700;
+  color: inherit;
+}
+.mode-switch button::before {
+  content: '▯';
+  font-size: 13px;
+}
+.mode-switch button:hover {
+  background: #0f2229;
+  color: var(--ink);
+}
+.mode-switch button[aria-checked='true'] {
+  background: var(--cyan);
+  color: #031419;
+  font-weight: 800;
+  box-shadow: inset 0 -3px 0 #031419;
+}
+.mode-switch button[aria-checked='true']::before {
+  content: '▮';
+}
+.mode-switch[data-mode='hard'] button[aria-checked='true'] {
+  background: var(--pink);
+}
+.mode-switch[data-mode='easy'] button[aria-checked='true'] {
+  background: #9ff0c4;
+}
+.mode-switch button:focus-visible {
+  outline: 2px solid var(--cyan);
+  outline-offset: -4px;
+}
+.mode-switch button[aria-checked='true']:focus-visible {
+  outline-color: #031419;
+}
+.mode-note {
+  margin: 6px auto 0;
+  max-width: 34em;
+  color: var(--muted);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  line-height: 1.4;
+  text-align: center;
+}
+@media (pointer: coarse) {
+  .mode-switch button {
+    min-height: 48px;
+  }
+}
+@media (max-width: 420px) {
+  .mode-switch button {
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    gap: 4px;
+  }
+  .mode-note {
+    font-size: 10px;
+  }
+}
+/* A short surface (960x540 and below) keeps the title inside its card. */
+@media (max-height: 520px) {
+  .mode-switch {
+    margin-top: 8px;
+  }
+  .mode-switch button {
+    min-height: 34px;
+  }
+}
+
+/* The mode chip in the HUD (EASY and HARD only; Normal is unmarked). */
+.mode-chip {
+  align-self: center;
+  padding: 0 5px;
+  border: 1px solid var(--cyan);
+  color: var(--cyan);
+  font-size: 10px;
+  font-style: normal;
+  letter-spacing: 0.16em;
+  line-height: 16px;
+}
+.mode-chip[data-mode='hard'] {
+  border-color: var(--pink);
+  color: var(--pink);
+}
+.mode-chip[hidden] {
+  display: none;
+}
+.stamp.hard {
+  border-color: var(--pink);
+  color: var(--pink);
+}
+.stamp.easy {
+  border-color: #9ff0c4;
+  color: #9ff0c4;
+}
+
+/* ---- Run log (FINAL REPORT and the run-over screen) ----------------------- */
+.runlog {
+  margin: 10px 0 0;
+  text-align: left;
+  font-size: 11px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: rgba(3, 12, 14, 0.7);
+}
+.rl-head,
+.rl-row {
+  display: grid;
+  grid-template-columns: 34px 38px 44px 34px minmax(0, 1fr);
+  gap: 4px;
+  align-items: baseline;
+  padding: 3px 8px;
+}
+.rl-head {
+  color: var(--muted);
+  letter-spacing: 0.12em;
+  font-size: 10px;
+  border-bottom: 1px solid var(--line-hi);
+}
+.rl-body {
+  max-height: 148px;
+  overflow: auto;
+}
+.rl-row {
+  border-bottom: 1px solid #13282a;
+  font-variant-numeric: tabular-nums;
+}
+.rl-row b {
+  color: var(--phosphor);
+}
+.rl-row .v.lost {
+  color: var(--pink);
+  font-weight: 700;
+}
+.rl-row .hit {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink);
+}
+.rl-row .hit i {
+  color: var(--amber);
+  font-style: normal;
+}
+.rl-picks {
+  margin: 0;
+  padding: 5px 8px;
+  max-height: 48px;
+  overflow: auto;
+  color: var(--muted);
+  line-height: 1.4;
+}
+.rl-picks b {
+  color: var(--cyan);
+  letter-spacing: 0.1em;
+}
+.row.done {
+  border-color: var(--virus);
+}
+.row.done .hint {
+  color: var(--virus);
+}
+.runlog-text {
+  display: block;
+  width: 100%;
+  height: 120px;
+  margin: 8px 0 0;
+  padding: 6px;
+  background: #031014;
+  color: var(--ink);
+  border: 1px solid var(--cyan);
+  font: 11px/1.35 var(--mono);
+  resize: none;
+}
+@media (max-width: 420px) {
+  .rl-head,
+  .rl-row {
+    grid-template-columns: 30px 36px 40px 30px minmax(0, 1fr);
+    gap: 3px;
+    padding: 3px 6px;
+  }
+  .rl-head {
+    font-size: 9px;
+    letter-spacing: 0.04em;
+  }
+}
+
+/* ---- FINAL REPORT / RUN OVER: report and run log side by side ------------- */
+.report.final div {
+  grid-template-columns: 104px minmax(0, 1fr);
+}
+.report.final .total {
+  display: flex;
+}
+.overlay[data-result='final'] .card {
+  display: flex;
+  flex-direction: column;
+  padding-bottom: 0;
+}
+.overlay[data-result='final'] #overlay-heading {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 12px;
+  margin: 20px auto 8px;
+}
+.overlay[data-result='final'] .dm {
+  height: 22px;
+  margin: 0;
+}
+.overlay[data-result='final'] .dm + .dm {
+  margin-top: 0;
+}
+.fr-cols {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
+  text-align: left;
+}
+.fr-cols .runlog {
+  margin: 0;
+  align-self: start;
+}
+/* The controls stay in view whatever the body's length: they are the only way on. */
+.overlay[data-result='final'] .actions {
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
+  margin-top: 10px;
+  padding: 8px 0 14px;
+  background: var(--glass);
+  box-shadow: 0 -10px 10px var(--glass);
+}
+.cabinet[data-layout='side'] .overlay[data-result='final'] .card {
+  width: min(680px, 100%);
+}
+.cabinet[data-layout='side'] .fr-cols {
+  grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
+  gap: 14px;
+}
+.cabinet[data-layout='side'] .fr-cols .rl-body {
+  max-height: 220px;
+}
+.cabinet[data-layout='side'] .overlay[data-result='final'] .actions {
+  flex-direction: row;
+}
+.cabinet[data-layout='side'] .overlay[data-result='final'] .actions .row {
+  justify-content: center;
+  min-width: 0;
+  padding: 0 10px;
+}
+.cabinet[data-layout='side'] .overlay[data-result='final'] .actions .row.primary {
+  flex: 1.2 1 0;
+}
+.cabinet[data-layout='side'] .overlay[data-result='final'] .actions .row:not(.primary) {
+  flex: 1 1 0;
+}
+/* Narrow screens: the primary key spans the width, the other two share a row,
+   which leaves the run log room above the pinned controls. */
+.cabinet[data-layout='strip'] .overlay[data-result='final'] .actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+.cabinet[data-layout='strip'] .overlay[data-result='final'] .actions .row.primary {
+  grid-column: 1 / -1;
+}
+.cabinet[data-layout='strip'] .overlay[data-result='final'] .actions .row:not(.primary) {
+  padding: 0 8px;
+  gap: 6px;
+}
+.cabinet[data-layout='strip'] .overlay[data-result='final'] .actions .row .hint {
+  display: none;
+}
+.cabinet[data-layout='strip'] .mode-chip {
+  padding: 0 3px;
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  line-height: 14px;
+}

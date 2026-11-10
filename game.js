@@ -48,8 +48,10 @@ import {
   setGameSpeed,
   GAME_SPEEDS,
   PROLOGUE,
+  summarizeRunLog,
+  runLogText,
 } from './model.mjs';
-import { KEYS, loadStore, write as writeKey } from './save.mjs';
+import { KEYS, MODES, cleanMode, loadStore, write as writeKey } from './save.mjs';
 import { controlsHTML, offerSummary, rackHTML, formulationList, createDraftGate } from './formulate.mjs';
 import { captionOf } from './draft3d.mjs';
 import { CARD, limitOf, legendariesIn } from './cards.mjs';
@@ -486,9 +488,29 @@ function showTally(ev) {
 function finalReportHTML(r) {
   if (!r) return '';
   const credits = r.credits === Infinity ? `${r.creditsUsed} / ∞` : `${r.creditsUsed} / ${r.credits}`;
-  const stamp = r.oneCredit ? '<div class="stamp">1CC · ONE CREDIT CLEAR</div>' : '';
+  // The model decides the stamp (a plain 1CC only on Normal at full speed).
+  const stamp = r.stamp ? `<div class="stamp ${r.difficulty || 'normal'}">${r.stamp}</div>` : '';
+  const mode = [r.difficulty && r.difficulty !== 'normal' ? r.difficulty.toUpperCase() : '', r.assisted ? 'ASSISTED' : ''].filter(Boolean).join(' · ');
   const medals = ['gold', 'silver', 'bronze'].map((m) => `<span class="m">${medalRing(m)}${r.medals[m]}</span>`).join('');
-  return `${stamp}<div class="report"><div><b>RESULT</b><span>${r.contained ? 'CONTAINED' : 'NOT CONTAINED'}</span><span></span><span></span></div><div><b>CREDITS USED</b><span>${credits}</span><span></span><span></span></div><div><b>SEQUENCED</b><span>${r.sequenced}/${r.variantCards} VARIANT CARDS</span><span></span><span></span></div><div><b>MEDALS</b><span class="medal-row">${medals}</span><span></span><span></span></div>${r.assisted ? '<div><b>MODE</b><span>ASSISTED</span><span></span><span></span></div>' : ''}<div class="total"><span>SCORE</span>${segments(String(r.score).padStart(7, '0'))}</div></div>`;
+  const row = (label, value) => `<div><b>${label}</b><span>${value}</span></div>`;
+  return `${stamp}<div class="report final">${row('RESULT', r.contained ? 'CONTAINED' : 'NOT CONTAINED')}${row('CREDITS USED', credits)}${row('SEQUENCED', `${r.sequenced}/${r.variantCards} VARIANT CARDS`)}${row('MEDALS', `<span class="medal-row">${medals}</span>`)}${mode ? row('MODE', mode) : ''}<div class="total"><span>SCORE</span>${segments(String(r.score).padStart(7, '0'))}</div></div>`;
+}
+/** The run log on the results screens: one row per stage reached (vials lost,
+ * time, continues, what hit), then the draft picks in order. The same
+ * numbers the COPY button puts on the clipboard. */
+function runLogHTML() {
+  const sum = summarizeRunLog(state);
+  if (!sum.stages.length) return '';
+  const esc = (x) => String(x).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+  const mmss = (sec) => (sec >= 100 ? `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}` : `${sec}s`);
+  const rows = sum.stages
+    .map((st) => {
+      const hit = st.hits.length ? st.hits.map(([k, v]) => (v > 1 ? `${k} ×${v}` : k)).join(', ') : '—';
+      return `<div class="rl-row${st.cleared ? '' : ' open'}" role="row"><b role="cell" title="${esc(st.name)}">${st.code}</b><span role="cell" class="v${st.vials ? ' lost' : ''}">${st.vials}</span><span role="cell">${mmss(st.time)}</span><span role="cell">${st.continues ? '+' + st.continues : '·'}</span><span role="cell" class="hit" title="${esc(hit)}">${esc(hit)}${st.cleared ? '' : ' <i>NOT CLEARED</i>'}</span></div>`;
+    })
+    .join('');
+  const picks = sum.picks.length ? `<p class="rl-picks"><b>DRAFTS</b> ${sum.picks.map((p) => `${p.after} ${esc(p.name)}`).join(' · ')}</p>` : '';
+  return `<div class="runlog" role="table" aria-label="Run log"><div class="rl-head" role="row"><span role="columnheader" title="Stage">STG</span><span role="columnheader" title="Vials lost">LOST</span><span role="columnheader" title="Time on the stage">TIME</span><span role="columnheader" title="Continues spent">CON</span><span role="columnheader">HIT BY</span></div><div class="rl-body">${rows}</div>${picks}</div>`;
 }
 
 // ---- Screens -------------------------------------------------------------------
@@ -505,7 +527,7 @@ function currentScreen() {
   if (p === 'transition' && state.transitionHold) return shown ? 'report' : '';
   return '';
 }
-const ROWS = ['play-button', 'resume-button', 'assist-button', 'easy-button', 'retry-button', 'menu-button', 'difficulty-button', 'speed-button', 'sound-button', 'effects-button', 'controls-button', 'back-button'];
+const ROWS = ['play-button', 'resume-button', 'assist-button', 'easy-button', 'retry-button', 'copy-button', 'menu-button', 'difficulty-button', 'speed-button', 'sound-button', 'effects-button', 'controls-button', 'back-button'];
 const ATTRACT = ['title', 'demo', 'scores', 'attract-controls', 'attract-credits'];
 function configure(screen) {
   const assist = assistAvailable(state);
@@ -519,16 +541,20 @@ function configure(screen) {
       credits: ['back-button'],
       pause: ['play-button', ...(state.practice || creditsLeft(state) > 0 ? ['retry-button'] : []), 'menu-button', 'difficulty-button', 'speed-button', 'sound-button', 'effects-button', 'controls-button'],
       controls: ['back-button'],
-      lost: state.runOver ? ['play-button', 'menu-button'] : ['play-button', ...(assist ? ['assist-button', ...(state.difficulty === 'normal' ? ['easy-button'] : [])] : []), 'menu-button'],
-      won: ['play-button', 'menu-button'],
+      lost: state.runOver ? ['play-button', 'copy-button', 'menu-button'] : ['play-button', ...(assist ? ['assist-button', ...(state.difficulty !== 'easy' ? ['easy-button'] : [])] : []), 'menu-button'],
+      won: ['play-button', 'copy-button', 'menu-button'],
       practice: ['play-button', 'menu-button'],
       report: ['play-button'],
     }[screen] || [];
   for (const id of ROWS) $('#' + id).hidden = !visible.includes(id);
   overlay.dataset.screen = screen;
+  // FINAL REPORT and RUN OVER share one wide layout: report and run log side by side, controls pinned.
+  overlay.dataset.result = (screen === 'won' && !state.practice) || (screen === 'lost' && state.runOver) ? 'final' : '';
   $('#card').hidden = screen === 'map';
   $('#map').hidden = screen !== 'map';
   $('#attract-tag').hidden = screen !== 'demo';
+  // The difficulty switch lives on the title only.
+  $('#mode-switch').hidden = $('#mode-note').hidden = screen !== 'title';
   const level = getLevel(state.wave);
   const heading = $('#overlay-heading'),
     body = $('#overlay-body'),
@@ -537,13 +563,13 @@ function configure(screen) {
   playButton.classList.toggle('blink', ATTRACT.includes(screen));
   tag.textContent = '';
   body.innerHTML = '';
+  $('#copy-button').innerHTML = 'COPY RUN LOG <span class="hint">C</span>';
+  $('#copy-button').classList.remove('done');
   const touch = touchQuery.matches;
   const press = touch ? 'TAP' : 'SPACE';
   if (ATTRACT.includes(screen)) {
     playButton.textContent = touch ? 'TAP TO START' : 'PRESS SPACE';
     // First visit: offer Easy beside the start (never blocking it).
-    const firstVisit = load(KEYS.difficulty, null) === null;
-    $('#easy-start').hidden = !(firstVisit && screen === 'title');
     $('#title-controls').innerHTML = controlsLine(touch);
     if (screen === 'title' || screen === 'demo')
       heading.innerHTML = `<span class="logo-row">${pixelSprite('corona', { cls: 'logo-virus' })}${matrix('CORONA')}${pixelSprite('corona', { cls: 'logo-virus' })}</span>${matrix('INVADERS')}<span class="logo-sub">${pixelSprite('syringe', { color: '#7fe8ff', cls: 'logo-syringe' })}<em>A VACCINE BULLET HELL</em></span>`;
@@ -581,7 +607,7 @@ function configure(screen) {
     // No credit left: the FINAL REPORT (RESEARCH_V1.md 5.3).
     heading.innerHTML = matrix('FINAL') + matrix('REPORT');
     tag.textContent = `SPECIMEN NOT CONTAINED · REACHED ${level.code}`;
-    body.innerHTML = finalReportHTML(state.finalReport);
+    body.innerHTML = `<div class="fr-cols"><div>${finalReportHTML(state.finalReport)}</div>${runLogHTML()}</div>`;
     playButton.innerHTML = `NEW RUN <span class="hint">${press}</span>`;
     $('#menu-button').innerHTML = `PRACTICE <span class="hint">TRAY</span>`;
     ui.lostTime = 0;
@@ -601,7 +627,7 @@ function configure(screen) {
     // Keys wait 1 s and a fresh press (a held SOAP key must not retry), and
     // after three losses on Normal, Easy becomes the default choice.
     ui.lockUntil = performance.now() + 1000;
-    const easyFirst = assist && state.difficulty === 'normal';
+    const easyFirst = assist && state.difficulty !== 'easy';
     $('#easy-button').classList.toggle('primary', easyFirst);
     playButton.classList.toggle('primary', !easyFirst);
     playButton.classList.add('locked');
@@ -613,7 +639,7 @@ function configure(screen) {
     // build in line order, and PLACEBO GROUP for a run that discarded every draft.
     const run = state.run;
     const placebo = run && run.drafts > 0 && run.discards === run.drafts;
-    body.innerHTML = `${finalReportHTML(state.finalReport)}${run ? `${placebo ? '<p class="badge">PLACEBO GROUP · NO ADJUVANTS TAKEN</p>' : ''}${formulationList(run.deck)}` : ''}`;
+    body.innerHTML = `<div class="fr-cols"><div>${finalReportHTML(state.finalReport)}</div>${runLogHTML()}</div>${run ? `${placebo ? '<p class="badge">PLACEBO GROUP · NO ADJUVANTS TAKEN</p>' : ''}${formulationList(run.deck)}` : ''}`;
     playButton.textContent = 'NEW RUN';
     $('#menu-button').innerHTML = `PRACTICE <span class="hint">TRAY</span>`;
   } else if (screen === 'practice') {
@@ -671,11 +697,44 @@ function syncEffectsButton() {
   const forced = reducedMotionQuery.matches;
   $('#effects-button').innerHTML = `EFFECTS <b>${settings.effects() ? 'FULL' : 'REDUCED'}</b>${forced ? '<span class="hint">SYSTEM</span>' : ''}`;
 }
+const MODE_NOTE = Object.freeze({
+  easy: '5 VIALS · AUTO-SOAP ON A HIT · NO CREDIT LIMIT',
+  normal: 'THE DESIGNED GAME · 3 VIALS · 3 CREDITS',
+  hard: 'MORE PRESSURE · 1 SOAP, NO REFILL · 2 CREDITS',
+});
+/** One place keeps every view of the stored difficulty in step: the title
+ * switch (a radio group with one tab stop), its one-line description, the
+ * pause row and the first-visit EASY START offer. */
 function syncDifficultyButtons() {
-  const d = store.difficulty.toUpperCase();
+  const mode = cleanMode(store.difficulty);
+  const d = mode.toUpperCase();
   $('#difficulty-button').innerHTML = `DIFFICULTY <b>${d}</b><span class="hint">NEXT START</span>`;
-  setText($('#title-difficulty-label'), d);
-  $('#title-difficulty').setAttribute('aria-label', `Difficulty: ${store.difficulty}`);
+  for (const b of document.querySelectorAll('#mode-switch [data-mode]')) {
+    const on = b.dataset.mode === mode;
+    b.setAttribute('aria-checked', String(on));
+    b.tabIndex = on ? 0 : -1;
+  }
+  $('#mode-switch').dataset.mode = mode;
+  setText($('#mode-note'), MODE_NOTE[mode]);
+  // Any saved choice, Normal included, retires the first-visit offer.
+  $('#easy-start').hidden = !(load(KEYS.difficulty, null) === null && ui.screen === 'title');
+}
+function setMode(mode) {
+  store.difficulty = cleanMode(mode);
+  save(KEYS.difficulty, store.difficulty);
+  if (state.phase === 'title' || state.paused) setDifficulty(state, store.difficulty);
+  syncDifficultyButtons();
+}
+/** The pause row cycles EASY, NORMAL, HARD and back; the arrows on the title
+ * step along the switch (never wrapping from EASY to HARD by accident). */
+function cycleDifficulty() {
+  setMode(MODES[(MODES.indexOf(cleanMode(store.difficulty)) + 1) % MODES.length]);
+}
+function stepMode(delta) {
+  const i = MODES.indexOf(cleanMode(store.difficulty)),
+    next = MODES[clamp(i + delta, 0, MODES.length - 1)];
+  if (next !== MODES[i]) setMode(next);
+  return next;
 }
 function bossCardList() {
   const out = [];
@@ -784,6 +843,10 @@ function syncHUD(s) {
   const level = getLevel(s.wave);
   setText($('#sector-code'), s.practice ? `${level.code} P` : level.code);
   setText($('#sector-world'), getWorld(s.wave).name);
+  // EASY and HARD wear a small chip all run long (Normal is the unmarked game).
+  setText($('#mode-chip'), s.difficulty === 'normal' ? '' : s.difficulty.toUpperCase());
+  setHidden('modeChip', $('#mode-chip'), s.difficulty === 'normal');
+  setAttr('modeData', $('#mode-chip'), 'data-mode', s.difficulty);
   setAttr('pauseAria', $('#pause-button'), 'aria-label', s.paused ? 'Resume game' : 'Pause game');
   setText($('#touch-bomb-count'), String(s.ship.bombs));
   setClass('bombEmpty', $('#touch-bomb'), 'empty', s.ship.bombs <= 0);
@@ -984,20 +1047,70 @@ function toggleSound() {
   audio.setEnabled(soundPref.on);
   syncSoundButtons();
 }
-function toggleDifficulty() {
-  store.difficulty = store.difficulty === 'normal' ? 'easy' : 'normal';
-  save(KEYS.difficulty, store.difficulty);
-  if (state.phase === 'title' || state.paused) setDifficulty(state, store.difficulty);
-  syncDifficultyButtons();
+/** COPY RUN LOG: the plain-text summary (model.runLogText) on the clipboard.
+ * navigator.clipboard needs a permission an itch.io iframe may not grant, so
+ * the fallback is a hidden textarea and execCommand('copy'); if both fail the
+ * text is shown selected for a manual copy. Never throws. */
+async function writeClipboard(text) {
+  try {
+    if (navigator.clipboard?.writeText) {
+      // A frame without clipboard permission may reject or simply never answer.
+      await Promise.race([navigator.clipboard.writeText(text), new Promise((_, no) => setTimeout(() => no(new Error('clipboard timeout')), 1500))]);
+      return true;
+    }
+  } catch {
+    /* Denied in this frame: try the older path. */
+  }
+  try {
+    const area = document.createElement('textarea');
+    area.value = text;
+    area.setAttribute('readonly', '');
+    area.style.cssText = 'position:fixed;left:-9999px;top:0;opacity:0';
+    document.body.appendChild(area);
+    area.select();
+    area.setSelectionRange(0, text.length);
+    const ok = document.execCommand('copy');
+    area.remove();
+    return !!ok;
+  } catch {
+    return false;
+  }
 }
-
+let copyTimer = 0;
+async function copyRunLog() {
+  const button = $('#copy-button');
+  if (button.hidden) return false;
+  const text = runLogText(state, { build: $('#version-tag').textContent.trim() });
+  const ok = await writeClipboard(text);
+  clearTimeout(copyTimer);
+  const area = $('#runlog-text');
+  if (ok) {
+    area?.remove();
+    button.innerHTML = 'COPIED <span class="hint">PASTE IT</span>';
+  } else {
+    // Show the text, selected, so Ctrl+C (or a long press) still works.
+    const box = area || Object.assign(document.createElement('textarea'), { id: 'runlog-text', readOnly: true, className: 'runlog-text' });
+    box.value = text;
+    box.setAttribute('aria-label', 'Run log: select all and copy');
+    if (!area) $('#overlay-body').appendChild(box);
+    box.focus({ preventScroll: false });
+    box.select();
+    button.innerHTML = 'COPY FAILED <span class="hint">COPY BELOW</span>';
+  }
+  button.classList.toggle('done', ok);
+  copyTimer = setTimeout(() => {
+    button.innerHTML = 'COPY RUN LOG <span class="hint">C</span>';
+    button.classList.remove('done');
+  }, 3000);
+  return ok;
+}
+$('#copy-button').addEventListener('click', copyRunLog);
 playButton.addEventListener('click', primaryAction);
 $('#resume-button').addEventListener('click', resumeSaved);
 $('#retry-button').addEventListener('click', retrySector);
 $('#assist-button').addEventListener('click', () => beginPlay(() => restartGame(state, { assist: true })));
 $('#easy-button').addEventListener('click', () => {
-  store.difficulty = 'easy';
-  save(KEYS.difficulty, 'easy');
+  setMode('easy');
   beginPlay(() => restartGame(state, { easy: true }));
 });
 $('#menu-button').addEventListener('click', openMap);
@@ -1005,8 +1118,11 @@ $('#map-button').addEventListener('click', openMap);
 $('#map-back').addEventListener('click', closeMap);
 $('#sound-button').addEventListener('click', toggleSound);
 $('#title-sound').addEventListener('click', toggleSound);
-$('#difficulty-button').addEventListener('click', toggleDifficulty);
-$('#title-difficulty').addEventListener('click', toggleDifficulty);
+$('#difficulty-button').addEventListener('click', cycleDifficulty);
+$('#mode-switch').addEventListener('click', (event) => {
+  const b = event.target.closest('[data-mode]');
+  if (b) setMode(b.dataset.mode);
+});
 // ASSIST: game speed 100 / 90 / 80 / 70% (RESEARCH_V1.md 3.16), changeable
 // any time; the browser clock runs the fixed 1/120 s steps at that rate. The
 // LAB REPORT says ASSISTED; nothing else marks the run.
@@ -1039,9 +1155,7 @@ $('#title-credits').addEventListener('click', () => {
   syncUI();
 });
 $('#easy-start').addEventListener('click', () => {
-  store.difficulty = 'easy';
-  save(KEYS.difficulty, 'easy');
-  syncDifficultyButtons();
+  setMode('easy');
   beginPlay(freshCampaign);
 });
 $('#tray-tabs').addEventListener('click', (event) => {
@@ -1288,7 +1402,7 @@ stage.addEventListener('pointerdown', () => view?.draft?.holding && view.draft.f
 // ---- Keyboard --------------------------------------------------------------------
 const MOVE_KEYS = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'KeyA', 'KeyD', 'KeyW', 'KeyS'];
 function moveFocus(delta) {
-  const items = ui.screen === 'map' ? [...document.querySelectorAll('#tray-tabs button, #tray-rows button:not(:disabled), #map-back')] : [...document.querySelectorAll('#actions .row:not([hidden])')];
+  const items = ui.screen === 'map' ? [...document.querySelectorAll('#tray-tabs button, #tray-rows button:not(:disabled), #map-back')] : [...document.querySelectorAll('#actions .row:not([hidden]), #mode-switch:not([hidden]) [aria-checked="true"]')];
   if (!items.length) return;
   const index = items.indexOf(document.activeElement);
   items[index < 0 ? 0 : (index + delta + items.length) % items.length].focus({ preventScroll: true });
@@ -1334,7 +1448,22 @@ window.addEventListener('keydown', (event) => {
       return;
     }
     if (screen === 'lost' && code === 'ArrowDown' && !onButton) return openMap();
+    // Title: left and right step the difficulty switch from anywhere, and
+    // hand the focus to it so the choice is visible and spoken.
+    if (screen === 'title' && (code === 'ArrowLeft' || code === 'ArrowRight')) {
+      const next = stepMode(code === 'ArrowLeft' ? -1 : 1);
+      $(`#mode-switch [data-mode="${next}"]`).focus({ preventScroll: true });
+      return;
+    }
     if (code === 'ArrowUp' || code === 'ArrowDown') return moveFocus(code === 'ArrowUp' ? -1 : 1);
+    // On the switch, Space or Enter confirms and starts (a mode button's own
+    // activation would only re-select it).
+    if (screen === 'title' && onButton && event.target.closest('#mode-switch') && (code === 'Space' || code === 'Enter')) {
+      event.preventDefault();
+      if (!event.repeat) primaryAction();
+      return;
+    }
+    if (code === 'KeyC' && ['won', 'lost'].includes(screen) && (screen === 'won' || state.runOver)) return void copyRunLog();
     if (screen === 'map' && (code === 'ArrowLeft' || code === 'ArrowRight')) return moveFocus(code === 'ArrowLeft' ? -1 : 1);
     if (onButton && (code === 'Space' || code === 'Enter')) return;
     if (screen === 'lost' && (event.repeat || performance.now() < (ui.lockUntil || 0))) return;
@@ -1662,7 +1791,7 @@ window.__game = {
   /** Dev-only: draw one layer alone ('marker', 'bullets', 'graze') for pixel measurement. */
   probe: (layer) => !!view?.probe(state, layer),
   setDifficulty: (d) => {
-    store.difficulty = d === 'easy' ? 'easy' : 'normal';
+    store.difficulty = cleanMode(d);
     setDifficulty(state, store.difficulty);
     syncDifficultyButtons();
   },
@@ -1680,7 +1809,7 @@ window.__game = {
     return snapshot(state);
   },
   setState: (patch) => {
-    for (const key of ['phase', 'paused', 'health', 'lives', 'score', 'wave', 'enemies', 'shots', 'enemyShots', 'ship', 'waveElapsed', 'transition', 'transitionHold', 'pickups', 'dropCooldown', 'rngState', 'unlockedStage', 'boss', 'chain', 'telegraphs', 'beams', 'failures', 'emitters', 'difficulty', 'run'])
+    for (const key of ['phase', 'paused', 'health', 'lives', 'score', 'wave', 'enemies', 'shots', 'enemyShots', 'ship', 'waveElapsed', 'transition', 'transitionHold', 'pickups', 'dropCooldown', 'rngState', 'unlockedStage', 'boss', 'chain', 'telegraphs', 'beams', 'failures', 'emitters', 'difficulty', 'run', 'runLog', 'finalReport', 'runOver', 'creditsUsed'])
       if (key in patch) {
         if (key === 'ship') Object.assign(state.ship, patch.ship);
         else if (key === 'boss' && state.boss && patch.boss) Object.assign(state.boss, structuredClone(patch.boss));

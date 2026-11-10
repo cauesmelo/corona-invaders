@@ -26,6 +26,7 @@ npm run test:difficulty   # the human-proxy bands (RESEARCH_DIFFICULTY), about 1
 #   node tests/browser/audio-measure.mjs [--before <git ref>]
 #   node tests/browser/personality-audit.mjs [--root <other checkout>]
 #   node tests/browser/draft-3d.mjs http://127.0.0.1:4436/ [--shots DIR] [--json FILE]   the 3D draft (D7/D8)
+#   node tests/browser/runlog-ui.mjs http://127.0.0.1:4439/ [--shots DIR]               difficulty switch, run log, COPY
 npm run build:itch    # dist/corona-invaders-itch.zip
 ```
 
@@ -75,6 +76,28 @@ The owner asked for a roguelike pick after every stage: three cards, keep one, e
 ## The UI: a lab instrument, tied to the theme
 
 Landscape puts the board in a centred column (about 430 px at 960×640) with two instrument panels: **DOSES** (vaccine vials), **SOAP** (bubbles and the graze ring toward the next one), **mRNA** (a four-rung helix), supply timers; and **SCORE / HI**, **GRAZE**, an analog **R0** dial with its red zone above 1, the Dose Chain and the sample code. Portrait uses a top strip (vials · score · SOAP, then graze, R0 and the code) and a thumb zone with the SOAP button under the board. The **VIRAL LOAD** bar (virus green) sits in a reserved top band with card notches, ◆ pips and a mutation card tape (`MUTATION 2/4 · FIRST SNEEZE` and a seven-segment timer); card ends show NEUTRALIZED +bonus, TIME OUT or FAILED. Colour rules: green = viruses, pink = danger only, cyan = the vaccine side, amber = supplies and medals. Lettering is generated SVG (dot-matrix, seven-segment) and the title uses the original pixel corona and syringe.
+
+## The owner calibration kit: difficulty switch and run log
+
+The owner is the real calibration point for the difficulty curve (RESEARCH_DIFFICULTY.md 2.1), so the game now records what a run cost and lets the player paste it into chat.
+
+- **Difficulty switch (title):** EASY / NORMAL / HARD, one line under the start key. A radio group with one tab stop; the arrows step it from anywhere on the title (no wrap), Space or Enter on it starts, a click chooses. The chosen part is filled with a solid pip, a one-line description names the mode, and the choice is saved with the guarded saves (`save.mjs`: `easy | normal | hard`, anything else reads as Normal). The pause row cycles the same three; the loss screen's SWITCH TO EASY is offered on Normal and Hard after three failures. EASY and HARD wear a small chip in the HUD all run long.
+  - **Hard** (`core.mjs` `DIFFICULTY.hard`): same patterns and same fairness floor (telegraphs, wall gaps ≥ 2.0 u, speed bands), with +20% bullets per attack, aimed bullets +6%, choir and boss cadence ×0.85, +15% HP, 1 SOAP to start and none refilled by a lost vial, a 0.12 s deathbomb and 2 credits.
+  - **Stamps:** the model decides (`runlog.stampOf`): a plain `1CC · ONE CREDIT CLEAR` only on Normal at full speed, `1CC · ASSISTED` when the game speed was lowered, `EASY CLEAR`, `1CC · HARD` or `HARD CLEAR`. A run that touched Easy never ends with a Hard stamp.
+- **Run log (`runlog.mjs`, `state.runLog`):** per stage and attempt: vials lost, seconds, how it ended (cleared, lost, manual restart), every lost vial's source (the boss card while a boss is up, otherwise the virus and its verse, e.g. WILD TYPE RAIN), hits saved by SOAP, the coating or Easy's auto-SOAP, and the draft picks after each stage (with RESAMPLEs and DISCARDs). It is carried across continues like `creditsUsed`, reset by a new run, not kept for practice, and stored (bounded and sanitised) inside the run save so a reload keeps it. Counters come from the model's own events, so the text can never disagree with it (`tests/runlog.test.mjs` checks it against real human-proxy campaigns).
+- **Results screen:** the FINAL REPORT (contained) and the run-over screen show the log as a table next to the report (stage, vials lost, time, continues, what hit), the draft picks under it, and a **COPY RUN LOG** key (also the `C` key, reachable with the arrows) that writes `runLogText(state)` to the clipboard: `navigator.clipboard`, then a hidden textarea with `execCommand('copy')`, then a selected textarea if both are refused (an itch.io iframe may deny the clipboard). The text is ASCII, at most 30 lines, deterministic:
+
+```
+CORONA INVADERS v1.0 | HARD | seed 5101 | RUN OVER at 3-2
+score 237141 | play 13:51 | credits used 2/2 | vials lost 13 | hits saved 27
+2-3 BETA & GAMMA   lost 2  236s  1 continue  hit: MIRROR STRAIN, DOUBLE HELIX
+3-1 CIRCULATION    lost 7  170s  1 continue  hit: WILD TYPE RAIN x3, SNEEZER SNEEZE x3, WILD TYPE COUGH
+3-2 SPLASHDOWN     lost 1  31s  NOT CLEARED  hit: WILD TYPE RAIN
+drafts: 1-1 ENTERIC COATING; 1-2 TWIN BARREL; 1-3 BACKUP ALIQUOT; 2-1 ENTERIC COATING;
+worst: WILD TYPE RAIN x4, SNEEZER SNEEZE x3, WILD TYPE COUGH x2, FIRST SNEEZE, MIST, +2
+```
+
+  (Stage lines for cleared stages with no loss read `1-1 FIRST CONTACT  lost 0  91s  hit: -`; the sample above omits them.) Browser check: `node tests/browser/runlog-ui.mjs http://127.0.0.1:4439/ [--shots DIR]` (title switch with real keys, persistence across a reload, a Hard run, the run-over screen, the clipboard and both fallbacks, 390×844 and 320×568).
 
 ## Sound: synthesized, layered, juicy (revision five)
 
@@ -230,7 +253,7 @@ __game.audit();                        // QA: { enemies: [{ collider, drawn, min
 
 - Tuning comes from the autopilot and the 150 ms reactive player, not from human playtests. Easy is implemented and unit-tested but not curve-measured.
 - Faces, idle life and the new audio were measured on SwiftShader only (above). The SFX were designed and verified numerically (levels, onsets, clipping, variation), not yet auditioned by a human listener: `soundboard.html` is there for that. SwiftShader (software WebGL, 960×640) after the 3D art pass: title 60 fps, the 1-1 grid 55, a boss spiral 60, 4-3 OUTBREAK 60, the 600-bullet stress fixture 43 (was 19). Real gameplay peaks near 140 bullets. Starts are prewarmed (every shape compiled and rendered hidden at boot) and frame medians stay at 17 ms, but one 280–520 ms frame remains at the first sample start and at ALPHA/OMICRON entry on SwiftShader. A CPU profile shows the page's main thread idle during it (under 60 ms of script in 1.5 s), so it is in the software GPU or compositor process; it was not measured on a hardware GPU. Not checked on real phone GPUs, Safari, Firefox or physical touch devices.
-- Card practice exists for boss and midboss cards; best captures are stored locally per card. Hard mode is not built.
+- Card practice exists for boss and midboss cards; best captures are stored locally per card. Hard mode is built (the title switch) but, like Normal, has only been measured with bots.
 - **v1.0 suite gaps (measured, see BALANCE.md):** three stage lengths, three hit ceilings, four rest gaps and BETA & GAMMA's mix and quiet share miss the brief's table; the brief's absolute near and peak targets are not met although the sawtooth shape holds. The new sector music arrangements and the INJECT sound were built and smoke-tested in the browser but have not been audited numerically (`tests/browser/audio-measure.mjs`) or by ear. High-contrast bullets are built. Speed trails were not added, because the capsule's long axis and leading core already show direction. Attract mode still demos 1-1. Choir volleys quantised to the beat are not built. The `KNOWN_GAPS` tuning and the no-SOAP card-balance misses (2b, 4a, 4b) were set aside on 2026-11-10 for the lead game designer's difficulty and progression brief. Frame times on SwiftShader are load-sensitive: under a load average near 40 the same scene measured 16.7–50 ms on both the v1.0 and the pre-v1.0 build.
 
 ## Provenance
