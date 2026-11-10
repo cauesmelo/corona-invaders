@@ -32,7 +32,7 @@
 
 /** Face decal placement: the decal faces a direction tilted FACE.tilt
  * radians from the camera toward the syringe (+z), so viruses look at you. */
-export const FACE = Object.freeze({ scale: 0.78, tilt: 0.21, eyeY: 0.16, mouthY: -0.42 });
+export const FACE = Object.freeze({ scale: 0.78, tilt: 0.15, eyeY: 0.16, mouthY: -0.42 });
 
 const face = (o = {}) => ({ size: 0.25, gap: 0.33, tall: 1.05, pupil: 0.45, lid: 0, teeth: 0, mouthW: 0.34, brows: 1, lashes: 0, mismatch: 0, scale: FACE.scale, iris: '#0f4a2a', ink: '#08140d', ...o });
 const rest = (o = {}) => ({ open: 1, brow: 0, curve: 0.2, mouth: 0, smirk: 0, ...o });
@@ -73,7 +73,7 @@ export const CHARACTERS = Object.freeze({
     label: 'BUDDER',
     role: 'The show-off',
     line: 'Splits for attention. Two of it? Even better.',
-    face: face({ size: 0.24, gap: 0.46, pupil: 0.46, teeth: 1, mouthW: 0.48, scale: 0.84, iris: '#0d6a37' }),
+    face: face({ size: 0.24, gap: 0.44, pupil: 0.46, teeth: 1, mouthW: 0.46, scale: 0.8, iris: '#0d6a37' }),
     rest: rest({ curve: 0.85, smirk: 0.3, brow: 0.25 }),
     motion: { breathe: 1.9, amp: 0.05, sway: 0.12, march: 0, twitch: 0, wink: 3.1 },
     voice: { pitch: 330, vowel: 'a', syl: 2, len: 0.08, glide: 1.33 },
@@ -83,7 +83,7 @@ export const CHARACTERS = Object.freeze({
     label: 'RNA WORM',
     role: 'The sneak',
     line: 'Slithers past and never looks you in the eye.',
-    face: face({ size: 0.25, tall: 0.55, gap: 0.32, pupil: 0.55, lid: -0.6, brows: 0, mouthW: 0.3, scale: 0.9, iris: '#2f7a1d' }),
+    face: face({ size: 0.25, tall: 0.55, gap: 0.32, pupil: 0.55, lid: -0.6, brows: 0, mouthW: 0.3, scale: 0.86, iris: '#2f7a1d' }),
     rest: rest({ open: 0.55, curve: 0.35, smirk: 0.6 }),
     motion: { breathe: 3, amp: 0.03, sway: 0, march: 0, twitch: 0 },
     voice: { pitch: 220, vowel: 'i', syl: 1, len: 0.16, glide: 0.7, breath: 0.7 },
@@ -94,17 +94,17 @@ export const CHARACTERS = Object.freeze({
     label: 'AEROSOL PUFF',
     role: 'The airhead',
     line: 'Giggly, spaced out, sprays everywhere.',
-    face: face({ size: 0.22, gap: 0.28, pupil: 0.36, lid: 0.3, brows: 0, mouthW: 0.16, scale: 0.7, iris: '#2b8a5b' }),
+    face: face({ size: 0.22, gap: 0.28, pupil: 0.36, lid: 0.3, brows: 0, mouthW: 0.16, scale: 0.86, iris: '#2b8a5b' }),
     rest: rest({ open: 0.55, mouth: 0.5, curve: 0.2 }),
     motion: { breathe: 0.9, amp: 0.05, sway: 0.1, march: 0, twitch: 0, wander: 1 },
     voice: { pitch: 640, vowel: 'i', syl: 3, len: 0.05, glide: 1.1, breath: 0.4 },
-    anchor: { r: 0.5 },
+    anchor: { r: 0.3 },
   },
   droplet: {
     label: 'DROPLET',
     role: 'The daredevil',
     line: 'Locks on, dives and screams the whole way down.',
-    face: face({ size: 0.28, pupil: 0.5, brows: 2, teeth: 1, scale: 0.9, iris: '#3c7f12' }),
+    face: face({ size: 0.28, pupil: 0.5, brows: 2, teeth: 1, scale: 0.78, iris: '#3c7f12' }),
     rest: rest({ brow: -0.8, open: 0.75, curve: 0.1 }),
     motion: { breathe: 3.2, amp: 0.04, sway: 0, march: 0, twitch: 2.5 },
     voice: { pitch: 420, vowel: 'i', syl: 1, len: 0.32, glide: 2.1 },
@@ -142,7 +142,7 @@ export const CHARACTERS = Object.freeze({
     label: 'BLOOM',
     role: 'The diva',
     line: 'Hides in its bud, then demands applause.',
-    face: face({ size: 0.27, pupil: 0.45, lashes: 1, scale: 0.86, iris: '#2d9c46' }),
+    face: face({ size: 0.27, pupil: 0.45, lashes: 1, scale: 0.8, iris: '#2d9c46' }),
     rest: rest({ open: 0.5, curve: 0.55, brow: 0.3 }),
     motion: { breathe: 1.5, amp: 0.04, sway: 0.15, march: 0, twitch: 0 },
     voice: { pitch: 523, vowel: 'a', syl: 1, len: 0.32, glide: 1, vibrato: 1 },
@@ -155,6 +155,8 @@ export const CHARACTERS = Object.freeze({
     rest: rest({ curve: 0.5 }),
     motion: { breathe: 1.2, amp: 0.04, sway: 0.1, march: 0, twitch: 0 },
     voice: { pitch: 300, vowel: 'o', syl: 1, len: 0.12, glide: 0.7 },
+    // No face: the supply icon it carries is what the player must read.
+    faceless: true,
   },
   virion: {
     label: 'VIRION',
@@ -201,7 +203,7 @@ export const CHARACTERS = Object.freeze({
     role: 'The speedster',
     line: 'Impatient, aggressive, and it really splits in two.',
     face: face({ size: 0.22, gap: 0.3, tall: 0.7, pupil: 0.5, lid: -0.7, brows: 2, teeth: 2, mouthW: 0.44, scale: 0.72, iris: '#c6e04a' }),
-    rest: rest({ open: 0.75, brow: -0.7, curve: 0.7, mouth: 0.25 }),
+    rest: rest({ open: 0.75, brow: -0.7, curve: 0.7, mouth: 0.42 }),
     motion: { breathe: 1.6, amp: 0.035, sway: 0.1, march: 0, twitch: 5, jitter: 1 },
     voice: { pitch: 198, vowel: 'a', syl: 1, len: 0.06, glide: 0.8, growl: 0.4 },
   },
@@ -293,7 +295,7 @@ export const BOSS_SCRIPT = Object.freeze({
     title: 'THE ORIGINAL',
     line: 'POMPOUS, PROUD AND STILL COUGHING.',
     cards: ['AHEM. MIND YOUR MANNERS.', 'BLESS ME, PEASANT.', 'BEHOLD MY CROWN!', 'I AM THE CORONA!'],
-    gloat: ['COVER YOUR MOUTH NEXT TIME.', 'HO HO! THE ORIGINAL WINS.', 'MANNERS, VACCINE.'],
+    gloat: ['COVER YOUR MOUTH, VACCINE.', 'HO HO! THE ORIGINAL WINS.', 'AHEM. HOW VULGAR.'],
     defeat: 'I... WAS... FIRST...',
   },
   betagamma: {
@@ -377,6 +379,12 @@ export function bossLine(ev, s) {
   const m = /^([BG]):(.*)$/.exec(raw);
   return { text: m ? m[2] : raw, speaker: m ? m[1] : null, mood };
 }
+
+/** When a boss death's final pop lands (s after the defeat). The renderer's
+ * visual pop and the audio boom both use it, so picture and sound hit
+ * together; small pops lead up to it at DEFEAT_POPS (fractions of it). */
+export const DEFEAT_FINAL = Object.freeze({ main: 1, mid: 0.55 });
+export const DEFEAT_POPS = Object.freeze({ main: [0, 0.18, 0.34, 0.48, 0.6, 0.7, 0.78, 0.85], mid: [0, 0.16, 0.3, 0.42] });
 
 /** Babble length for a spoken line: two syllables per word, 2..8. */
 export const syllablesOf = (text) => Math.max(2, Math.min(8, text.trim().split(/\s+/).length * 2));
@@ -545,12 +553,19 @@ export function faceState(id, c = {}) {
     curve = mix(curve, -0.5, squint);
   }
   if (c.dying !== undefined) {
-    dead = smooth(clamp(c.dying * 2.5, 0, 1));
-    mouth = mix(mouth, 0.7, dead);
-    curve = mix(curve, -0.8, dead);
-    sweat = Math.max(sweat, dead * 0.8);
+    // Defeat: a panicked wail (wide eyes, sweat, mouth open), then "X X".
+    const k = clamp(c.dying, 0, 1);
+    open = 1.4;
+    brow = 1;
+    curve = -0.8;
+    mouth = Math.max(mouth, 0.6 + 0.3 * Math.abs(Math.sin(t * 19)));
+    smirk = 0;
+    sweat = 1;
+    dead = smooth(clamp((k - 0.5) * 3, 0, 1));
+    squint = 0;
   }
   if (c.bud !== undefined) alpha = smooth(clamp((c.bud - 0.35) / 0.5, 0, 1));
+  if (ch.faceless) alpha = 0;
   return {
     open: clamp(open, 0, 1.5),
     blinkL,
@@ -569,17 +584,77 @@ export function faceState(id, c = {}) {
   };
 }
 
-/** How far the drawn face reaches from the decal centre, in units of the
- * anchor radius (features only: eyes, brows, mouth, sweat drop). Used by the
- * test that keeps every face inside its body's silhouette. */
+/** How far a face's drawn features reach from the decal centre, in decal
+ * units, for one face state (faceState output). Mirrors the shader in
+ * faces.mjs: eye ellipses (with wide-open growth and the larger mismatched
+ * eye), brows (raised, tilted, smirking), the mouth curve and its opening,
+ * lashes and the sweat drop, plus line widths. */
+export function faceExtent(f) {
+  const st = f.style;
+  const wide = Math.max(f.open - 1, 0);
+  let reach = 0;
+  const pt = (x, y, pad = 0) => (reach = Math.max(reach, Math.hypot(x, y) + pad));
+  for (const s of [-1, 1]) {
+    const R = st.size * (s > 0 ? 1 + st.mismatch : 1 - st.mismatch * 0.5) * (1 + wide * 0.3);
+    const ry = R * st.tall,
+      cx = s * st.gap,
+      cy = FACE.eyeY + wide * 0.04;
+    for (let i = 0; i < 24; i++) {
+      const a = (i / 24) * Math.PI * 2;
+      pt(cx + Math.cos(a) * R, cy + Math.sin(a) * ry, 0.04);
+      if (st.lashes) pt(cx + Math.cos(a) * R * 1.3, cy + Math.sin(a) * ry * 1.3, 0.11);
+    }
+    if (st.brows > 0.5 && st.brows < 2.5) {
+      const by = cy + ry + 0.1 + wide * 0.14 + Math.max(f.brow, 0) * 0.05 + (s > 0 ? Math.max(f.smirk, 0) * 0.09 : 0);
+      const tilt = f.brow * 0.34 * R,
+        th = st.brows > 1.5 ? 0.07 : 0.042;
+      pt(cx - s * R * 0.85, by + tilt, th);
+      pt(cx + s * R * 0.9, by - tilt * 0.5, th);
+    }
+  }
+  if (st.brows > 2.5) {
+    const by = FACE.eyeY + st.size * st.tall + 0.11;
+    pt(st.gap + st.size, by + Math.abs(f.brow) * 0.04, 0.08);
+    pt(0, by + Math.abs(f.brow) * 0.12, 0.08);
+  }
+  const open = Math.max(f.mouth, st.teeth > 2.5 ? 0.2 : 0);
+  for (let i = 0; i <= 20; i++) {
+    const x = i / 10 - 1;
+    const up = FACE.mouthY + f.curve * 0.2 * x * x - f.curve * 0.07 + f.smirk * 0.1 * x;
+    pt(x * st.mouthW, up, 0.034);
+    pt(x * st.mouthW, up - open * 0.36 * (1 - x * x * 0.85), 0.034);
+  }
+  if (f.sweat > 0.01) pt(0.66, 0.38 + 0.14, 0.09);
+  return reach;
+}
+/** Contexts that push a face to its extremes (the reach sweep). */
+export const FACE_SCENARIOS = Object.freeze([
+  {},
+  { hurt: 1 },
+  { gloat: 1 },
+  { shock: 1 },
+  { hp: 0.05 },
+  { hp: 0.05, gloat: 1 },
+  { talk: 1 },
+  { mutating: true },
+  { mode: 'dive' },
+  { mode: 'aim' },
+  { intro: 0.5 },
+  { dying: 0.3 },
+  { dying: 0.95 },
+  ...Object.keys({ cough: 1, sneeze: 1, ring: 1, bloom: 1, strand: 1, aerosol: 1, jet: 1 }).flatMap((preset) => [{ tele: { preset, k: 0.5 } }, { tele: { preset, k: 1 } }]),
+]);
+const reachCache = new Map();
+/** Worst-case feature reach of a character's face, in units of its anchor
+ * radius (decal scale included), over FACE_SCENARIOS at several times. */
 export function faceReach(id) {
-  const st = (CHARACTERS[id] || CHARACTERS.wild).face;
-  const eyeR = st.size * Math.max(1, st.tall) * 1.25 * (1 + st.mismatch);
-  const eyes = Math.hypot(st.gap + eyeR, FACE.eyeY + eyeR);
-  const brows = Math.hypot(st.gap + st.size * 1.1, FACE.eyeY + st.size * st.tall * 1.25 + 0.32);
-  const mouth = Math.hypot(st.mouthW, Math.abs(FACE.mouthY) + 0.22 + 0.35);
-  const sweatDrop = Math.hypot(0.62 + 0.1, 0.45 + 0.16);
-  return Math.max(eyes, brows, mouth, sweatDrop) * st.scale;
+  if (!reachCache.has(id)) {
+    const st = (CHARACTERS[id] || CHARACTERS.wild).face;
+    let worst = 0;
+    for (const c of FACE_SCENARIOS) for (let t = 0; t < 6; t += 0.37) worst = Math.max(worst, faceExtent(faceState(id, { ...c, t, id: 'r' })));
+    reachCache.set(id, worst * st.scale);
+  }
+  return reachCache.get(id);
 }
 
 // ---- Body motion (squash, stretch, tilt; never translation) ---------------------

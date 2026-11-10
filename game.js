@@ -44,6 +44,7 @@ import { STEP, createClock, advanceClock, capturePositions, interpolatedView } f
 import { chooseInput } from './autopilot.mjs';
 import { createAudio } from './audio.mjs';
 import { TOP_BAND } from './camera.mjs';
+import { bossCard, bossLine, talkTime, DEFEAT_FINAL } from './personality.mjs';
 import { matrix, segments, vial, medalRing, ICONS, controlsCard, controlsLine, fmtTime, pixelSprite, soapBubbles, helix, r0Dial, causeText } from './ui.mjs';
 
 const $ = (sel) => document.querySelector(sel);
@@ -292,6 +293,15 @@ function handleEvents(list, s, live) {
     } else if (ev.type === 'escape') hintOnce('hint-r0', 'R0: THE SHARE OF VIRUSES THAT GOT AWAY. KEEP IT UNDER 1.');
     else if (ev.type === 'surge') flashElement('#callout', 1300, (el) => ((el.innerHTML = '<small>THE CHOIR SPEEDS UP</small>OUTBREAK SURGE'), el.classList.remove('is-card', 'long')));
     else if (ev.type === 'boss-enter' && !ev.mid) hintOnce('hint-focus', 'HOLD SHIFT: SLOWER MOVES, A STRONGER NEEDLE STREAM.');
+    else if (ev.type === 'boss-intro') showBossCard(ev);
+    // A boss defeat is the payoff: the LAB REPORT / victory overlay waits until
+    // the final pop has landed (presentation only; the model's 0.6 s minimum
+    // report hold is unchanged, and presses in between are dropped).
+    else if (ev.type === 'boss-defeated' && !ev.mid) ui.reportAt = performance.now() + (DEFEAT_FINAL.main + 0.7) * 1000;
+    if (ev.type === 'card-start' || ev.type === 'damage' || ev.type === 'boss-defeated') {
+      const line = bossLine(ev, s);
+      if (line) say(line, s, ev);
+    }
     else if (ev.type === 'chain-tier') {
       if (ev.tier === 2) hintOnce('hint-chain', 'CHAIN: CURE AGAIN WITHIN 2 S TO MULTIPLY POINTS.');
       const chip = $('#chain');
@@ -310,6 +320,63 @@ function handleEvents(list, s, live) {
   }
 }
 
+// ---- Villain personality: boss name cards and speech bubbles ----------------
+// Speech only appears when bullets were just cancelled (a card start, a lost
+// vial, a defeat), and both panels are translucent (MOVEMENT_AUDIT.md E1).
+let shownBoss = null;
+/** A new boss object entered (a stage start from the tray clears the model's
+ * own boss-enter event, so the frame loop watches the state instead). */
+function noteBoss(s) {
+  const b = s.boss;
+  if (!b || b === shownBoss || s.phase !== 'playing' || b.state === 'defeated') return;
+  shownBoss = b;
+  handleEvents([{ type: 'boss-intro', boss: b.type, name: b.name, mid: b.mid }], s, true);
+}
+function showBossCard(ev) {
+  const card = bossCard(ev.boss, ev.mid);
+  if (!card) return;
+  const hint = ui.bossHint;
+  ui.bossHint = null;
+  flashElement('#boss-card', hint ? 3200 : 2300, (el) => {
+    el.classList.toggle('mid', !!ev.mid);
+    el.style.setProperty('--card', BOSSES[ev.boss]?.color || '#12ce5d');
+    el.classList.toggle('long', !!hint);
+    el.innerHTML = `<small>${ev.mid ? 'MIDBOSS' : 'VARIANT BOSS'} · ${card.title}</small><strong>${card.name}</strong><em>${card.line}</em>${hint ? `<span class="hint">${hint}</span>` : ''}`;
+  });
+}
+const bubble = { id: null, until: 0 };
+function say(line, s, ev) {
+  const parts = s.enemies.filter((e) => e.kind === 'boss' && e.part !== 'node' && (e.alive || ev.type === 'boss-defeated'));
+  const who = (line.speaker && parts.find((e) => e.tag === line.speaker)) || parts[0];
+  const el = $('#boss-say');
+  el.textContent = line.text;
+  el.className = `${line.mood}${line.speaker ? ` twin-${line.speaker}` : ''}`;
+  bubble.id = who?.id ?? null;
+  bubble.x = who?.x ?? ev.x ?? 0;
+  bubble.z = who?.z ?? ev.z ?? -7;
+  bubble.r = who?.radius ?? 2;
+  bubble.until = performance.now() + (talkTime(line.text) + 0.7) * 1000;
+  el.hidden = false;
+  placeBubble(s);
+}
+/** Keep the bubble over its speaker (it follows a moving boss). */
+function placeBubble(s) {
+  const el = $('#boss-say');
+  if (el.hidden) return;
+  if (performance.now() > bubble.until || s.phase === 'title') {
+    el.hidden = true;
+    return;
+  }
+  const who = s.enemies.find((e) => e.id === bubble.id && e.alive);
+  if (who) [bubble.x, bubble.z] = [who.x, who.z];
+  const p = view?.screenOf(bubble.x, 0.55, bubble.z - bubble.r * 1.05);
+  if (!p) return;
+  const w = stage.clientWidth;
+  const half = el.offsetWidth / 2;
+  const x = Math.max(half + 6, Math.min(w - half - 6, p.pixelX));
+  el.style.transform = `translate(${Math.round(x - half)}px, ${Math.round(Math.max(4, p.pixelY - el.offsetHeight - 8))}px)`;
+}
+
 function showIntro() {
   const level = getLevel(state.wave);
   const icon = level.intro?.icon;
@@ -317,12 +384,10 @@ function showIntro() {
   if (level.kind === 'boss') {
     $('#intro-card').hidden = true;
     if (fresh) {
+      // The first-visit hint rides on the boss's name card.
       store.seen.add(level.code);
       save(KEYS.seen, [...store.seen]);
-      flashElement('#callout', 2300, (el) => {
-        el.textContent = level.intro.text;
-        el.classList.add('long');
-      });
+      ui.bossHint = level.intro.text;
     }
     return;
   }
@@ -357,8 +422,9 @@ function currentScreen() {
   if (p === 'title') return ui.controlsOpen ? 'controls' : ui.attract === 'title' ? 'title' : ui.attract;
   if (p === 'paused') return ui.controlsOpen ? 'controls' : 'pause';
   if (p === 'lost') return 'lost';
-  if (p === 'won') return state.practice ? 'practice' : 'won';
-  if (p === 'transition' && state.transitionHold) return 'report';
+  const shown = !(performance.now() < (ui.reportAt || 0));
+  if (p === 'won') return shown ? (state.practice ? 'practice' : 'won') : '';
+  if (p === 'transition' && state.transitionHold) return shown ? 'report' : '';
   return '';
 }
 const ROWS = ['play-button', 'assist-button', 'easy-button', 'retry-button', 'menu-button', 'difficulty-button', 'sound-button', 'effects-button', 'controls-button', 'back-button'];
@@ -571,7 +637,7 @@ const TWIST_TEXT = {
 function syncHUD(s) {
   const phaseAttr = ui.screen === 'demo' ? 'demo' : s.paused ? 'paused' : s.phase;
   if (ui.cache.phaseAttr !== phaseAttr) cabinet.dataset.phase = ui.cache.phaseAttr = phaseAttr;
-  setClass('held', stage, 'held', !!s.paused || (s.phase === 'transition' && s.transitionHold));
+  setClass('held', stage, 'held', !!s.paused || (s.phase === 'transition' && s.transitionHold && !(performance.now() < (ui.reportAt || 0))));
   setHTML('score', $('#score'), segments(String(s.score).padStart(7, '0')));
   setAttr('scoreAria', $('#score'), 'aria-label', `Score ${s.score}`);
   const hi = Math.max(store.scores[0]?.score || 0, s.score);
@@ -672,6 +738,9 @@ function syncUI() {
   const screen = currentScreen();
   overlay.hidden = !screen;
   if (screen !== ui.screen) {
+    // The report appears after the defeat payoff: a key still held from the
+    // fight must be released before it can release the report.
+    if (screen === 'report' && ui.reportAt) lockHeld();
     ui.screen = screen;
     if (screen) configure(screen);
   }
@@ -1047,6 +1116,9 @@ function currentInput() {
     focus: active('ShiftLeft') || active('ShiftRight'),
     bomb: active('Space') || active('KeyX') || mouseBomb || bombPulse > 0,
   };
+  // While the boss defeat plays out before the report, a SOAP press must not
+  // release the (not yet visible) report.
+  if (performance.now() < (ui.reportAt || 0) && state.phase !== 'playing') input.bomb = false;
   if (drag) {
     // During the respawn glide the finger's target follows the syringe, so
     // control resumes from where it appears, never by zipping back to where
@@ -1149,6 +1221,8 @@ window.__game = {
     view?.render(state, 0);
     return !!view?.hitboxes;
   },
+  /** QA: drawn body footprints vs colliders and faces vs silhouettes (render.mjs audit). */
+  audit: () => view?.audit(state) ?? null,
   /** Dev-only: draw one layer alone ('marker', 'bullets', 'graze') for pixel measurement. */
   probe: (layer) => !!view?.probe(state, layer),
   setDifficulty: (d) => {
@@ -1243,6 +1317,8 @@ async function boot() {
       }
     }
     if (clock.steps && !demo) spendPulse();
+    if (!demo) noteBoss(state);
+    placeBubble(shown);
     audio.setSuspended(!!shown.paused);
     audio.tick(shown, shown.phase === 'playing' && !shown.paused && ui.attract !== 'demo');
     if (ui.screen === 'lost') {

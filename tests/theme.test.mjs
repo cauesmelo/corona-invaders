@@ -10,6 +10,7 @@ import { ARCHETYPES } from '../levels.mjs';
 import { BOSSES } from '../bosses.mjs';
 import { FAMILIES } from '../bullets.mjs';
 import { causeText } from '../ui.mjs';
+import { CHARACTERS, characterOf } from '../personality.mjs';
 
 const ORGANIC = new Set(['sphere', 'crown', 'clubs', 'shell', 'tube', 'torus', 'petals', 'drop', 'virions', 'warts', 'eyes']);
 const PLANE_WORDS = /wing|fin\b|tail|fuselage|cockpit|engine|thruster|rotor|propeller|nose ?cone|jet\b/i;
@@ -50,9 +51,16 @@ test('the four variant bosses have distinct silhouettes, not one ball with recol
     for (const p of SHAPES[k].parts.filter((p) => p.type === 'sphere' && p.scale)) assert.ok(p.scale[0] === 1 && p.scale[2] === 1, k);
 });
 
-test('only bosses have faces: popcorn stays faceless, true to the sprite', () => {
-  for (const kind of Object.keys(ARCHETYPES)) assert.ok(!shapeFor({ kind }).parts.some((p) => p.type === 'eyes'), kind);
-  for (const type of ['alpha', 'twinB', 'twinG', 'delta', 'omicron']) assert.ok(SHAPES[type].parts.some((p) => p.type === 'eyes'), type);
+test('every villain has a face, drawn as a decal (no eye meshes), except the supply carrier', () => {
+  // Revision five feedback: "the villains need a bit more personality".
+  // Popcorn used to stay faceless; now every virus has its own face from
+  // personality.mjs, drawn inside its body (tests/personality.test.mjs).
+  for (const spec of Object.values(SHAPES)) assert.ok(!spec.parts.some((p) => p.type === 'eyes'), 'faces are decals, not mesh parts');
+  for (const kind of Object.keys(ARCHETYPES)) {
+    const ch = CHARACTERS[characterOf({ kind })];
+    assert.ok(ch.face && (ch.faceless || ch.rest), kind);
+  }
+  assert.ok(CHARACTERS.vesicle.faceless);
 });
 
 test('the syringe has no crossbars: nothing extends sideways beyond the barrel + 0.2 u, and the needle points up-field', () => {

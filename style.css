@@ -760,6 +760,125 @@ canvas {
   font-size: 13px;
   letter-spacing: 0.12em;
 }
+/* Boss name card (villain personality): name, role and a one-line
+   personality, slid in during the entrance. Translucent, mid-board, below
+   the boss, like the callout (MOVEMENT_AUDIT.md E1). */
+#boss-card {
+  position: absolute;
+  z-index: 3;
+  left: 50%;
+  top: 54%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 9px 22px 10px;
+  max-width: min(440px, calc(var(--field-width) - 16px));
+  text-align: center;
+  color: #f4f6fa;
+  background: linear-gradient(90deg, rgba(6, 14, 12, 0.2), rgba(6, 14, 12, 0.62) 18%, rgba(6, 14, 12, 0.62) 82%, rgba(6, 14, 12, 0.2));
+  border-top: 2px solid var(--card, var(--virus));
+  border-bottom: 2px solid var(--card, var(--virus));
+  text-shadow: 0 1px 3px #000, 0 0 2px #000;
+  pointer-events: none;
+  animation: nameCard 2.3s ease-out forwards;
+}
+#boss-card.long {
+  animation-duration: 3.2s;
+}
+#boss-card small {
+  font-size: 11px;
+  letter-spacing: 0.22em;
+  color: var(--card, var(--virus));
+}
+#boss-card strong {
+  font-size: 26px;
+  letter-spacing: 0.24em;
+  line-height: 1.05;
+}
+#boss-card.mid strong {
+  font-size: 20px;
+}
+#boss-card em {
+  font-style: normal;
+  font-size: 12px;
+  letter-spacing: 0.1em;
+  color: #d4dbe3;
+}
+#boss-card .hint {
+  margin-top: 3px;
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  color: var(--cyan);
+}
+@keyframes nameCard {
+  0% {
+    opacity: 0;
+    clip-path: inset(0 50% 0 50%);
+  }
+  14% {
+    opacity: 1;
+    clip-path: inset(0 0 0 0);
+  }
+  84% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+/* Boss speech bubble: follows its speaker; shown only right after bullets
+   were cancelled (card start, a lost vial, the defeat). */
+#boss-say {
+  position: absolute;
+  z-index: 3;
+  left: 0;
+  top: 0;
+  max-width: 240px;
+  padding: 5px 10px 6px;
+  border-radius: 10px;
+  background: rgba(244, 248, 250, 0.82);
+  color: #0b1410;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+  pointer-events: none;
+  animation: sayPop 0.22s cubic-bezier(0.2, 1.6, 0.4, 1);
+}
+#boss-say::after {
+  content: '';
+  position: absolute;
+  left: calc(50% - 6px);
+  bottom: -6px;
+  border: 6px solid transparent;
+  border-bottom: 0;
+  border-top-color: rgba(244, 248, 250, 0.82);
+}
+#boss-say.gloat {
+  background: rgba(214, 255, 226, 0.86);
+}
+#boss-say.gloat::after {
+  border-top-color: rgba(214, 255, 226, 0.86);
+}
+#boss-say.defeat {
+  background: rgba(200, 208, 216, 0.8);
+  font-style: italic;
+}
+#boss-say.defeat::after {
+  border-top-color: rgba(200, 208, 216, 0.8);
+}
+@keyframes sayPop {
+  0% {
+    scale: 0.6;
+    opacity: 0;
+  }
+  100% {
+    scale: 1;
+    opacity: 1;
+  }
+}
 #twist-tag {
   position: absolute;
   z-index: 3;
@@ -1926,7 +2045,9 @@ kbd {
     transition-duration: 0.01ms !important;
   }
   #intro-card,
-  #callout {
+  #callout,
+  #boss-card,
+  #boss-say {
     animation: none !important;
   }
 }

@@ -26,7 +26,7 @@
  * and measure every sound.
  */
 import { chainMultiplier } from './model.mjs';
-import { CHARACTERS, characterOf, bossLine, syllablesOf, marchTempo } from './personality.mjs';
+import { CHARACTERS, characterOf, bossLine, syllablesOf, marchTempo, DEFEAT_FINAL, DEFEAT_POPS } from './personality.mjs';
 
 const BASS = [55, 43.65, 49, 41.2]; // the original 4-note march (A1 F1 G1 E1)
 const PENTA = [0, 2, 4, 7, 9];
@@ -707,7 +707,7 @@ export function createAudio({ context = null, clock = null, random = Math.random
         mid = !!ev.mid,
         pan = panOf(ev.x),
         dest = out(pan, 0.35);
-      const pops = mid ? [0, 0.16, 0.3, 0.42] : [0, 0.18, 0.34, 0.48, 0.6, 0.7, 0.78, 0.85];
+      const pops = mid ? DEFEAT_POPS.mid : DEFEAT_POPS.main;
       const final = mid ? DEFEAT_FINAL.mid : DEFEAT_FINAL.main;
       osc(dest, { type: 'sine', f: 110, f1: 40, t, a: 0.002, d: 0.3, peak: 0.3 });
       noise(dest, { t, a: 0.001, d: 0.06, peak: 0.15, type: 'highpass', f: 3000 });
@@ -827,9 +827,6 @@ export function createAudio({ context = null, clock = null, random = Math.random
   };
 }
 
-/** When the boss death's final pop lands (s after the defeat): the renderer's
- * visual pop uses the same numbers, so sound and picture hit together. */
-export const DEFEAT_FINAL = Object.freeze({ main: 1, mid: 0.55 });
 
 // ---- Catalogue: every sound with a fixture (soundboard, measurement, tests) ------
 const S = fixtureState;

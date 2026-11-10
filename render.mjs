@@ -9,6 +9,10 @@
  * Bullets are drawn last, above everything, with depth testing off, so no
  * mesh can ever hide one; player needles are drawn under them. Shapes come
  * from shapes.mjs (tests/theme.test.mjs checks that registry).
+ * Personality (faces, idle life, reactions, the boss entrance and defeat;
+ * personality.mjs and faces.mjs) never moves a body off its collider and
+ * never draws one wider than it: motion is squash, stretch and tilt around
+ * the board-plane centre, normalised to the collider footprint.
  * Juice (flash, punch, shake, debris) is visual only and obeys
  * prefers-reduced-motion and the Effects: Reduced setting. Shake happens only
  * on card breaks, SOAP and deaths, capped at 0.08 u.
@@ -17,7 +21,10 @@ import * as THREE from './vendor/three.module.js';
 import { cameraLayout, FRAMING_POINTS, pxPerUnit } from './camera.mjs';
 import { RULES, getLevel, chainMultiplier, antibodyOffsets } from './model.mjs';
 import { SHAPES, SYRINGE, PALETTE, shapeFor } from './shapes.mjs';
-import { COLLIDERS, NEEDLE, MARKER, GRAZE_RING, markerQuad, spriteLayout, bulletQuad, enemyScale, bulletAxis, needleSegment } from './hitboxes.mjs';
+import { COLLIDERS, NEEDLE, MARKER, GRAZE_RING, markerQuad, spriteLayout, bulletQuad, enemyScale, bodyRadiusOf, bulletAxis, needleSegment } from './hitboxes.mjs';
+import { CHARACTERS, characterOf, faceState, bodyMotion, faceReach, marchTempo, bossLine, talkTime, DEFEAT_FINAL, DEFEAT_POPS } from './personality.mjs';
+import { INTRO as BOSS_INTRO } from './bosses.mjs';
+import { createFaces, writeFace, placeFace, commitFaces, FACE_MAX } from './faces.mjs';
 
 export { PALETTE };
 export const PICKUP_STYLE = Object.freeze({
@@ -669,7 +676,7 @@ function cachedGeo(spec, key, make) {
 function buildShape(spec, { seed = 1, tint = null } = {}) {
   const body = new THREE.Group();
   const mats = [];
-  const handles = { body, mats, spikes: [], eyes: [], petals: [], membrane: null };
+  const handles = { body, mats, spikes: [], petals: [], membrane: null, crown: null };
   const mat = (color, extra = {}) => {
     // Lit and glossy (revision-four depth): low emissive so key, rim and
     // specular shading read; just enough self-light to keep greens vivid.
@@ -735,7 +742,16 @@ function buildShape(spec, { seed = 1, tint = null } = {}) {
       const parts = spikeParts({ ...p, detail: small ? 0 : 1 });
       const tipMat = p.tips ? mat(p.tips, { emissiveIntensity: 0.35 }) : p.role === 'inner' ? mat(PALETTE.virus, { emissiveIntensity: 0.35 }) : bodyMat;
       const stemMat = p.role === 'inner' ? tipMat : bodyMat;
-      if (p.breakable) {
+      if (p.separate) {
+        // Its own merged mesh (stems + tips), so the inhale can bristle the
+        // decorative spikes without scaling the body.
+        const g = new THREE.Group();
+        const place = M(...at, ...sc);
+        g.add(new THREE.Mesh(cachedGeo(spec, `crownStem${partIndex}`, () => merge(parts.map((q) => [q.stem[0], place.clone().multiply(q.stem[1])]))), stemMat));
+        g.add(new THREE.Mesh(cachedGeo(spec, `crownCap${partIndex}`, () => merge(parts.map((q) => [q.cap[0], place.clone().multiply(q.cap[1])]))), tipMat));
+        body.add(g);
+        handles.crown = g;
+      } else if (p.breakable) {
         // HEAVY CROWN: each spike is its own mesh so lost HP visibly snaps it off.
         for (const s of parts) {
           const g = new THREE.Group();
@@ -790,24 +806,6 @@ function buildShape(spec, { seed = 1, tint = null } = {}) {
         pivot.add(petal);
         body.add(pivot);
         handles.petals.push(petal);
-      }
-    } else if (p.type === 'eyes') {
-      // Two dot eyes on the camera-facing upper front of the sphere. They
-      // narrow to telegraph an attack (bosses only; popcorn stays faceless).
-      const white = new THREE.MeshBasicMaterial({ color: '#ffffff' });
-      const black = new THREE.MeshBasicMaterial({ color: '#0b0f12' });
-      for (const side of [-1, 1]) {
-        const eye = new THREE.Group();
-        const dir = new THREE.Vector3(side * p.gap, 0.78, 0.62).normalize();
-        eye.position.copy(dir.clone().multiplyScalar(1.01));
-        eye.position.y *= p.lift ?? 1;
-        eye.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), dir);
-        const ball = new THREE.Mesh(new THREE.CircleGeometry(p.r * 1.35, 18), white);
-        const pupil = new THREE.Mesh(new THREE.CircleGeometry(p.r, 18), black);
-        pupil.position.z = 0.01;
-        eye.add(ball, pupil);
-        body.add(eye);
-        handles.eyes.push(eye);
       }
     }
   }
@@ -1264,13 +1262,20 @@ export function createRenderer({ canvas, stage, settings }) {
   // ---- Enemies --------------------------------------------------------------------
   const enemyMeshes = new Map(),
     pickupMeshes = new Map();
+  const faces = createFaces();
+  scene.add(faces.mesh);
   const pickupTextures = Object.fromEntries(Object.keys(PICKUP_STYLE).map((k) => [k, pickupTexture(k)]));
   const nodeTextures = Object.fromEntries(['cough', 'ring', 'bloom', 'drip'].map((k) => [k, nodeTexture(k)]));
   function addEnemy(e) {
-    const spec = shapeFor(e, stateRef?.boss?.type);
+    const bossType = stateRef?.boss?.type;
+    const spec = shapeFor(e, bossType);
     const group = new THREE.Group();
     const h = buildShape(spec, { seed: e.id.length + (e.col || 0) });
-    group.add(h.body);
+    // group (board position, collider scale) -> tilt (squash, stretch, tilt
+    // around the centre) -> body (yaw: the crown's sway and twitch).
+    const tilt = new THREE.Group();
+    tilt.add(h.body);
+    group.add(tilt);
     // Warning ring under an enemy about to fire: dark outline + bright pink.
     const warning = new THREE.Group();
     const o = new THREE.Mesh(ringGeo, dangerMat(0.8));
@@ -1286,7 +1291,30 @@ export function createRenderer({ canvas, stage, settings }) {
     // The body sphere is drawn at exactly the collider radius (hitboxes.mjs).
     const scale = enemyScale(e, spec);
     group.scale.setScalar(scale);
-    const ud = { ...h, warning, pinkRing, scale, flash: 0, punch: 0, spec };
+    const char = characterOf(e, bossType);
+    const ch = CHARACTERS[char];
+    const bodySphere = spec.parts.find((q) => q.type === 'sphere' && !q.role);
+    const ud = {
+      ...h,
+      tilt,
+      warning,
+      pinkRing,
+      scale,
+      flash: 0,
+      punch: 0,
+      spec,
+      kind: e.kind,
+      char,
+      // Vertical stretch of the drawn body (BETA 1.38, GAMMA 0.7).
+      aspect: bodySphere?.scale?.[1] ?? 1,
+      bodyR: bodyRadiusOf(spec),
+      anchor: { r: ch.anchor?.r ?? bodyRadiusOf(spec), a: ch.anchor?.aspect ?? 1, at: ch.anchor?.at ?? null },
+      hurt: 0,
+      recoil: 0,
+      talk: 0,
+      land: 0,
+      boss: e.kind === 'boss',
+    };
     if (e.kind === 'boss' && e.part === 'node') {
       ud.glyph = new THREE.Sprite(new THREE.SpriteMaterial({ map: nodeTextures[e.tag], transparent: true, depthWrite: false, toneMapped: false }));
       ud.glyph.position.set(0, 2.2, 0);
@@ -1385,24 +1413,48 @@ export function createRenderer({ canvas, stage, settings }) {
   }
 
   // ---- Events -> juice ------------------------------------------------------------
-  function onEvent(ev) {
+  /** The mesh of the boss part that speaks a line (a named twin, else the core). */
+  function speakerMesh(s, line) {
+    const parts = (s?.enemies || []).filter((e) => e.kind === 'boss' && e.alive && e.part !== 'node');
+    const who = line.speaker ? parts.find((e) => e.tag === line.speaker) : parts[0];
+    return who ? enemyMeshes.get(who.id) : null;
+  }
+  function onEvent(ev, s) {
     const motion = settings.effects();
     if (ev.type === 'shot') plunger.position.z = 0.08;
     else if (ev.type === 'hit' && ev.id) {
       const m = enemyMeshes.get(ev.id);
-      // Auto-fire hits a boss 8+ times a second: its flash is short and soft
-      // so the grey body and green spikes stay readable.
-      if (m) Object.assign(m.userData, ev.kind === 'boss' ? { flash: 0.025, punch: 0.04, soft: true } : { flash: 0.06, punch: 0.1, soft: false });
+      if (m) {
+        const ud = m.userData;
+        // Auto-fire hits a boss 8+ times a second: its flash is short and soft
+        // so the grey body and green spikes stay readable, and it flinches at
+        // most once a second (a constant squint would hide its face).
+        if (ev.kind === 'boss') {
+          Object.assign(ud, { flash: 0.025, soft: true });
+          if (!(ud.flinchAt > visualTime - 1)) {
+            ud.flinchAt = visualTime;
+            ud.hurt = 0.12;
+          }
+        } else Object.assign(ud, { flash: 0.06, soft: false, hurt: 0.14 });
+      }
     } else if (ev.type === 'kill') {
-      const big = ev.kind === 'boss';
-      spawnDebris(ev.x, ev.z, big ? '#cfd6e2' : PALETTE.virus, big ? 60 : ev.kind === 'boss-part' ? 18 : ev.kind === 'mini' ? 3 : 5, big ? 1.6 : 1);
-      if (big) {
-        fx.trauma += 0.8;
-        addBurst(ev.x, ev.z, '#f4f7ff', 6);
+      if (ev.kind === 'boss') fx.trauma += 0.3; // the defeat sequence carries the payoff
+      else {
+        spawnDebris(ev.x, ev.z, PALETTE.virus, ev.kind === 'boss-part' ? 18 : ev.kind === 'mini' ? 3 : 5, 1);
+        if (ev.id) startPop(ev.id, ev.kind === 'boss-part' || ev.kind === 'heavy');
       }
       if (ev.kind === 'virion-bullet') addBurst(ev.x, ev.z, PALETTE.vaccine, 0.5);
+    } else if (ev.type === 'boss-defeated') startDefeat(ev);
+    else if (ev.type === 'sneeze' && ev.owner) {
+      const m = enemyMeshes.get(ev.owner);
+      if (m) m.userData.recoil = 0.25;
+    } else if (ev.type === 'card-start' || (ev.type === 'damage' && s?.boss)) {
+      const line = bossLine(ev, s);
+      const m = line && speakerMesh(s, line);
+      if (m) m.userData.talk = talkTime(line.text);
     } else if (ev.type === 'burst') addBurst(ev.x, ev.z, '#f0f4f8', ev.radius);
-    else if (ev.type === 'damage') {
+    if (ev.type === 'damage') {
+      mood.gloat = 1.6; // every villain gloats
       fx.trauma += 0.5;
       fx.flash = 0.55;
       shipFlash = 0.3;
@@ -1414,6 +1466,7 @@ export function createRenderer({ canvas, stage, settings }) {
       addBurst(ev.x, ev.z, PALETTE.danger, 1.8);
     } else if (ev.type === 'respawn') addBurst(ev.x, Math.min(ev.z, 12.5), PALETTE.vaccine, 2);
     else if (ev.type === 'bomb') {
+      if (ev.rescued) mood.shock = 0.9; // a deathbomb: villains are shocked
       fx.trauma += 0.45;
       fx.flash = Math.max(fx.flash, 0.25);
       addBurst(ev.x, ev.z, '#ffffff', 3.5);
@@ -1434,39 +1487,91 @@ export function createRenderer({ canvas, stage, settings }) {
     for (const em of s.emitters || []) if (em.state === 'tele' && em.ownerId) out.set(em.ownerId, em);
     return out;
   }
+  // Shared moods: the player lost a vial (villains gloat) or deathbombed out
+  // of a hit (villains are shocked). Seconds left; set by onEvent.
+  const mood = { gloat: 0, shock: 0, march: 0, lastState: null };
+  let faceCount = 0;
+  const faceSlots = [];
+  /** One face for an enemy mesh: mood from personality.faceState, placed on
+   * the drawn body (faces.placeFace). */
+  function drawFace(m, ctx, motion, alpha = 1) {
+    if (faceCount >= FACE_MAX) return;
+    const ud = m.userData;
+    const f = faceState(ud.char, ctx);
+    if (f.alpha * alpha <= 0.01) return;
+    const ch = CHARACTERS[ud.char];
+    const node = ud.anchor.at ? ud.body : ud.tilt;
+    const placed = placeFace(faces, faceCount, camera, node, { r: ud.anchor.r, a: ud.anchor.a, at: ud.anchor.at, scale: ch.face.scale, roll: motion.roll * 0.6, sx: 1, sy: 1 + (motion.sy - 1) * 0.5 });
+    writeFace(faces, faceCount, f, alpha);
+    faceSlots[faceCount] = { id: ud.id, char: ud.char, ...placed };
+    faceCount++;
+  }
   function syncEnemies(s, dt) {
     const live = new Set();
     const b = s.boss;
     const tele = telegraphOwners(s);
     const motion = settings.effects();
     const title = s.phase === 'title';
+    const running = !s.paused && s.phase === 'playing';
+    if (running) {
+      mood.gloat = Math.max(0, mood.gloat - dt);
+      mood.shock = Math.max(0, mood.shock - dt);
+      // The march phase (in beats) at the bass bed's tempo, for the choir.
+      mood.march += (dt * marchTempo(s)) / 60;
+    }
+    const gloat = Math.min(1, mood.gloat / 0.4),
+      shock = Math.min(1, mood.shock / 0.3);
+    const bossFrac = b && b.state !== 'defeated' ? Math.max(0, b.hp) / Math.max(1, b.maxHp) : 1;
     for (const e of s.enemies) {
       if (!e.alive || title) continue;
       live.add(e.id);
-      const m = enemyMeshes.get(e.id) || addEnemy(e);
+      let m = enemyMeshes.get(e.id);
+      // A HIJACKER turns a WILD TYPE into a HEAVY CROWN in place: rebuild the
+      // mesh, or the old body would be drawn smaller than its new collider.
+      if (m && m.userData.kind !== e.kind) {
+        disposeObj(m);
+        enemyMeshes.delete(e.id);
+        m = null;
+      }
+      m ||= addEnemy(e);
       const ud = m.userData;
+      ud.id = e.id;
       ud.flash = Math.max(0, ud.flash - dt);
       ud.punch = Math.max(0, ud.punch - dt);
+      ud.hurt = Math.max(0, ud.hurt - dt);
+      ud.recoil = Math.max(0, ud.recoil - dt);
+      ud.talk = Math.max(0, ud.talk - dt);
+      ud.land = Math.max(0, ud.land - dt);
       const em = tele.get(e.id);
-      // Centred on the board plane: no bob, so the drawn body sits on its collider.
+      // Centred on the board plane: no bob, so the drawn body sits on its
+      // collider. Personality is squash, stretch and tilt around this point.
       m.position.set(e.x, BULLET_Y, e.z);
-      // Personality: spikes bristle before a cough, a sneezer swells 1.25x
-      // while inhaling ("ah... ah..."), everything wobbles when hit.
-      let sx = 1,
-        sy = 1;
-      if (em) {
-        const k = 1 - em.timer / em.tele;
-        if (em.preset === 'sneeze') sx = sy = 1 + 0.25 * Math.min(1, k * 1.2);
-        else sx = sy = 1 + 0.1 * Math.sin(k * Math.PI);
-      }
-      if (motion && ud.punch > 0) {
-        const w = ud.punch / 0.1;
-        sx *= 1 + 0.14 * w;
-        sy *= 1 - 0.1 * w;
-      }
-      m.scale.set(ud.scale * sx, ud.scale * sy, ud.scale * sx);
-      // Bosses keep their eyes on the camera; popcorn crowns spin slowly.
-      ud.body.rotation.y = e.kind === 'worm' ? (e.dir > 0 ? Math.PI / 2 : -Math.PI / 2) : e.kind === 'boss' ? (motion ? Math.sin(visualTime * 0.8) * 0.12 : 0) : motion ? visualTime * 0.5 + (e.col || 0) : 0;
+      m.scale.setScalar(ud.scale);
+      const ctx = {
+        t: visualTime,
+        id: e.id,
+        look: [s.ship.x - e.x, s.ship.z - e.z],
+        hurt: ud.hurt / 0.14,
+        tele: em ? { preset: em.preset, k: 1 - em.timer / em.tele } : null,
+        gloat,
+        shock,
+        hp: e.kind === 'boss' ? (e.local ? Math.max(0, e.hp) / Math.max(1, e.maxHp) : bossFrac) : e.maxHp > 1 ? Math.max(0, e.hp) / e.maxHp : 1,
+        mode: e.mode,
+        mutating: e.mutating > 0,
+        talk: ud.talk > 0 ? 1 : 0,
+        recoil: ud.recoil / 0.25,
+        beat: mood.march % 1,
+        beatOdd: Math.floor(mood.march) % 2 === 1,
+        land: ud.land / 0.35,
+      };
+      if (e.kind === 'boss' && b?.state === 'intro') ctx.intro = 1 - Math.max(0, b.timer) / BOSS_INTRO;
+      if (ud.petals.length) ctx.bud = ud.petalOpen ?? 0;
+      const mo = motion ? bodyMotion(ud.char, ctx, ud.aspect) : { sx: 1, sy: 1, sz: 1, pitch: 0, roll: 0, yaw: 0, crown: 1 };
+      ud.tilt.scale.set(mo.sx, mo.sy, mo.sz);
+      ud.tilt.rotation.set(mo.pitch, 0, mo.roll);
+      if (ud.crown) ud.crown.scale.setScalar(mo.crown);
+      // Crowns sway and twitch (bosses keep a slow look-around).
+      ud.body.rotation.y = e.kind === 'worm' ? (e.dir > 0 ? Math.PI / 2 : -Math.PI / 2) : e.kind === 'boss' ? (motion ? Math.sin(visualTime * 0.8) * 0.12 + mo.yaw * 0.5 : 0) : mo.yaw + (e.col || 0) * 0.7;
       if (e.kind === 'droplet' && (e.mode === 'dive' || e.mode === 'aim')) ud.body.rotation.y = Math.atan2(e.target[0] - e.x, e.target[1] - e.z);
       if (ud.helix && motion) ud.helix.rotation.z = visualTime * 6;
       const mutating = e.mutating > 0,
@@ -1503,20 +1608,24 @@ export function createRenderer({ canvas, stage, settings }) {
         for (const p of ud.petals) p.rotation.z = 0.45 - ud.petalOpen * 1.55;
       }
       if (ud.cargo && motion) ud.cargo.rotation.y = visualTime;
-      if (e.kind === 'boss' && b) syncBossPart(s, b, e, ud, em, dt);
+      let alpha = 1;
+      if (e.kind === 'boss' && b) alpha = syncBossPart(s, b, e, ud);
+      m.updateMatrixWorld(true);
+      drawFace(m, ctx, mo, alpha);
     }
     for (const [id, m] of enemyMeshes)
       if (!live.has(id)) {
         disposeObj(m);
         enemyMeshes.delete(id);
       }
+    // The boss landed: a squash as the entrance slide ends.
+    const st = b ? b.state : null;
+    if (mood.lastState === 'intro' && st && st !== 'intro') for (const m of enemyMeshes.values()) if (m.userData.boss) m.userData.land = 0.35;
+    mood.lastState = st;
   }
-  function syncBossPart(s, b, e, ud, em, dt) {
+  /** Boss-only visuals; returns the face opacity (the dormant twin is ghosted). */
+  function syncBossPart(s, b, e, ud) {
     const card = b.cards[b.card];
-    // Eyes narrow to telegraph an attack and close during a card break.
-    const anyTele = (s.emitters || []).some((x) => x.boss && x.state === 'tele');
-    const narrow = b.state === 'cardIntro' ? 0.15 : anyTele ? 0.35 : 1;
-    for (const eye of ud.eyes) eye.scale.y += (narrow - eye.scale.y) * ease(dt, 12);
     if (ud.seam) ud.seam.material.opacity = b.state === 'cardIntro' ? 0.5 + Math.sin(visualTime * 30) * 0.4 : 0.35;
     if (ud.halo) {
       const nucleus = card?.nucleus && e.id === b.nucleus;
@@ -1532,7 +1641,94 @@ export function createRenderer({ canvas, stage, settings }) {
       const next = (s.emitters || []).some((x) => x.ownerId === e.id && x.state === 'tele');
       ud.glyph.scale.setScalar(1.5 + (next ? 0.4 + Math.sin(visualTime * 9) * 0.15 : 0));
     }
-    void em;
+    return dormant ? 0.35 : 1;
+  }
+
+  // ---- Kill pops and the boss defeat (visual only: no collider remains) -----------
+  const pops = [],
+    dying = [];
+  function startPop(id, big) {
+    const m = enemyMeshes.get(id);
+    if (!m) return;
+    enemyMeshes.delete(id);
+    for (const mat of m.userData.mats) mat.transparent = true;
+    pops.push({ m, life: big ? 0.16 : 0.11, max: big ? 0.16 : 0.11 });
+  }
+  function updatePops(dt) {
+    for (let i = pops.length - 1; i >= 0; i--) {
+      const p = pops[i];
+      p.life -= dt;
+      const ud = p.m.userData;
+      if (p.life <= 0 || !settings.effects()) {
+        disposeObj(p.m);
+        pops.splice(i, 1);
+        continue;
+      }
+      // The pop: the body inflates and fades in about 0.1 s, face shocked.
+      const k = 1 - p.life / p.max;
+      ud.tilt.scale.set(1 + 0.45 * k, 1 + 0.6 * k, 1 + 0.45 * k);
+      for (const mat of ud.mats) {
+        mat.opacity = (1 - k) * mat.userData.baseOpacity;
+        mat.emissive.set('#ffffff');
+        mat.emissiveIntensity = 1.2 * (1 - k);
+      }
+      p.m.updateMatrixWorld(true);
+      drawFace(p.m, { t: visualTime, id: ud.id, hurt: 1, look: [0, 5] }, { roll: 0, sy: 1 + 0.6 * k }, 1 - k);
+    }
+  }
+  function startDefeat(ev) {
+    const mid = !!ev.mid;
+    for (const [id, m] of enemyMeshes) {
+      if (!m.userData.boss) continue;
+      enemyMeshes.delete(id);
+      dying.push({ m, t: 0, end: mid ? DEFEAT_FINAL.mid : DEFEAT_FINAL.main, pops: [...(mid ? DEFEAT_POPS.mid : DEFEAT_POPS.main)], mid, talk: 0 });
+    }
+    // The defeat line is babbled by the boss while it shivers.
+    const line = bossLine(ev, stateRef);
+    if (line) for (const d of dying) d.talk = talkTime(line.text);
+  }
+  function updateDying(s, dt) {
+    if (s.paused) return; // in step with the (suspended) audio
+    for (let i = dying.length - 1; i >= 0; i--) {
+      const d = dying[i];
+      d.t += dt;
+      d.talk = Math.max(0, d.talk - dt);
+      const ud = d.m.userData;
+      const k = Math.min(1, d.t / d.end);
+      // Small pops across the body, in time with the audio's escalating pops.
+      while (d.pops.length && d.t >= d.pops[0]) {
+        d.pops.shift();
+        const r = ud.scale * ud.bodyR;
+        const a = Math.random() * Math.PI * 2;
+        const x = d.m.position.x + Math.cos(a) * r * 0.7,
+          z = d.m.position.z + Math.sin(a) * r * 0.5;
+        addBurst(x, z, '#f4f7ff', 1.2);
+        spawnDebris(x, z, PALETTE.virus, 6, 1.1);
+      }
+      if (d.t >= d.end) {
+        // The payoff: the boss bursts.
+        const { x, z } = d.m.position;
+        spawnDebris(x, z, '#cfd6e2', d.mid ? 34 : 60, 1.6);
+        spawnDebris(x, z, PALETTE.virus, d.mid ? 16 : 30, 1.4);
+        addBurst(x, z, '#f4f7ff', d.mid ? 4.5 : 7);
+        addBurst(x, z, ud.spec.spikes || PALETTE.virus, d.mid ? 3 : 5);
+        fx.trauma = Math.min(1, fx.trauma + (d.mid ? 0.5 : 0.85));
+        fx.flash = Math.max(fx.flash, d.mid ? 0.2 : 0.35);
+        disposeObj(d.m);
+        dying.splice(i, 1);
+        continue;
+      }
+      const mo = bodyMotion(ud.char, { t: visualTime, id: ud.id, dying: k }, ud.aspect);
+      ud.tilt.scale.set(mo.sx * (1 + 0.12 * k), mo.sy, mo.sz * (1 + 0.12 * k));
+      ud.tilt.rotation.set(mo.pitch, 0, mo.roll);
+      ud.body.rotation.y += mo.yaw * dt * 20;
+      for (const mat of ud.mats) {
+        mat.emissive.set('#ffffff');
+        mat.emissiveIntensity = 0.2 + 1.4 * k * k * (0.6 + 0.4 * Math.sin(visualTime * 40));
+      }
+      d.m.updateMatrixWorld(true);
+      drawFace(d.m, { t: visualTime, id: ud.id, dying: k, talk: d.talk > 0 ? 1 : 0, look: [Math.sin(visualTime * 9) * 5, 3] }, mo);
+    }
   }
 
   function placeBullet(mesh, n, x, z, heading, w, l, offset = 0) {
@@ -1916,6 +2112,16 @@ export function createRenderer({ canvas, stage, settings }) {
     titleGroup.add(h.body);
   }
   scene.add(titleGroup);
+  /** The title's five coronas have faces too (they glance around). */
+  function drawTitleFaces() {
+    titleGroup.children.forEach((c, i) => {
+      if (faceCount >= FACE_MAX) return;
+      c.updateMatrixWorld(true);
+      placeFace(faces, faceCount, camera, c, { r: SHAPES.wild.parts[0].r, scale: CHARACTERS.wild.face.scale });
+      writeFace(faces, faceCount, faceState(i === 2 ? 'wild' : i % 2 ? 'hijacker' : 'sneezer', { t: visualTime, id: `title${i}`, look: [Math.sin(visualTime * 0.6 + i * 1.7) * 6, 3] }));
+      faceSlots[faceCount++] = null;
+    });
+  }
 
   function updateCamera(dt) {
     const motion = settings.effects();
@@ -1962,6 +2168,7 @@ export function createRenderer({ canvas, stage, settings }) {
     const hidden = [dot, grazeRing, soap, ...options].filter((o) => !o.visible);
     for (const o of hidden) o.visible = true;
     for (const m of Object.values(bullets)) m.count = 1;
+    faces.mesh.count = 1;
     needles.count = antigenPool.count = strands.count = 1;
     try {
       renderer.compile(scene, camera);
@@ -1985,7 +2192,7 @@ export function createRenderer({ canvas, stage, settings }) {
     scene.remove(zoo);
     zoo.traverse((o) => o.material?.dispose?.());
     for (const o of hidden) o.visible = false;
-    for (const m of [...Object.values(bullets), needles, antigenPool, strands]) m.count = 0;
+    for (const m of [...Object.values(bullets), needles, antigenPool, strands, faces.mesh]) m.count = 0;
     scene.remove(warm);
   }
 
@@ -2063,9 +2270,53 @@ export function createRenderer({ canvas, stage, settings }) {
       for (const [, m] of teleMeshes) disposeObj(m);
       teleMeshes.clear();
       for (const d of debrisState) d.life = 0;
+      for (const p of pops.splice(0)) disposeObj(p.m);
+      for (const d of dying.splice(0)) disposeObj(d.m);
+      mood.gloat = mood.shock = 0;
     },
-    events(list) {
-      for (const ev of list) onEvent(ev);
+    /** Screen position (CSS px) of a board point, for speech bubbles. */
+    screenOf(x, y, z) {
+      return project([x, y, z]);
+    },
+    /** QA: personality never draws a body wider than its collider. For every
+     * live enemy the drawn body sphere is measured from the real world
+     * matrices (footprint half-extent along x and z) against e.radius, and
+     * every face is checked to sit inside its anchor's silhouette on screen
+     * (centre offset + feature reach <= silhouette radius, in px). */
+    audit(s) {
+      const out = { enemies: [], faces: [] };
+      const m3 = new THREE.Matrix3();
+      for (const e of s.enemies) {
+        const m = enemyMeshes.get(e.id);
+        if (!e.alive || !m) continue;
+        const ud = m.userData;
+        m3.setFromMatrix4(ud.tilt.matrixWorld);
+        const el = m3.elements; // column-major
+        const r = ud.bodyR,
+          a = ud.aspect;
+        // Rows x and z of A = M diag(r, r a, r).
+        const ex = Math.hypot(el[0] * r, el[3] * r * a, el[6] * r),
+          ez = Math.hypot(el[2] * r, el[5] * r * a, el[8] * r);
+        out.enemies.push({ id: e.id, kind: e.kind, char: ud.char, collider: e.radius, drawn: Math.max(ex, ez), min: Math.min(ex, ez) });
+      }
+      for (let i = 0; i < faceCount; i++) {
+        const f = faceSlots[i];
+        if (!f) continue;
+        const c = project([f.c.x, f.c.y, f.c.z]),
+          p = project([f.p.x, f.p.y, f.p.z]);
+        // Silhouette radius on screen (the smaller of horizontal and
+        // screen-up, so squat bodies are judged by their short side); reach
+        // is in anchor radii, measured on the horizontal radius.
+        const edge = project([f.c.x + f.rWorld, f.c.y, f.c.z]);
+        const r = Math.abs(edge.pixelX - c.pixelX);
+        const sil = (r * f.silWorld) / f.rWorld;
+        const reach = faceReach(f.char) * r;
+        out.faces.push({ id: f.id, char: f.char, offset: Math.hypot(p.pixelX - c.pixelX, p.pixelY - c.pixelY), reach, silhouette: sil });
+      }
+      return out;
+    },
+    events(list, s) {
+      for (const ev of list) onEvent(ev, s);
     },
     render(s, dt) {
       stateRef = s;
@@ -2073,7 +2324,12 @@ export function createRenderer({ canvas, stage, settings }) {
       applyTheme(getLevel(s.wave).world);
       titleGroup.visible = s.phase === 'title';
       if (titleGroup.visible && settings.effects()) titleGroup.children.forEach((c, i) => (c.rotation.y = visualTime * 0.4 + i));
+      faceCount = 0;
       syncEnemies(s, dt);
+      if (titleGroup.visible) drawTitleFaces();
+      updatePops(dt);
+      updateDying(s, dt);
+      commitFaces(faces, faceCount);
       syncProjectiles(s);
       syncPickups(s);
       syncTelegraphs(s);

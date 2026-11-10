@@ -141,7 +141,8 @@ export const BOSSES = Object.freeze({
   },
 });
 export const BOSS_TYPES = Object.freeze(Object.keys(BOSSES));
-const INTRO = 1.5;
+/** The entrance slide (s): exported for the renderer's entrance face. */
+export const INTRO = 1.5;
 // Seated below the reserved top band so the VIRAL LOAD bar never covers a boss.
 const BOSS_Z = -7.2;
 
