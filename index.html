@@ -28,7 +28,7 @@
           <div class="meter"><span class="label">GRAZE</span><div class="led small" id="graze" role="img" aria-label="Graze 0"></div></div>
           <div class="meter r0-meter"><span class="label">R0</span><div id="r0"></div><b id="r0-value">0.00</b></div>
           <span class="chain-chip" id="chain" aria-live="polite" hidden>×2</span>
-          <div class="sector-tag" id="sector-tag"><b id="sector-code">1-1</b><span id="sector-world">AIRWAY</span></div>
+          <div class="sector-tag" id="sector-tag"><b id="sector-code">1-1</b><span id="sector-world">AIRWAY</span><em class="mode-chip" id="mode-chip" hidden></em></div>
         </div>
         <button class="hud-button" id="pause-button" type="button" aria-label="Pause game">
           <svg viewBox="0 0 20 20" aria-hidden="true"><rect x="5" y="4" width="3.4" height="12" rx="1" /><rect x="11.6" y="4" width="3.4" height="12" rx="1" /></svg>
@@ -83,6 +83,7 @@
               <button id="assist-button" class="row" type="button" hidden>+1 VIAL</button>
               <button id="easy-button" class="row" type="button" hidden>SWITCH TO EASY</button>
               <button id="retry-button" class="row" type="button" hidden>RETRY SAMPLE</button>
+              <button id="copy-button" class="row" type="button" hidden>COPY RUN LOG <span class="hint">C</span></button>
               <button id="menu-button" class="row" type="button" hidden>SPECIMEN TRAY</button>
               <button id="difficulty-button" class="row" type="button" hidden>DIFFICULTY <b>NORMAL</b></button>
               <button id="speed-button" class="row" type="button" hidden>GAME SPEED <b>100%</b></button>
@@ -91,16 +92,20 @@
               <button id="controls-button" class="row" type="button" hidden>CONTROLS</button>
               <button id="back-button" class="row" type="button" hidden>BACK</button>
             </div>
+            <!-- The difficulty switch (title only): a radio group, one tab stop;
+                 arrows or a click choose, the choice is saved. -->
+            <div class="mode-switch" id="mode-switch" role="radiogroup" aria-label="Difficulty" aria-describedby="mode-note" hidden>
+              <button type="button" role="radio" data-mode="easy" aria-checked="false" tabindex="-1"><b>EASY</b></button>
+              <button type="button" role="radio" data-mode="normal" aria-checked="true" tabindex="0"><b>NORMAL</b></button>
+              <button type="button" role="radio" data-mode="hard" aria-checked="false" tabindex="-1"><b>HARD</b></button>
+            </div>
+            <p class="mode-note" id="mode-note" hidden></p>
             <button id="easy-start" class="easy-start" type="button" hidden>NEW TO BULLET HELLS? <b>START ON EASY</b> · 5 VIALS, AUTO-SOAP</button>
             <p class="title-controls" id="title-controls"></p>
             <div class="title-icons" id="title-icons">
               <button id="map-button" class="icon-button" type="button" aria-label="Specimen tray">
                 <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="8" r="3.2" /><circle cx="14" cy="8" r="3.2" /><circle cx="6" cy="17" r="3.2" /><circle cx="14" cy="17" r="3.2" /><path d="M20 5v15" /></svg>
                 <span>TRAY</span>
-              </button>
-              <button id="title-difficulty" class="icon-button" type="button" aria-label="Difficulty: Normal">
-                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 18h16M7 18V10M12 18V6M17 18v-5" /></svg>
-                <span id="title-difficulty-label">NORMAL</span>
               </button>
               <button id="title-credits" class="icon-button" type="button" aria-label="Credits">
                 <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5" /><path d="M12 11v6M12 7.5v.5" /></svg>
