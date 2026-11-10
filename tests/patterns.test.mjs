@@ -54,8 +54,8 @@ test('every authored pattern parameter sits inside its preset LIMITS', () => {
   }
 });
 
-test('every preset has a telegraph minimum (0.5 s aimed, 0.8 s fans, 1.0 s walls and beams); Easy adds 0.15 s', () => {
-  const minimum = { cough: 0.5, drip: 0.5, sneeze: 0.8, sniffle: 0.8, ring: 0.8, bloom: 0.8, aerosol: 0.8, strand: 0.8, replicate: 0.8, wall: 1, jet: 1, quarantine: 1 };
+test('every preset has a telegraph minimum (0.5 s aimed, 0.8 s fans, 1.0 s walls, 1.5 s beams); Easy adds 0.15 s', () => {
+  const minimum = { cough: 0.5, drip: 0.5, sneeze: 0.8, sniffle: 0.8, ring: 0.8, bloom: 0.8, aerosol: 0.8, strand: 0.8, replicate: 0.8, wall: 1, jet: 1.5, quarantine: 1 };
   assert.deepEqual(Object.keys(minimum).sort(), Object.keys(PRESETS).sort());
   for (const [preset, tele] of Object.entries(minimum)) {
     assert.equal(LIMITS[preset].tele, tele, preset);

@@ -8,7 +8,7 @@
  *
  * Fairness invariants (tests/patterns.test.mjs):
  *   - every preset has a minimum telegraph (0.5 s small aimed, 0.8 s fans,
- *     1.0 s walls and beams; card starts add 1.5 s in bosses.mjs);
+ *     1.0 s walls, 1.5 s beams; card starts add 1.5 s in bosses.mjs);
  *   - every authored parameter sits inside LIMITS;
  *   - fans and rings keep >= 0.5 u clear between neighbours 10 u from the
  *     source; walls keep >= 2.0 u gaps (2.8 u on Easy);
@@ -33,7 +33,10 @@ export const LIMITS = Object.freeze({
   drip: { tele: 0.5, n: [6, 12], speed: [7, 9], interval: [0.08, 0.08] },
   wall: { tele: 1, gaps: [1, 2], gapWidth: [2, 4], speed: [3, 4] },
   aerosol: { tele: 0.8, rate: [1, 8], cone: [20, 120], speed: [2.5, 4.5], duration: [0.5, 30] },
-  jet: { tele: 1, width: [1.6, 2.4], live: [0.5, 0.5] },
+  // A beam is instant once live, so its lane telegraph is the whole warning:
+  // 1.5 s (the movement rubric's threat lead; 1.0 s used to be the only
+  // threat in the game shown less than 1.5 s ahead).
+  jet: { tele: 1.5, width: [1.6, 2.4], live: [0.5, 0.5] },
   strand: { tele: 0.8, n: [6, 16], speed: [4, 6], amp: [0.6, 1.2], wavelength: [4, 6], interval: [0.1, 0.16] },
   replicate: { tele: 0.8, n: [1, 6], speed: [3, 4], maxGen: [1, 3], splitAngle: [25, 25], splitEvery: [0.9, 2] },
   quarantine: { tele: 1, half: [3.5, 3.5], duration: [5, 20] },
@@ -294,7 +297,7 @@ export const PRESETS = Object.freeze({
       if (em.t >= em.p.duration) em.state = 'done';
     },
   },
-  // 9 SNEEZE JET: a lane beam. 1.0 s telegraph glow, 0.5 s live, then rest.
+  // 9 SNEEZE JET: a lane beam. 1.5 s telegraph glow, 0.5 s live, then rest.
   jet: {
     family: 'beam',
     label: 'SNEEZE JET',

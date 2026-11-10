@@ -77,6 +77,9 @@ test('F speeds: board crossing at full and focus speed, focus ratio, normalised 
   const ratio = RULES.focusSpeed / RULES.shipSpeed;
   t.diagnostic(`crossing ${full.toFixed(3)} s full, ${focus.toFixed(3)} s focus, ratio ${ratio.toFixed(3)}, depth ${(depth / RULES.shipSpeed).toFixed(3)} s`);
   assert.ok(ratio >= 0.35 && ratio <= 0.5, `focus ratio ${ratio}`);
+  // WARN, kept on purpose (core.mjs): 1.55 s against 0.8-1.3 s, inside the
+  // 25 % WARN margin. Fail if it drifts further.
+  assert.ok(full <= 1.3 * 1.25, `crossing ${full}`);
   // Every one of the 8 directions moves exactly the same distance per step.
   for (const [ax, az] of [[1, 0], [1, 1], [0, 1], [-1, 1], [-1, 0], [-1, -1], [0, -1], [1, -1]]) {
     const s = quiet();
@@ -436,6 +439,28 @@ test('C3 swept collision: no tunnelling at twice the fastest bullet, with the co
     s.enemyShots.push({ ...bullet(s.ship.x + off, s.ship.z - 0.2), vz: 25 });
     update(s, STEP);
     assert.equal(s.ship.dying > 0, Math.abs(off) < 0.35, `offset ${off}`);
+  }
+});
+
+// ---- E3 telegraphs -------------------------------------------------------------------
+test('E3: every threat is shown at least 1.5 s before it can reach the core (telegraph + travel)', (t) => {
+  const best = harshest();
+  for (const [preset, u] of Object.entries(best)) {
+    if (preset === 'quarantine') continue; // soft walls: they confine, never hurt
+    // Worst case: fired from the formation front (z = -4, the closest any
+    // shooter stands) straight at the syringe on its default row.
+    const s = quiet();
+    Object.assign(s.ship, { x: 0, z: RULES.shipZ, invulnerable: 1e9 });
+    startPattern(s, preset, { x: 0.3, z: RULES.formationFrontZ, params: { ...u.params, aimShip: true, at: 'ship' }, force: true, boss: u.boss, src: 'AUDIT' });
+    let at = null;
+    for (let i = 1; i <= 1200 && at === null; i++) {
+      update(s, STEP);
+      const reach = s.enemyShots.some((b) => bulletGap(b, s.ship.x, s.ship.z) < RULES.shipRadius) || s.beams.some((b) => Math.abs(b.x - s.ship.x) < b.width / 2 + RULES.shipRadius);
+      if (reach) at = i * STEP;
+    }
+    if (at === null) continue; // the shape never covers the core (rings, fans with a centre gap)
+    t.diagnostic(`${preset.padEnd(10)} first reach after ${at.toFixed(2)} s (${u.where})`);
+    assert.ok(at >= 1.5, `${preset}: ${at}`);
   }
 });
 

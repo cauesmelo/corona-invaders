@@ -25,8 +25,13 @@ export const RULES = Object.freeze({
   // Graze ring: a bullet passing within 1.0 u of the core (edge to centre)
   // scores once per bullet.
   grazeRadius: 1,
-  shipSpeed: 11.5, // crosses the board in about 1.5 s
-  focusSpeed: 5, // 0.45x: fine micro-dodging, still escapes an aimed stream
+  // 11.5 u/s crosses the 17.8 u box in 1.55 s, slower than the 0.8-1.3 s
+  // rubric band, on purpose: at 14 u/s (1.27 s) the 150 ms reactive player
+  // lost more vials in every world (W1 0.03 -> 0.66, W4 0.84 -> 1.41 per
+  // sample) because each committed correction overshot (MOVEMENT_AUDIT.md).
+  // A 1 u sidestep still takes 87 ms.
+  shipSpeed: 11.5,
+  focusSpeed: 5, // 0.43x: fine micro-dodging, still escapes an aimed stream
   // No inertia and no speed blend: start, stop and the focus switch all take
   // effect on the step of the press. A 60 ms blend used to carry the syringe
   // 0.47 u (instead of 0.30 u) in the first 60 ms of focus, nearly one core
