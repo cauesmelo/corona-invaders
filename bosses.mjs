@@ -67,13 +67,13 @@ export const BOSSES = Object.freeze({
     radius: 2,
     cards: [
       phase('TRIANGULATE', 18, [P('sniffle', { n: 6, spread: 40, speed: 5.5 }, 0.75, { from: 'vertex' }), P('ring', { n: 16, speed: 3.6 }, 2.4, { at: 1.2 })], { move: 'sway' }),
-      card('LANE SNEEZE', 22, [P('jet', { width: 2, at: 'owner' }, 2.8), P('sneeze', { n: 9, spread: 56, speeds: [4.5, 6] }, 2, { at: 1.6 })], { move: 'track' }),
+      card('LANE SNEEZE', 22, [P('jet', { width: 2, at: 'owner' }, 2.8, { fixed: true }), P('sneeze', { n: 9, spread: 56, speeds: [4.5, 6] }, 2, { at: 1.6 })], { move: 'track' }),
       // v1.0 retune upward (peak 33 -> about 100): denser HALVES rings, walls
       // every 3 s, four CASCADE seeds.
       card('HALVES', 24, [P('ring', { n: 24, speed: 4 }, 0.8, { from: 'alt' }), P('cough', { n: 2, speed: 7 }, 1.3, { from: 'near', at: 0.8 })], { move: 'halves', split: true }),
       // 3.5 s walls (were 4): every 3 s left the reactive referee no time to
       // aim between gaps, and the card timed out (1.6 x TTK).
-      card('BLOOD RUSH', 9, [P('wall', { gaps: 1, gapWidth: 2.4, speed: 3.2 }, 3.5), P('cough', { n: 2, speed: 7.5 }, 1.8, { from: 'near', at: 1.3 })], { move: 'halves', rush: true }),
+      card('BLOOD RUSH', 9, [P('wall', { gaps: 1, gapWidth: 2.4, speed: 3.2 }, 3.5, { fixed: true }), P('cough', { n: 2, speed: 7.5 }, 1.8, { from: 'near', at: 1.3 })], { move: 'halves', rush: true }),
       card('Δ CASCADE', 20, [P('replicate', { n: 4, spread: 48, speed: 3.4, maxGen: 2, splitEvery: 1.1 }, 1.5, { from: 'alt' }), P('cough', { n: 2, speed: 7.5 }, 2.2, { from: 'near', at: 1 })], { move: 'halves' }),
     ],
   },
@@ -164,7 +164,9 @@ export const BOSSES = Object.freeze({
       // The jet locks on where you stood at telegraph start (not on LAMBDA's
       // own column), and LAMBDA mirrors you 3 u aside: its only damage spot is
       // never inside the beam (playtest: the hardest card in the game).
-      card('MIRROR', 20, [P('jet', { width: 1.8, at: 'ship' }, 2.4), P('ring', { n: 20, speed: 4.2 }, 1, { at: 1.3 }), P('cough', { n: 2, speed: 7 }, 1.8, { at: 0.9 })], { move: 'mirror1' }),
+      // TTK 14 (was 20): at the median price every 150 ms referee start timed
+      // the card out; the locked jet keeps its cadence.
+      card('MIRROR', 14, [P('jet', { width: 1.8, at: 'ship' }, 2.4, { fixed: true }), P('ring', { n: 20, speed: 4.2 }, 1, { at: 1.3 }), P('cough', { n: 2, speed: 7 }, 1.8, { at: 0.9 })], { move: 'mirror1' }),
     ],
   },
 });
@@ -532,7 +534,9 @@ function runPatterns(s, b, dt) {
       clock.em = em;
       // A stage's `pressure.every` tightens its boss cadence (stage only,
       // never the deck): DELTA and OMICRON are their sectors' exams.
-      clock.clock = entry.every * (s.pressure?.every ?? 1);
+      // `fixed` patterns keep their authored cadence (BLOOD RUSH's walls: a
+      // gap needs time to reach, measured as a forced hit at x0.75).
+      clock.clock = entry.every * (entry.fixed ? 1 : (s.pressure?.every ?? 1));
     } else clock.clock = 0.1;
   });
 }

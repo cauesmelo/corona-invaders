@@ -267,6 +267,9 @@ function makeCheckpoint(s) {
     projectilesFired: s.projectilesFired,
     rngState: s.rngState,
     power: s.ship.power,
+    // Strands collected toward the next level: a continue keeps them (it used
+    // to reset to the level's threshold, so one continue in 2-2 cost L3).
+    mrna: s.ship.mrna,
     extendsGiven: [...s.extendsGiven],
     // The build the stage was entered with: a continue restores it.
     run: s.run ? structuredClone(s.run) : null,
@@ -347,6 +350,7 @@ export function restartGame(s, { assist = false, easy = false } = {}) {
     speedAssisted,
   });
   setPower(s.ship, checkpoint.power ?? 1);
+  if (Number.isFinite(checkpoint.mrna) && powerOf(checkpoint.mrna) === s.ship.power) s.ship.mrna = checkpoint.mrna;
   // Adjuvants are never lost on death: the entry build comes back.
   s.run = checkpoint.run ? structuredClone(checkpoint.run) : null;
   refreshKit(s);
@@ -509,10 +513,13 @@ function die(s) {
   cancelBullets(s, { reason: 'death', tokens: false });
   s.beams = [];
   if (ship.power > 1) {
-    const lost = ship.power;
+    const lost = ship.power,
+      strands = ship.mrna;
     setPower(ship, lost - 1);
     spawnPickup(s, 'mrna', ship.x, Math.min(ship.z - 1.5, 9), 'strand');
-    Object.assign(s.pickups.at(-1), { life: RULES.strandTime, restore: POWER_STEPS[lost - 1] });
+    // Catching the strand undoes the death's cost entirely: it restores the
+    // strand count, not only the lost level's threshold (RESEARCH_DIFFICULTY 3.2).
+    Object.assign(s.pickups.at(-1), { life: RULES.strandTime, restore: strands });
   }
   if (s.health <= 0) return lose(s, cause);
   dropAliquot(s, ship.x, ship.z);
@@ -750,7 +757,13 @@ function rollKind(s) {
   return roll < 0.4 ? 'booster' : roll < 0.75 ? 'mask' : 'soap';
 }
 export function spawnPickup(s, kind, x, z, source = 'random') {
-  s.pickups.push({ id: nextId(s), kind, x: clamp(x, -8.6, 8.6), z, age: 0, phase: random(s) * Math.PI * 2, radius: 0.5, source });
+  // The guaranteed power steps (a popped VESICLE, a midboss) fly into the
+  // syringe: measured with the human proxies, a midboss strand dropped on the
+  // last beat was lost to the stage clear and most runs stayed at L2, so the
+  // power curve the brief promises (L2 in 1-2, L3 after 2-2, L4 after 3-2)
+  // never arrived. A death's strand stays catchable (4 s), as before.
+  const homing = kind === 'mrna' && (source === 'vesicle' || source === 'midboss');
+  s.pickups.push({ id: nextId(s), kind, x: clamp(x, -8.6, 8.6), z, age: 0, phase: random(s) * Math.PI * 2, radius: 0.5, source, homing });
   s.dropsSpawned++;
   pushEvent(s, 'drop', { kind, x, z, source });
 }
@@ -767,7 +780,9 @@ export function collectPickup(s, pickup) {
   const ship = s.ship;
   if (pickup.kind === 'mrna') {
     const before = ship.power;
-    ship.mrna = Math.max(ship.mrna + 1, pickup.restore ?? 0);
+    // A death strand restores the strands held before the death; any other
+    // mRNA supply adds one.
+    ship.mrna = pickup.restore !== undefined ? Math.max(ship.mrna, pickup.restore) : ship.mrna + 1;
     ship.power = powerOf(ship.mrna);
     if (ship.power !== before) refreshKit(s);
     if (ship.power === before && before === RULES.maxPower) addScore(s, 1000);
@@ -788,7 +803,12 @@ function updatePickups(s, dt) {
     const dx = ship.x - p.x,
       dz = ship.z - p.z,
       d = Math.hypot(dx, dz);
-    if (d < RULES.pickupMagnet && ship.respawn <= 0) {
+    if (p.homing) {
+      // 0.4 s of float, then it homes in at up to 16 u/s (never into a death).
+      const v = Math.min(d, (p.age < 0.4 ? 1 : 16) * dt);
+      p.x += (dx / (d || 1)) * v;
+      p.z += (dz / (d || 1)) * v;
+    } else if (d < RULES.pickupMagnet && ship.respawn <= 0) {
       // Magnet: amber supplies home in once the syringe is within 3.5 u.
       const v = Math.min(d, 9 * dt);
       p.x += (dx / (d || 1)) * v;
@@ -799,7 +819,7 @@ function updatePickups(s, dt) {
     }
     // Caught when the drawn supply touches the drawn syringe body.
     if (Math.hypot(ship.x - p.x, ship.z - p.z) < p.radius + BODY_RADIUS && ship.respawn <= 0 && s.phase === 'playing') collectPickup(s, p);
-    if (p.age > (p.life ?? 14) || p.z > RULES.front) p.dead = true;
+    if (!p.homing && (p.age > (p.life ?? 14) || p.z > RULES.front)) p.dead = true;
   }
   s.pickups = s.pickups.filter((p) => !p.dead);
 }
@@ -1335,7 +1355,8 @@ function sectorCleared(s, level) {
     for (const e of s.enemies) if (e.alive) e.alive = false;
     return true;
   }
-  return s.sector.step >= script.length && !s.sector.flights.length && !s.enemies.some(hostile) && (!s.boss || s.boss.state === 'defeated');
+  // A homing power step lands before the stage closes.
+  return s.sector.step >= script.length && !s.sector.flights.length && !s.enemies.some(hostile) && (!s.boss || s.boss.state === 'defeated') && !s.pickups.some((p) => p.homing);
 }
 
 function finishSector(s, level) {

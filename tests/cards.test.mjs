@@ -211,7 +211,7 @@ test('3 legacy: adjuvants off hashes identically to the pre-adjuvant build; the 
   // 2d83790fa00308d6, a4d78426dd201bf8), so play is unchanged.
   // Re-recorded for revision six (RESEARCH_DIFFICULTY: the 1-needle start,
   // the authored HP ladder, the until caps and the retuned stages).
-  const BEFORE = { 42: '2372f47f956c9992', 1: 'd7cb8e3ad0154d0b', 7: 'bd9a0f5eef12af0a' };
+  const BEFORE = { 42: 'a46cb2b14445fac9', 1: '6a822da2322f8068', 7: '8fe3f773fe39b735' };
   for (const seed of [42, 1, 7]) {
     const { s, frame } = campaign(seed);
     const pick = { frame, phase: s.phase, wave: s.wave, score: s.score, kills: s.kills, hits: s.hits, shotsFired: s.shotsFired, projectilesFired: s.projectilesFired, rngState: s.rngState, grazes: s.grazes, damageTaken: s.damageTaken, bombsUsed: s.bombsUsed, medals: s.medals, x: s.ship.x, z: s.ship.z };

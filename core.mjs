@@ -114,11 +114,9 @@ export const RULES = Object.freeze({
   // the sector's card uptime u (the share of time a real player's needles
   // land on a moving boss while dodging). The low S1 value prices a
   // novice's single-needle aim; the median deck ends cards at about TTK.
-  // Measured with the human proxies (tests/difficulty.mjs, 2026-11-10): at
-  // the brief's 0.45 / 0.60 / 0.65 / 0.65 the casual and expert timed out
-  // S2-S4 cards at 1.2-1.4 x TTK having dealt 80-90%, an uptime of about
-  // 0.45-0.5 (deaths cost a power level, dodging costs aim).
-  cardUptime: Object.freeze([0.42, 0.5, 0.45, 0.45]),
+  // The brief's values, confirmed by the human proxies (tests/difficulty.mjs)
+  // once the power steps reliably reach the player.
+  cardUptime: Object.freeze([0.45, 0.6, 0.65, 0.65]),
   ttkScale: Object.freeze([1, 1, 0.85, 0.85]),
   phaseTimeout: 30,
   cardTimeout: 40,

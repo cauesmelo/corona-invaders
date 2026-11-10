@@ -84,8 +84,9 @@ export const ARCHETYPES = Object.freeze({
   // HP 7 (was 16): the reactive referee only hits it while open, so a 16 HP
   // bud field stalled 4-2 for two minutes; INJECT is the fast answer.
   bloom: { label: 'BLOOM', hp: 7, radius: 0.85, score: 450, attack: { preset: 'ring', params: { n: 16, speed: 4.1, family: 'spike' } } },
-  // Drifts across the back carrying a supply; never fires.
-  vesicle: { label: 'VESICLE', hp: 20, radius: 0.75, score: 800, attack: null },
+  // Drifts across the back carrying a supply; never fires. HP 12 (was 20):
+  // one needle at 6/s pops it in 2 s of hits as it crosses.
+  vesicle: { label: 'VESICLE', hp: 12, radius: 0.75, score: 800, attack: null },
   // Harmless practice target (score-attack extras, v1.1).
   virion: { label: 'VIRION', hp: 1, radius: 0.5, score: 100, attack: null },
 });
@@ -390,11 +391,10 @@ export const LEVELS = Object.freeze(
       introduces: ['current'],
       intro: { icon: 'current', text: 'CURRENT CARRIES EVERY BULLET. IT FLIPS ON A WARNING.' },
       protocol: 'DODGE DOWNSTREAM.',
-      maxBullets: 80,
+      maxBullets: 95,
       // The opener sits below B&G and DELTA (RESEARCH_DIFFICULTY 4.2): a
-      // slower choir and aimed stacks at 7.0 (x0.93) while the flow is new.
-      choir: { interval: [1.45, 1.05], size: [3, 5] },
-      pressure: { aimed: 0.93 },
+      // slightly slower choir than the rest of the sector while the flow is new.
+      choir: { interval: [1.0, 0.75], size: [3, 5] },
       script: [
         // Introduce: rain under the current; the lanes lean and stay readable.
         verse('rain'),
@@ -435,12 +435,12 @@ export const LEVELS = Object.freeze(
       name: 'SPLASHDOWN',
       kind: 'sample',
       introduces: ['droplet', 'lambda'],
-      // LAMBDA's quiz cadence x0.8.
-      pressure: { every: 0.8 },
+      // LAMBDA's quiz cadence x0.7.
+      pressure: { every: 0.7 },
       intro: { icon: 'droplet', text: 'DROPLETS DIVE AND SPLASH INTO A RING. SHOOT FIRST.' },
       protocol: 'A DASHED PATH MEANS A DIVE.',
-      maxBullets: 80,
-      choir: { interval: [0.85, 0.6], size: [4, 6] },
+      maxBullets: 95,
+      choir: { interval: [0.75, 0.52], size: [4, 6] },
       script: [
         // Introduce: single droplets from a sparse grid, long telegraph.
         { dive: { telegraph: 1.2 } },
@@ -472,8 +472,10 @@ export const LEVELS = Object.freeze(
       kind: 'boss',
       boss: 'delta',
       introduces: ['delta'],
-      // The BLOODSTREAM exam: boss cadence x0.65 (every pattern 54% more often).
-      pressure: { every: 0.65 },
+      // The BLOODSTREAM exam: boss cadence x0.85; the lane jets and BLOOD
+      // RUSH's walls keep their authored cadence. x0.55-0.65 measured forced
+      // hits (F1) on the casual and expert proxies.
+      pressure: { every: 0.85 },
       intro: { icon: 'boss', text: 'IT SPLITS. LANES GLOW BEFORE THEY FIRE.' },
       protocol: 'READ THE LANE, THEN THE HALVES.',
     },
@@ -485,8 +487,8 @@ export const LEVELS = Object.freeze(
       introduces: ['mutation', 'heavy'],
       intro: { icon: 'mutation', text: 'A FLASH MEANS AN UPGRADE. CURE IT FIRST.' },
       protocol: 'A FLASHING WILD TYPE BECOMES A HEAVY CROWN.',
-      maxBullets: 95,
-      choir: { interval: [0.95, 0.68], size: [3, 5] },
+      maxBullets: 115,
+      choir: { interval: [0.85, 0.6], size: [4, 6] },
       script: [
         // Introduce: one mutation at a time (1.2 s flash) on a sparse grid;
         // the HEAVY CROWN it produces fires slowly.
@@ -503,6 +505,9 @@ export const LEVELS = Object.freeze(
         tune({}),
         grid(['WWWWWWW', 'W.W.W.W']),
         until('thin', 2),
+        ...rest(),
+        grid(['.W.W.W.', 'W.W.W.W'], { z: -12.8 }),
+        until('thin', 1),
         ...rest(),
         // Twist: a SNEEZER mutates into a 9-way, 3-tier fan (misdirection),
         // over rain.
@@ -530,11 +535,10 @@ export const LEVELS = Object.freeze(
       introduces: ['bloom', 'mother'],
       intro: { icon: 'bloom', text: 'BLOOMS OPEN, FIRE A RING, CLOSE. WAIT, OR INJECT.' },
       protocol: 'THE NEEDLE PIERCES A CLOSED BUD.',
-      maxBullets: 105,
-      // Measured 4-2 above OMICRON for the casual proxy (3.2 vs 0.7 vials):
-      // a slower, smaller choir and aimed stacks at 7.5.
-      choir: { interval: [0.9, 0.62], size: [3, 5] },
-      pressure: { aimed: 0.94 },
+      maxBullets: 125,
+      choir: { interval: [0.8, 0.55], size: [4, 6] },
+      // MOTHER CELL's quiz cadence x0.9.
+      pressure: { every: 0.9 },
       script: [
         // Introduce: one bloom alone, a small slow ring (B2's safe intro).
         tune({ bloom: { n: 10, speed: 3.5 } }),
@@ -550,10 +554,8 @@ export const LEVELS = Object.freeze(
         wait(6),
         until('thin', 1),
         ...rest(),
-        // Twist: blooms mutate, and their rings upgrade. SNEEZERs keep two
-        // tiers here (4-2 measured above OMICRON for the casual proxy).
-        tune({ sneezer: { speeds: [4, 5.5] } }),
-        grid(['B.....B', 'WWWWWWW', 'W..N..W']),
+        // Twist: blooms mutate, and their rings upgrade.
+        grid(['B.....B', 'WWWWWWW', 'W.N.N.W']),
         wait(5),
         surge(4),
         ...rest(),
@@ -570,8 +572,8 @@ export const LEVELS = Object.freeze(
       kind: 'boss',
       boss: 'omicron',
       introduces: ['omicron'],
-      // The run's exam: boss cadence x0.62.
-      pressure: { every: 0.62 },
+      // The run's exam: boss cadence x0.55.
+      pressure: { every: 0.55 },
       intro: { icon: 'boss', text: 'ITS MUTATIONS ARE ITS PHASES. CHOOSE A NODE.' },
       protocol: 'R0 BELOW 1 CONTAINS THE SPECIMEN.',
     },

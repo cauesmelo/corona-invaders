@@ -93,7 +93,8 @@ export function chooseInput(s, frame = 0) {
     else if (e.kind === 'droplet' && e.mode !== 'formation') score -= 8;
     else if (e.mode === 'flight' || e.mode === 'worm') score -= 3;
     else if (e.kind === 'hijacker' && e.tether) score -= 5;
-    else if (e.kind === 'vesicle') score += 1;
+    // A VESICLE carries a power step: shoot it down first.
+    else if (e.kind === 'vesicle') score -= 4;
     if (score < best) {
       best = score;
       const lead = Math.max(0, (ship.z - e.z) / 34);

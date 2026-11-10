@@ -208,7 +208,8 @@ export function createHuman(profileOrId, { seed = 1, retries = 0, bombs = true, 
       const flight = Math.max(0, sz - TIP - e.z) / NEEDLE_SPEED;
       return e.x + vx * Math.min(0.9, lag + flight);
     };
-    const aimScore = (e) => Math.abs(lead(e) - sx) - e.z * 0.15 + (e.kind === 'boss' ? -1 : 0);
+    // A VESICLE is the visible power step: people go for it.
+    const aimScore = (e) => Math.abs(lead(e) - sx) - e.z * 0.15 + (e.kind === 'boss' ? -1 : 0) + (e.kind === 'vesicle' ? -4 : 0);
     let tx = sx;
     if (pool.length) {
       let best = pool.reduce((a, b) => (aimScore(b) < aimScore(a) ? b : a));
@@ -394,7 +395,10 @@ export function playHumanRun({ proxy = 'casual', seed = 1, difficulty = 'normal'
         st.coreHits++;
         if (forced && ev.type === 'hit-core') {
           const snap = [...snaps].reverse().find((x) => x.waveElapsed <= s.waveElapsed - 0.5);
-          if (snap && !autopilotAvoids(snap, s.waveElapsed + 0.1)) st.forced++;
+          if (snap && !autopilotAvoids(snap, s.waveElapsed + 0.1)) {
+            st.forced++;
+            (st.forcedAt ||= []).push(`${s.boss?.cards[s.boss.card]?.name ?? 'sample'}@${s.waveElapsed.toFixed(1)}s seed ${seed}`);
+          }
         }
       }
       if (ev.type === 'damage') {

@@ -44,6 +44,7 @@ export function summarize(runs) {
       attempts: mean(reach.map((st) => st.attempts)),
       time: mean(reach.filter((st) => st.cleared).map((st) => st.time)),
       forced: reach.reduce((a, st) => a + st.forced, 0),
+      forcedAt: reach.flatMap((st) => st.forcedAt || []),
       cards: reach.reduce((acc, st) => {
         for (const [k, c] of Object.entries(st.cards || {})) {
           const a = (acc[k] ||= { n: 0, cleared: 0, timeSum: 0, frac: 0, dealt: 0, ttk: c.ttk });
@@ -137,6 +138,7 @@ export function report(summaries) {
     lines.push(`  hits/attempt: ${S.stage.map((x) => `${x.code} ${f(x.hits)}`).join('  ')}`);
     lines.push(`  attempts: ${S.stage.map((x) => `${x.code} ${f(x.attempts)}`).join('  ')}`);
     lines.push(`  clear time (s): ${S.stage.map((x) => `${x.code} ${f(x.time, 0)}`).join('  ')}`);
+    if (S.forced) lines.push(`  forced hits (F1) by stage: ${S.stage.filter((x) => x.forced).map((x) => `${x.code} ${x.forced} (${x.forcedAt.join(', ')})`).join('  ')}`);
     const src = S.stage.map((x) => `${x.code} ${Object.entries(x.sources).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([k, v]) => `${k}:${v}`).join(',')}`);
     if (process.env.CARDS === '1')
       for (const x of S.stage)

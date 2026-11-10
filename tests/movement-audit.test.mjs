@@ -580,7 +580,9 @@ test('D2: a player who holds focus while lined up clears boss samples faster, wi
   let base = 0,
     expert = 0,
     cleared = 0;
-  for (const seed of [42, 1, 7])
+  // Five seeds (was three): with one needle at the start, single boss runs
+  // are noisier than the v1.0 stream's.
+  for (const seed of [42, 1, 7, 3, 5])
     for (const stage of LEVELS.filter((l) => l.kind === 'boss').map((l) => l.id))
     for (const skilled of [false, true]) {
       const s = running(seed, stage);
@@ -601,8 +603,8 @@ test('D2: a player who holds focus while lined up clears boss samples faster, wi
       else base += f;
     }
   const gain = 1 - expert / base;
-  t.diagnostic(`boss stages 1-3, 2-3, 3-3, 4-3 (seeds 42, 1, 7): ${(base / 60).toFixed(0)} s -> ${(expert / 60).toFixed(0)} s, ${(gain * 100).toFixed(1)} % faster`);
-  assert.equal(cleared, 24, 'both players clear: the technique is optional');
+  t.diagnostic(`boss stages 1-3, 2-3, 3-3, 4-3 (seeds 42, 1, 7, 3, 5): ${(base / 60).toFixed(0)} s -> ${(expert / 60).toFixed(0)} s, ${(gain * 100).toFixed(1)} % faster`);
+  assert.equal(cleared, 40, 'both players clear: the technique is optional');
   // Target 15 %; WARN band from 11.25 % (MOVEMENT_AUDIT.md D2).
   assert.ok(gain >= 0.1125, `${gain}`);
 });
