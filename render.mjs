@@ -87,10 +87,10 @@ function crownDirections(count, ring) {
   }
   return dirs;
 }
-function spikeParts({ count, r, length, stem, cap, ring = 0 }) {
+function spikeParts({ count, r, length, stem, cap, ring = 0, detail = 1 }) {
   const out = [];
-  const cyl = new THREE.CylinderGeometry(stem * 0.8, stem, length, 6);
-  const ball = new THREE.IcosahedronGeometry(cap, 1);
+  const cyl = new THREE.CylinderGeometry(stem * 0.8, stem, length, 6, 1, true);
+  const ball = new THREE.IcosahedronGeometry(cap, detail);
   for (const v of crownDirections(count, ring)) {
     const q = new THREE.Quaternion().setFromUnitVectors(UP, v);
     const mid = v.clone().multiplyScalar(r + length / 2 - 0.04);
@@ -515,6 +515,20 @@ function backdropTexture(world) {
 }
 
 // ---- Shape builder -----------------------------------------------------------------
+/** Merged geometry is shared per shape spec (60 identical coronas share one
+ * buffer); only materials are per enemy, for hit flashes. Shared geometry is
+ * flagged so disposal never frees it. */
+const geoCache = new WeakMap();
+function cachedGeo(spec, key, make) {
+  let m = geoCache.get(spec);
+  if (!m) geoCache.set(spec, (m = new Map()));
+  if (!m.has(key)) {
+    const g = make();
+    g.userData.shared = true;
+    m.set(key, g);
+  }
+  return m.get(key);
+}
 /** Build a group for a shapes.mjs spec. Returns handles the animator uses. */
 function buildShape(spec, { seed = 1, tint = null } = {}) {
   const body = new THREE.Group();
@@ -539,15 +553,25 @@ function buildShape(spec, { seed = 1, tint = null } = {}) {
     body.add(mesh);
     return mesh;
   };
+  // Popcorn is drawn many times at once (the 60-corona grid): low-detail
+  // spheres, and body + stems (+ tips) merged into one mesh per material so
+  // each virus costs one or two draw calls.
+  const small = !spec.spikes && (spec.parts[0]?.r ?? 1) < 0.9;
+  const detail = small ? 1 : 2;
+  const batches = new Map();
+  const batch = (m, geo, matrix) => {
+    if (!batches.has(m)) batches.set(m, []);
+    batches.get(m).push([geo, matrix]);
+  };
   for (const p of spec.parts) {
     const at = p.at || [0, 0, 0],
       sc = p.scale || [1, 1, 1];
     if (p.type === 'sphere') {
       const m = p.color ? mat(p.color, { emissiveIntensity: 0.6 }) : p.role === 'inner' ? mat(PALETTE.virus, { emissiveIntensity: 0.35 }) : p.role === 'nucleus' ? mat('#b9c2d6') : bodyMat;
-      const mesh = add(new THREE.IcosahedronGeometry(p.r, 2), m, at, sc);
-      if (p.role === 'cargo') handles.cargo = mesh;
+      if (p.role === 'cargo') handles.cargo = add(new THREE.IcosahedronGeometry(p.r, detail), m, at, sc);
+      else batch(m, new THREE.IcosahedronGeometry(p.r, detail), M(...at, ...sc));
     } else if (p.type === 'crown') {
-      const parts = spikeParts(p);
+      const parts = spikeParts({ ...p, detail: small ? 0 : 1 });
       const tipMat = p.tips ? mat(p.tips, { emissiveIntensity: 0.35 }) : p.role === 'inner' ? mat(PALETTE.virus, { emissiveIntensity: 0.35 }) : bodyMat;
       const stemMat = p.role === 'inner' ? tipMat : bodyMat;
       if (p.breakable) {
@@ -560,17 +584,20 @@ function buildShape(spec, { seed = 1, tint = null } = {}) {
           handles.spikes.push(g);
         }
       } else {
-        add(merge(parts.map((s) => s.stem)), stemMat, at, sc);
-        add(merge(parts.map((s) => s.cap)), tipMat, at, sc);
+        const place = M(...at, ...sc);
+        for (const s of parts) {
+          batch(stemMat, s.stem[0], place.clone().multiply(s.stem[1]));
+          batch(tipMat, s.cap[0], place.clone().multiply(s.cap[1]));
+        }
       }
     } else if (p.type === 'clubs') {
-      add(clubGeometry(p, seed), spikeMat, at, sc);
+      add(cachedGeo(spec, 'clubs', () => clubGeometry(p, seed)), spikeMat, at, sc);
     } else if (p.type === 'shell') {
       const m = mat(spec.color, { transparent: true, opacity: 0.45, roughness: 0.1, emissiveIntensity: 0.08, depthWrite: false });
       handles.membrane = add(new THREE.IcosahedronGeometry(p.r, 3), m, at, sc);
     } else if (p.type === 'tube') {
       const m = p.role === 'proboscis' || p.role === 'mucus' ? mat(p.role === 'mucus' ? '#9fe7c4' : '#8fe6a7', { transparent: true, opacity: p.role === 'mucus' ? 0.4 : 1 }) : bodyMat;
-      const mesh = add(helixGeometry(p), m, at);
+      const mesh = add(cachedGeo(spec, `tube${p.role || ''}`, () => helixGeometry(p)), m, at);
       if (!p.role) handles.helix = mesh;
     } else if (p.type === 'torus') {
       const m = p.role === 'seam' || p.role === 'halo' ? mat('#ffffff', { emissiveIntensity: 0.5, transparent: true, opacity: 0.7 }) : bodyMat;
@@ -622,6 +649,8 @@ function buildShape(spec, { seed = 1, tint = null } = {}) {
       }
     }
   }
+  let bi = 0;
+  for (const [m, list] of batches) body.add(new THREE.Mesh(cachedGeo(spec, `batch${bi++}`, () => merge(list)), m));
   return handles;
 }
 
@@ -642,7 +671,8 @@ export function createRenderer({ canvas, stage, settings }) {
     visualTime = 0,
     lastChainTier = 1,
     stateRef = null,
-    minVis = 0;
+    minVis = 0,
+    minDot = 0;
 
   // ---- Lights and the lab board -----------------------------------------------
   scene.add(new THREE.HemisphereLight('#dff4ff', '#1b2a2a', 1.1));
@@ -767,9 +797,14 @@ export function createRenderer({ canvas, stage, settings }) {
   const MAXB = RULES.maxBullets;
   const flat = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2);
   function pool(kind, count, order, extra = {}) {
+    // Bullets are small on screen: bilinear sampling without mipmaps is
+    // indistinguishable and much cheaper for software rasterizers.
+    const map = bulletTexture(kind);
+    map.generateMipmaps = false;
+    map.minFilter = THREE.LinearFilter;
     const m = new THREE.InstancedMesh(
       flat,
-      new THREE.MeshBasicMaterial({ map: bulletTexture(kind), transparent: true, depthTest: false, depthWrite: false, toneMapped: false, ...extra }),
+      new THREE.MeshBasicMaterial({ map, transparent: true, depthTest: false, depthWrite: false, toneMapped: false, ...extra }),
       count,
     );
     m.renderOrder = order;
@@ -851,7 +886,7 @@ export function createRenderer({ canvas, stage, settings }) {
   const disposeObj = (m) => {
     scene.remove(m);
     m.traverse((c) => {
-      if (c.geometry && c.geometry !== shared && c.geometry !== flat && c.geometry !== ringGeo) c.geometry.dispose();
+      if (c.geometry && !c.geometry.userData.shared && c.geometry !== shared && c.geometry !== flat && c.geometry !== ringGeo) c.geometry.dispose();
       if (c.material && c.material.map !== glow()) c.material.dispose?.();
     });
   };
@@ -981,7 +1016,9 @@ export function createRenderer({ canvas, stage, settings }) {
     if (ev.type === 'shot') plunger.position.z = 0.08;
     else if (ev.type === 'hit' && ev.id) {
       const m = enemyMeshes.get(ev.id);
-      if (m) Object.assign(m.userData, { flash: 0.06, punch: 0.1 });
+      // Auto-fire hits a boss 8+ times a second: its flash is short and soft
+      // so the grey body and green spikes stay readable.
+      if (m) Object.assign(m.userData, ev.kind === 'boss' ? { flash: 0.025, punch: 0.04, soft: true } : { flash: 0.06, punch: 0.1, soft: false });
     } else if (ev.type === 'kill') {
       const big = ev.kind === 'boss';
       spawnDebris(ev.x, ev.z, big ? '#cfd6e2' : PALETTE.virus, big ? 60 : ev.kind === 'boss-part' ? 18 : ev.kind === 'mini' ? 3 : 5, big ? 1.6 : 1);
@@ -1050,7 +1087,7 @@ export function createRenderer({ canvas, stage, settings }) {
       for (const mat of ud.mats) {
         if (ud.flash > 0) {
           mat.emissive.set('#ffffff');
-          mat.emissiveIntensity = 1.6;
+          mat.emissiveIntensity = ud.soft ? 0.45 : 1.6;
         } else if (mutating) {
           // MUTATION: the virus flashes and shifts hue before it upgrades.
           mat.emissive.setHSL((visualTime * 2.2) % 1, 0.9, 0.55);
@@ -1129,13 +1166,15 @@ export function createRenderer({ canvas, stage, settings }) {
       if (n >= MAXB) continue;
       const vis = Math.max(b.vis ?? 0.26, minVis);
       const heading = Math.atan2(b.vx || 0, b.vz || 1e-6);
-      if (f === 'droplet') placeBullet(mesh, n, b.x, b.z, heading, vis * 1.7, vis * 3.6, vis * 0.85);
-      else if (f === 'spike') placeBullet(mesh, n, b.x, b.z, heading, vis * 2.2, vis * 3.2, vis * 0.7);
-      else if (f === 'virion') placeBullet(mesh, n, b.x, b.z, (b.age || 0) * 1.6, vis * 2.4, vis * 2.4);
+      // Quad sizes are chosen so the drawn body matches the family's visual
+      // radius (each texture leaves a margin): drawn > hitbox, always.
+      if (f === 'droplet') placeBullet(mesh, n, b.x, b.z, heading, vis * 4.2, vis * 5.4, vis * 1);
+      else if (f === 'spike') placeBullet(mesh, n, b.x, b.z, heading, vis * 3.75, vis * 4.5, vis * 1);
+      else if (f === 'virion') placeBullet(mesh, n, b.x, b.z, (b.age || 0) * 1.6, vis * 2.2, vis * 2.2);
       else if (f === 'glob') {
         const wob = settings.effects() ? 1 + Math.sin((b.age || 0) * 7 + b.id) * 0.06 : 1;
-        placeBullet(mesh, n, b.x, b.z, 0, vis * 2.2 * wob, vis * 2.2 / wob);
-      } else placeBullet(mesh, n, b.x, b.z, 0, vis * 2.4, vis * 2.4);
+        placeBullet(mesh, n, b.x, b.z, 0, vis * 2.4 * wob, (vis * 2.4) / wob);
+      } else placeBullet(mesh, n, b.x, b.z, 0, vis * 3, vis * 3);
       // REPLICATION: a bullet flashes white for 0.3 s before it splits.
       const flashing = b.splitAt && b.age > b.splitAt - 0.3 && Math.floor(visualTime * 20) % 2 === 0;
       mesh.setColorAt(n, flashing ? tmpColor.set('#9ffcff') : white.set('#ffffff'));
@@ -1394,7 +1433,7 @@ export function createRenderer({ canvas, stage, settings }) {
     fluidMat.emissiveIntensity = 0.6 + (tier - 1) * 0.2;
     shipLight.position.set(sh.x, 1.2, sh.z);
     // The hitbox dot sits in the barrel, always drawn on top.
-    const dotR = Math.max(RULES.shipRadius, minVis * 0.9) * (sh.focus ? 1.15 : 1);
+    const dotR = Math.max(RULES.shipRadius, minDot) * (sh.focus ? 1.15 : 1);
     tmp.position.set(sh.x, BULLET_Y + 0.02, sh.z);
     tmp.rotation.set(0, 0, 0);
     // The white disc in the dot texture spans 0.656 of the quad, so this makes
@@ -1493,10 +1532,35 @@ export function createRenderer({ canvas, stage, settings }) {
     const far = pxPerUnit(layout, h, [0, BULLET_Y, -12.5]);
     const need = w < 480 ? 5 : 7;
     minVis = need / 2 / far;
+    // The hitbox dot is drawn at least 6.4 px wide wherever the syringe can be.
+    minDot = 3.2 / pxPerUnit(layout, h, [0, BULLET_Y, RULES.moveMinZ]);
   }
   new ResizeObserver(resize).observe(stage);
   resize();
   applyTheme(1);
+  // Compile every shader program the first play frame needs (bullets,
+  // needles, the hitbox dot, warning rings, telegraph dashes, bursts, a boss
+  // body) during boot, so starting a sample never stalls.
+  {
+    const warm = new THREE.Group();
+    const sample = buildShape(SHAPES.alpha);
+    warm.add(sample.body, new THREE.Mesh(ringGeo, dangerMat(0.8)), dashed([[0, 0], [1, 1]], PALETTE.danger), sprite('#ffffff', 1, 0.5));
+    const burst = new THREE.Mesh(new THREE.RingGeometry(0.7, 1, 12), new THREE.MeshBasicMaterial({ color: '#ffffff', transparent: true, side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false }));
+    warm.add(burst);
+    scene.add(warm);
+    const hidden = [dot, grazeRing, soap, ...options].filter((o) => !o.visible);
+    for (const o of hidden) o.visible = true;
+    for (const m of Object.values(bullets)) m.count = 1;
+    needles.count = antigenPool.count = strands.count = 1;
+    try {
+      renderer.compile(scene, camera);
+    } catch {
+      /* Compilation is an optimisation only. */
+    }
+    for (const o of hidden) o.visible = false;
+    for (const m of [...Object.values(bullets), needles, antigenPool, strands]) m.count = 0;
+    scene.remove(warm);
+  }
 
   const raycaster = new THREE.Raycaster(),
     boardPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -BULLET_Y),
@@ -1574,7 +1638,7 @@ export function createRenderer({ canvas, stage, settings }) {
           bottom: Math.max(...corners.map((c) => c.pixelY)),
         },
         pxPerUnit: { far: pxPerUnit(layout, h, [0, BULLET_Y, -12.5]), near: pxPerUnit(layout, h, [0, BULLET_Y, 12]) },
-        hitboxPx: 2 * Math.max(RULES.shipRadius, minVis * 0.9) * pxPerUnit(layout, h, [0, BULLET_Y, s.ship.z]),
+        hitboxPx: 2 * Math.max(RULES.shipRadius, minDot) * pxPerUnit(layout, h, [0, BULLET_Y, s.ship.z]),
         minBulletPx: 2 * Math.max(0.17, minVis) * pxPerUnit(layout, h, [0, BULLET_Y, -12.5]),
         camera: { fov: layout.fov, position: layout.position, target: layout.target },
       };

@@ -750,6 +750,7 @@ $('#tray-rows').addEventListener('click', (event) => {
 $('#pause-button').addEventListener('click', () => {
   if (state.phase === 'title') return;
   togglePause(state);
+  audio.setSuspended(!!state.paused);
   ui.controlsOpen = false;
   syncUI();
   if (!state.paused) focusGame();
@@ -811,8 +812,12 @@ window.addEventListener('keydown', (event) => {
   keys.add(code);
   if (MOVE_KEYS.includes(code)) pointer = null;
   if (event.repeat) return;
+  // Latch a SOAP tap for a couple of frames: a press and release between two
+  // slow frames must still count as one burst.
+  if (code === 'Space' || code === 'KeyX') bombPulse = Math.max(bombPulse, 2);
   if (code === 'KeyP' || code === 'Escape') {
     togglePause(state);
+    audio.setSuspended(!!state.paused);
     syncUI();
   }
   if (code === 'KeyR' && state.phase !== 'title') retrySector();

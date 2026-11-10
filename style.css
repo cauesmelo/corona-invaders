@@ -132,7 +132,6 @@ canvas {
   transform-origin: 8px 29px;
   transform-box: view-box;
   transition: transform 0.3s ease-in;
-  filter: drop-shadow(0 0 2px #7fe8ff88);
 }
 .vial .marks {
   stroke: #0b2a33;
@@ -254,7 +253,11 @@ canvas {
 }
 .seg .on {
   fill: var(--phosphor);
-  filter: drop-shadow(0 0 2px #91ffcaa0);
+}
+/* One glow per readout, not one filter pass per segment (the score redraws
+ * often, and per-polygon filters are expensive under software compositing). */
+.led .seg {
+  filter: drop-shadow(0 0 2px #91ffca80);
 }
 .seg .off {
   fill: #12261f;
