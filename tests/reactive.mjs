@@ -101,7 +101,7 @@ export function createReactive({ sampleEvery = 6, lagFrames = 9, phase = 0, bomb
         bestScore = Infinity,
         bestHit = Infinity;
       for (let sp = 0; sp < 2; sp++) {
-        const speed = sp ? 5 : 11.5;
+        const speed = sp ? s.kit?.focusSpeed ?? 5 : s.kit?.speed ?? 11.5;
         for (const [dx, dz] of DIRS) {
           let risk = 0,
             hitAt = Infinity;

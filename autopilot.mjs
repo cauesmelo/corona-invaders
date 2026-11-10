@@ -20,8 +20,9 @@ export function chooseInput(s, frame = 0) {
   if (ship.dying > 0) return { axisX: 0, axisZ: 0, focus: false, bomb: frame % 2 === 0 };
 
   const CORE = ship.radius || 0.2,
-    FAST = 11.5,
-    SLOW = 5,
+    // The syringe's own speeds: adjuvants move the normal speed (10.5-12.9).
+    FAST = s.kit?.speed ?? 11.5,
+    SLOW = s.kit?.focusSpeed ?? 5,
     MINX = -8.9,
     MAXX = 8.9,
     MINZ = -3,

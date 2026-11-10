@@ -456,7 +456,8 @@ export function bombBoss(s) {
   const c = b.cards[b.card];
   if (b.state !== 'fight' || c.type === 'survival') return;
   const target = c.nodes ? living(s).find((p) => p.part === 'node') : living(s).find((p) => isVulnerable(s, b, p));
-  if (target) damageBoss(s, target, Math.max(1, Math.ceil(c.hp * RULES.bombBossFraction)), 'soap');
+  // SURFACTANT raises the bite (5% / 7%); the base kit's fraction is RULES'.
+  if (target) damageBoss(s, target, Math.max(1, Math.ceil(c.hp * (s.kit?.bombBossFraction ?? RULES.bombBossFraction))), 'soap');
 }
 
 function runPatterns(s, b, dt) {
