@@ -31,6 +31,7 @@ import { sweptHit, bulletGap, needleSegment, pointSegDist2, segSegDist2, beamHit
 // behaviours that need the board. With `drafts: false` (the default for
 // fixtures) s.kit equals the base rules and every hook below is inert.
 import { kitOf, createRun, openDraft, pick, resample, discard, bossCleared, reviveRun, expectedPotency, needleMul, abMul, needlesPerVolley, antibodiesOf, fireRateNow, CARD } from './cards.mjs';
+import { newRunLog, openAttempt, closeAttempt, logHit, logSaves, logDraft, logResample, exportRunLog, reviveRunLog, stampOf } from './runlog.mjs';
 import { tickKit, absorbHit, updateJet, splitNeedle, innateShot, dropAliquot, aimUp, roomFor, needleState, antigenNeedles, fcAim } from './syringe-kit.mjs';
 
 /** Enemy collider: a circle, or a capsule along x for elongated bodies
@@ -40,6 +41,7 @@ const enemyPointDist = (e, x, z) => Math.sqrt(pointSegDist2(x, z, ...enemyAxis(e
 
 export const RULES = Object.freeze({ ...CORE_RULES, maxWaves: STAGE_COUNT });
 export { random, chainMultiplier, bossStatus, BOSSES, PRESETS, LIMITS, FAMILIES, DIFFICULTY };
+export { runLogText, summarizeRunLog } from './runlog.mjs';
 export { LEVELS, WORLDS, ARCHETYPES, STAGE_COUNT, getLevel, getWorld, POWER_STEPS, powerOf, entryPower, stageDps, stageHp, PROLOGUE };
 
 export const PICKUP_KINDS = Object.freeze(['mrna', 'booster', 'mask', 'soap', 'vial']);
@@ -250,10 +252,13 @@ export function createState({ seed = 0x51a7c0de, stage = 1, difficulty = 'normal
     events: [],
     // The adjuvant run (cards.mjs): deck, pity, tokens, titer, offer.
     run: drafts ? createRun(seed, { inject: true }) : null,
+    // The owner's calibration kit (runlog.mjs): per stage and attempt.
+    runLog: newRunLog(),
   };
   s.ship = freshShip(s);
   s.health = s.lives = diff(s).health;
   setupSector(s, stage);
+  openAttempt(s);
   s.checkpoint = makeCheckpoint(s);
   return s;
 }
@@ -324,8 +329,11 @@ export function restartGame(s, { assist = false, easy = false } = {}) {
     if (s.phase !== 'lost') {
       if (creditsLeft(s) <= 0) return false;
       s.creditsUsed++;
+      closeAttempt(s, 'restart');
     }
   }
+  // The run log outlives the rebuilt state, like the credits do.
+  const runLog = s.runLog;
   const checkpoint = { ...s.checkpoint },
     { seed, unlockedStage, failures, medals, practice, creditsUsed, runStart, gameSpeed, speedAssisted } = s;
   const difficulty = easy && failures >= 3 ? 'easy' : s.difficulty;
@@ -349,6 +357,8 @@ export function restartGame(s, { assist = false, easy = false } = {}) {
     gameSpeed,
     speedAssisted,
   });
+  s.runLog = runLog;
+  openAttempt(s);
   setPower(s.ship, checkpoint.power ?? 1);
   if (Number.isFinite(checkpoint.mrna) && powerOf(checkpoint.mrna) === s.ship.power) s.ship.mrna = checkpoint.mrna;
   // Adjuvants are never lost on death: the entry build comes back.
@@ -407,6 +417,7 @@ export function startPractice(s, stage, { card = null, boss = null } = {}) {
   const { unlockedStage, medals, difficulty, seed, gameSpeed } = s;
   Object.assign(s, createState({ seed, stage, difficulty, drafts: s.drafts }), { phase: 'playing', unlockedStage, medals, gameSpeed });
   s.practice = { stage, card, boss: card !== null ? type : null, result: null };
+  s.runLog = null; // practice is not part of a run
   s.run = null; // practice measures skill on STANDARD ISSUE (A8)
   setPower(s.ship, entryPower(stage));
   refreshKit(s);
@@ -506,6 +517,7 @@ function die(s) {
   s.lives = s.health;
   s.damageTaken++;
   s.sector.vialsLost++;
+  logHit(s, cause);
   breakChain(s, 'damage');
   voidCapture(s);
   s.lastCause = cause;
@@ -544,6 +556,7 @@ function die(s) {
  * FINAL REPORT follows. Practice just ends. */
 function lose(s, cause) {
   s.phase = 'lost';
+  closeAttempt(s, 'lost');
   s.failures++;
   s.lastCause = cause;
   let credit = false;
@@ -566,17 +579,20 @@ export function finalReport(s, contained) {
   const sequenced = LEVELS.filter((l) => l.kind === 'boss').reduce((n, l) => n + (s.medals[l.id]?.cards || []).filter((c) => c.neutralized).length, 0);
   const medals = { gold: 0, silver: 0, bronze: 0 };
   for (const r of Object.values(s.medals)) if (medals[r.medal] !== undefined) medals[r.medal]++;
+  const assisted = s.speedAssisted || Object.values(s.medals).some((r) => r.assisted);
   return {
     contained,
     score: s.score,
     oneCredit: contained && oneCredit(s),
+    // What the report prints: a plain 1CC only on Normal at full speed.
+    stamp: stampOf({ contained, oneCredit: contained && oneCredit(s), difficulty: s.difficulty, assisted }),
     creditsUsed: s.creditsUsed,
     credits: diff(s).credits,
     sequenced,
     variantCards,
     medals,
     reached: getLevel(s.wave).code,
-    assisted: s.speedAssisted || Object.values(s.medals).some((r) => r.assisted),
+    assisted,
     difficulty: s.difficulty,
     injections: s.injections,
     grazes: s.grazes,
@@ -1414,6 +1430,7 @@ function finishSector(s, level) {
     difficulty: s.difficulty,
   };
   s.medals[s.wave] = result;
+  closeAttempt(s, 'cleared');
   // SEQUENCING: a non-final boss raises the titer and pays RESAMPLE tokens;
   // the share of its cards NEUTRALIZED lifts the boosted draft's odds.
   if (s.run && level.kind === 'boss' && s.wave !== STAGE_COUNT && s.boss) {
@@ -1502,6 +1519,7 @@ export function pickAdjuvant(s, index) {
   if (card.id === 'lather') s.ship.bombs = Math.min(s.kit.maxBombs, s.ship.bombs + CARD.lather.fx.soapNow);
   s.lives = s.health;
   pushEvent(s, 'adjuvant', { id: card.id, tier: card.tier, stacks: s.run.deck.filter((d) => d.id === card.id).length });
+  logDraft(s, card);
   endDraft(s);
   return card;
 }
@@ -1510,6 +1528,7 @@ export function resampleAdjuvants(s) {
   if (s.phase !== 'draft' || s.paused || !s.run?.offer || s.run.tokens <= 0) return null;
   const offer = resample(s.run, draftCtx(s));
   pushEvent(s, 'resample', { ids: [...offer.ids], tiers: [...offer.tiers], tokens: s.run.tokens });
+  logResample(s);
   return offer;
 }
 /** DISCARD: take none; +1 SOAP (up to the cap) and +3 incubation. */
@@ -1517,6 +1536,7 @@ export function discardAdjuvants(s) {
   if (s.phase !== 'draft' || s.paused || !s.run || !discard(s.run)) return false;
   s.ship.bombs = Math.min(s.kit.maxBombs, s.ship.bombs + 1);
   pushEvent(s, 'discard', { bombs: s.ship.bombs });
+  logDraft(s, null);
   endDraft(s);
   return true;
 }
@@ -1552,6 +1572,8 @@ export function exportRun(s) {
     // needs 1-1 and none spent).
     creditsUsed: s.creditsUsed | 0,
     runStart: s.runStart ?? 1,
+    // The calibration log rides with the run, so a reload keeps the story.
+    log: exportRunLog(s),
   };
 }
 /** RESUME RUN from a stored run. Returns false (and leaves `s` alone) for a
@@ -1580,7 +1602,12 @@ export function resumeRun(s, data) {
       run,
       pendingHeal: ['boss', 'full', 'none', 'one'].includes(data.pendingHeal) ? data.pendingHeal : 'none',
       vialBonus: num(data.vialBonus, 0, 9) ? data.vialBonus : 0,
+      runLog: reviveRunLog(data.log),
     });
+    // The stage restarts from its entry: the partial attempt the save was
+    // taken in is closed and a new one begins (a draft opens none).
+    closeAttempt(s, 'restart');
+    if (data.phase !== 'draft') openAttempt(s);
     setPower(s.ship, data.power);
     refreshKit(s);
     s.health = s.lives = Math.min(data.health, s.kit.maxVials + 2 + s.vialBonus);
@@ -1608,6 +1635,7 @@ export function resumeRun(s, data) {
 function beginNextSector(s) {
   const heal = s.pendingHeal;
   setupSector(s, s.wave + 1);
+  openAttempt(s);
   s.phase = 'playing';
   // EXTRA DOSE / GLASS SYRINGE move the cap (kit.maxVials = diff on a base kit).
   const max = s.kit.maxVials + (s.vialBonus || 0);
@@ -1746,6 +1774,7 @@ export function update(s, seconds, input = {}) {
   // queued, so a SOAP (or a deathbomb) pressed during a freeze still fires
   // on the first step after it (it used to be dropped).
   if (ran) s.bombQueued = false;
+  logSaves(s);
   return s;
 }
 export function snapshot(s) {

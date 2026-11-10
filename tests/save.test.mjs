@@ -3,7 +3,7 @@
  * saves migrate once (fixtures for v5 and v4). */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { KEYS, loadStore, migrateV5, V5_TO_V6, write } from '../save.mjs';
+import { KEYS, loadStore, migrateV5, V5_TO_V6, write, MODES, cleanMode } from '../save.mjs';
 import { LEVELS } from '../levels.mjs';
 
 const memory = (init = {}) => {
@@ -78,4 +78,21 @@ test('the v5 map covers every old stage and lands inside the run', () => {
   assert.equal(Object.keys(V5_TO_V6).length, 18);
   for (const v of Object.values(V5_TO_V6)) assert.ok(v === null || (v >= 1 && v <= 12));
   assert.deepEqual(migrateV5({ unlocked: 1 }).unlocked, 1);
+});
+
+test('difficulty is stored as easy | normal | hard and anything else reads as normal', () => {
+  for (const mode of ['easy', 'normal', 'hard']) assert.equal(loadStore(memory({ [KEYS.difficulty]: mode })).difficulty, mode, `a stored ${mode} loads as ${mode}`);
+  for (const bad of ['nightmare', 'HARD', '', 3, null, true, { hard: 1 }, ['hard']]) assert.equal(loadStore(memory({ [KEYS.difficulty]: bad })).difficulty, 'normal', `${JSON.stringify(bad)} reads as normal`);
+  // A saved choice (even Normal) is a choice: the first-visit offer is gone.
+  assert.equal(loadStore(memory({ [KEYS.difficulty]: 'hard' })).difficultyChosen, true);
+  assert.equal(loadStore(memory({})).difficultyChosen, false);
+  assert.deepEqual([...MODES], ['easy', 'normal', 'hard']);
+  assert.equal(cleanMode('hard'), 'hard');
+  assert.equal(cleanMode(undefined), 'normal');
+  // Written and read back through the real writer.
+  const st = memory({});
+  assert.equal(write(st, KEYS.difficulty, 'hard'), true);
+  assert.equal(loadStore(st).difficulty, 'hard');
+  // Older saves hold only easy or normal and keep working.
+  assert.equal(loadStore(memory({ [KEYS.difficulty]: 'easy' })).difficulty, 'easy');
 });

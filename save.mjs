@@ -45,6 +45,10 @@ const NAMES = ['unlocked', 'medals', 'scores', 'effects', 'seen', 'cards', 'prac
  * 2-2 AEROSOL and 2-3 DEEP BREATH -> 2-1, 2-4 -> 2-3, 3-1 -> 3-1,
  * 3-4 DELTA -> 3-3, 4-1 AGAR -> 4-2, 4-2 MUTATION -> 4-1, 4-4 -> 4-3. */
 export const V5_TO_V6 = Object.freeze({ 1: 1, 2: 2, 3: null, 4: 3, 5: null, 6: 5, 7: 4, 8: 4, 9: 6, 10: 7, 11: null, 12: null, 13: 9, 14: null, 15: 11, 16: 10, 17: null, 18: 12 });
+/** The difficulty modes, easiest first (the title switch and the pause row
+ * cycle in this order). Anything else read from storage is Normal. */
+export const MODES = Object.freeze(['easy', 'normal', 'hard']);
+export const cleanMode = (value) => (MODES.includes(value) ? value : 'normal');
 const MEDALS = ['bronze', 'silver', 'gold'];
 const RANK = { bronze: 1, silver: 2, gold: 3 };
 
@@ -144,7 +148,7 @@ export function loadStore(storage, { reducedMotion = false } = {}) {
     cards: cleanMap(read(storage, KEYS.cards)),
     practice: cleanMap(read(storage, KEYS.practice)),
     sound: read(storage, KEYS.sound) !== false,
-    difficulty: read(storage, KEYS.difficulty) === 'easy' ? 'easy' : 'normal',
+    difficulty: cleanMode(read(storage, KEYS.difficulty)),
     difficultyChosen: read(storage, KEYS.difficulty) !== undefined,
     speed: [1, 0.9, 0.8, 0.7].includes(speed) ? speed : 1,
     migratedFrom: from,
