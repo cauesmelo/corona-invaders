@@ -304,7 +304,10 @@ await check('D7 keyboard: a held Space never picks; 1-3 select, Enter injects; p
   );
   const s1 = await stateOf(p);
   assert(s1.wave === 2 && s1.run.deck.at(-1).id === want, 'the deck gains the selected id');
-  assert(resumed <= 1200, `play resumes in ${resumed.toFixed(0)} ms (<= 1200)`);
+  // Play resumes when the 1.0 s animation hands back, one frame later; a
+  // loaded machine adds its frame gaps, so the 1.2 s bound is judged idle.
+  if (load()[0] <= MAX_LOAD) assert(resumed <= 1200, `play resumes in ${resumed.toFixed(0)} ms (<= 1200)`);
+  else assert(resumed <= 3000, `play resumes in ${resumed.toFixed(0)} ms (loaded machine)`);
   assert((await p.locator('#rack .chip').count()) === 1, 'the HUD rack shows the pick');
   // DISCARD: S once arms, S again discards: +1 SOAP, back to play.
   await openDraft(p);
@@ -318,7 +321,7 @@ await check('D7 keyboard: a held Space never picks; 1-3 select, Enter injects; p
   assert(s2.ship.bombs === Math.min(s2.kit.maxBombs, bombs + 1), 'DISCARD +1 SOAP');
   assert(errors.length === 0, `console errors: ${errors.join('; ')}`);
   await ctx.close();
-  return { resumeMs: Math.round(resumed) };
+  return { resumeMs: Math.round(resumed), load: load()[0] };
 });
 
 await check('D7 mouse: hovering a cartridge selects it, clicking the selected one injects; a click on a key acts', async () => {
@@ -393,6 +396,36 @@ await check('D7 reduced motion: no drop-in, a pick resumes play at once', async 
   await p.keyboard.press('Enter');
   await p.waitForFunction(() => window.__game.getState().phase === 'playing');
   assert(!(await p.evaluate(() => window.__game.draft.screen().holding)), 'no hold');
+  await ctx.close();
+});
+
+await check('D7 robustness: pause and resume mid-draft, a resize re-captures the board and refits, blur during the inject hold hands back to play paused', async () => {
+  const { ctx, p, errors } = await page();
+  await openDraft(p, { fresh: true });
+  await revealed(p);
+  await p.keyboard.press('Escape');
+  assert((await stateOf(p)).paused === true, 'Esc pauses the draft');
+  assert(await p.locator('#overlay').isVisible(), 'the pause card shows');
+  await p.keyboard.press('Escape');
+  assert((await stateOf(p)).paused === false && (await stateOf(p)).phase === 'draft', 'resumes into the draft');
+  const before = await sceneOf(p);
+  await p.setViewportSize({ width: 820, height: 600 });
+  await p.waitForFunction((w) => window.__game.draft.scene().safe.w !== w, before.safe.w, { timeout: 5000 }).catch(() => {});
+  const after = await sceneOf(p);
+  assert(after.open && after.safe.w !== before.safe.w, 'the safe rect follows the resize');
+  for (const c of after.cartridges) assert(c.rect.x >= 0 && c.rect.x + c.rect.w <= 820, 'still on screen');
+  await p.setViewportSize({ width: 960, height: 640 });
+  await p.waitForFunction((w) => window.__game.draft.scene().safe.w === w, before.safe.w, { timeout: 5000 }).catch(() => {});
+  await revealed(p);
+  // A pick, then the window loses focus mid-animation: play is not held.
+  await p.keyboard.press('Enter');
+  await p.waitForFunction(() => window.__game.draft.screen().holding);
+  await p.evaluate(() => window.dispatchEvent(new Event('blur')));
+  await p.waitForTimeout(200);
+  const s = await stateOf(p);
+  assert(s.phase === 'playing' && s.paused === true, 'paused at the new stage');
+  assert(!(await p.evaluate(() => window.__game.draft.screen().holding)), 'the hold ended');
+  assert(errors.length === 0, `console errors: ${errors.join('; ')}`);
   await ctx.close();
 });
 
