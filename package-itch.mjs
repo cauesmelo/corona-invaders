@@ -11,7 +11,8 @@ import { createHash } from 'node:crypto';
 const root = path.dirname(fileURLToPath(import.meta.url));
 const config = JSON.parse(await readFile(path.join(root, 'itch.json'), 'utf8'));
 const destination = path.join(root, 'dist', 'itch');
-const excluded = new Set(['package.json', 'package-lock.json', 'serve.mjs', 'package-itch.mjs', 'itch.json']);
+// soundboard.html is a dev tool (audition every SFX), not part of the player export.
+const excluded = new Set(['package.json', 'package-lock.json', 'serve.mjs', 'package-itch.mjs', 'itch.json', 'soundboard.html']);
 async function runtimeFiles(folder, prefix = '') {
   const out = [];
   for (const entry of (await readdir(folder, { withFileTypes: true })).sort((a, b) => a.name.localeCompare(b.name))) {

@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Corona Invaders soundboard</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Ccircle cx='20' cy='20' r='9' fill='%2312ce5d'/%3E%3C/svg%3E" />
+    <style>
+      /* Dev tool: audition every synthesized SFX and voice (README "Sound").
+         Served by `npm run dev` at /soundboard.html; not part of the itch ZIP. */
+      :root {
+        --bg: #0b1214;
+        --panel: #121d20;
+        --ink: #e9f3f1;
+        --dim: #8fa5a2;
+        --virus: #12ce5d;
+        --cyan: #7fe8ff;
+        --line: #26383c;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        padding: 20px 16px 40px;
+        background: var(--bg);
+        color: var(--ink);
+        font: 14px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+      }
+      h1 {
+        margin: 0 0 4px;
+        font-size: 18px;
+        letter-spacing: 0.12em;
+        color: var(--virus);
+      }
+      p {
+        margin: 0 0 16px;
+        color: var(--dim);
+        max-width: 70ch;
+      }
+      .bar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-bottom: 18px;
+        align-items: center;
+      }
+      button {
+        font: inherit;
+        color: var(--ink);
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 4px;
+        padding: 7px 10px;
+        cursor: pointer;
+        text-align: left;
+      }
+      button:hover,
+      button:focus-visible {
+        border-color: var(--cyan);
+        outline: none;
+      }
+      button.play:active {
+        background: #18302e;
+      }
+      .groups {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr));
+        gap: 16px;
+      }
+      section {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        padding: 12px;
+      }
+      h2 {
+        margin: 0 0 8px;
+        font-size: 12px;
+        letter-spacing: 0.16em;
+        color: var(--dim);
+        text-transform: uppercase;
+      }
+      .row {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        margin: 4px 0;
+      }
+      .row button {
+        flex: 1;
+        min-width: 0;
+      }
+      .m {
+        font-size: 11px;
+        color: var(--dim);
+        white-space: nowrap;
+        min-width: 15ch;
+        text-align: right;
+      }
+      #status {
+        color: var(--dim);
+      }
+      label {
+        color: var(--dim);
+      }
+    </style>
+  </head>
+  <body>
+    <h1>CORONA INVADERS · SOUNDBOARD</h1>
+    <p>Every sound in the game is synthesized at run time (audio.mjs). Click to audition it through the real master chain (compressor and soft clipper). MEASURE renders each one offline and prints its sample peak (dBFS), max momentary loudness (LUFS-M) and attack (ms).</p>
+    <div class="bar">
+      <button id="measure" type="button">MEASURE ALL</button>
+      <button id="march" type="button">MARCH: OFF</button>
+      <label><input id="tempo" type="range" min="72" max="144" value="72" /> <span id="bpm">72</span> BPM</label>
+      <span id="status">Click any sound to start audio.</span>
+    </div>
+    <div class="groups" id="groups"></div>
+    <script type="module">
+      import { createAudio, SFX_CATALOG, playEntry, fixtureState } from './audio.mjs';
+      const audio = createAudio();
+      const ensure = () => audio.enabled || audio.setEnabled(true, { quiet: true });
+      const groups = new Map();
+      for (const e of SFX_CATALOG) {
+        if (!groups.has(e.group)) groups.set(e.group, []);
+        groups.get(e.group).push(e);
+      }
+      const root = document.getElementById('groups');
+      const meters = new Map();
+      for (const [name, list] of groups) {
+        const sec = document.createElement('section');
+        sec.innerHTML = `<h2>${name}</h2>`;
+        for (const e of list) {
+          const row = document.createElement('div');
+          row.className = 'row';
+          const b = document.createElement('button');
+          b.className = 'play';
+          b.type = 'button';
+          b.textContent = e.label;
+          b.addEventListener('click', () => {
+            ensure();
+            // Live playback: sequences are spread with timers.
+            if (e.seq) for (const st of e.seq) setTimeout(() => audio.event(st.ev, st.s || fixtureState()), st.at * 1000);
+            else playEntry(audio, e);
+          });
+          const m = document.createElement('span');
+          m.className = 'm';
+          meters.set(e.id, m);
+          row.append(b, m);
+          sec.append(row);
+        }
+        root.append(sec);
+      }
+      // The march (bass bed) at a chosen tempo.
+      let marching = null;
+      const tempo = document.getElementById('tempo');
+      tempo.addEventListener('input', () => (document.getElementById('bpm').textContent = tempo.value));
+      document.getElementById('march').addEventListener('click', (ev) => {
+        ensure();
+        if (marching) {
+          clearInterval(marching);
+          marching = null;
+          audio.tick(null, false);
+          ev.target.textContent = 'MARCH: OFF';
+          return;
+        }
+        ev.target.textContent = 'MARCH: ON';
+        marching = setInterval(() => {
+          const f = 1 - (Number(tempo.value) - 72) / 72;
+          const s = fixtureState({ enemies: Array.from({ length: 100 }, (_, i) => ({ id: i, kind: 'wild', alive: i < 100 * f })) });
+          audio.tick(s, true);
+        }, 40);
+      });
+      // Offline measurement, the same numbers as tests/browser/audio-measure.mjs.
+      document.getElementById('measure').addEventListener('click', async () => {
+        const status = document.getElementById('status');
+        const SR = 48000;
+        // 1.5 s of unmeasured silence first: Chrome's compressor starts fully
+        // reduced and needs it to settle (as it has in a running game).
+        const PRE = 1.5;
+        for (const [i, e] of SFX_CATALOG.entries()) {
+          status.textContent = `Measuring ${i + 1}/${SFX_CATALOG.length}...`;
+          const steps = e.voice ? [{ at: 0, voice: e.voice }] : e.seq || [{ at: 0, ev: e.ev, s: e.s }];
+          const seconds = Math.max(...steps.map((s) => s.at)) + (e.group === 'Bosses' ? 4 : 2.2);
+          const ctx = new OfflineAudioContext(2, Math.round(SR * (seconds + PRE)), SR);
+          const engine = createAudio({ context: ctx });
+          engine.setEnabled(true, { quiet: true });
+          const run = (st) => (st.voice ? engine.voice(st.voice) : engine.event(st.ev, st.s || fixtureState()));
+          for (const st of steps) {
+            const t = Math.round(((st.at + PRE) * SR) / 128) * 128 / SR;
+            ctx.suspend(t).then(() => {
+              try {
+                run(st);
+              } finally {
+                ctx.resume();
+              }
+            }).catch(() => {});
+          }
+          const full = await ctx.startRendering();
+          const from = Math.round(PRE * SR);
+          const buf = { length: full.length - from, getChannelData: (k) => full.getChannelData(k).subarray(from) };
+          let peak = 0;
+          for (const c of [buf.getChannelData(0), buf.getChannelData(1)]) for (const v of c) peak = Math.max(peak, Math.abs(v));
+          // Momentary loudness, unweighted RMS over 400 ms (fast approximation).
+          let best = 0;
+          const L = buf.getChannelData(0),
+            R = buf.getChannelData(1),
+            win = SR * 0.4;
+          for (let s = 0; s + win <= buf.length; s += SR * 0.1) {
+            let sum = 0;
+            for (let k = s; k < s + win; k++) sum += L[k] * L[k] + R[k] * R[k];
+            best = Math.max(best, sum / win);
+          }
+          let onset = -1,
+            top = -1;
+          for (let k = 0; k < L.length; k++) if (Math.max(Math.abs(L[k]), Math.abs(R[k])) > 0.001) {
+            onset = k;
+            break;
+          }
+          for (let k = Math.max(0, onset); k < L.length; k++) if (Math.max(Math.abs(L[k]), Math.abs(R[k])) >= 0.9 * peak) {
+            top = k;
+            break;
+          }
+          meters.get(e.id).textContent = peak ? `${(20 * Math.log10(peak)).toFixed(1)} dB · ${(-0.691 + 10 * Math.log10(best)).toFixed(1)} LU · ${Math.round(((top - onset) / SR) * 1000)} ms` : 'silent';
+        }
+        status.textContent = 'Measured (peak dBFS · RMS momentary · attack). The exact K-weighted numbers are in the README.';
+      });
+    </script>
+  </body>
+</html>
