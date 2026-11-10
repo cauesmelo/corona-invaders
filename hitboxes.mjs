@@ -160,3 +160,15 @@ export function bodyRadiusOf(spec) {
   return p?.r ?? 0.6;
 }
 export const enemyScale = (e, spec) => e.radius / bodyRadiusOf(spec);
+
+/** JET INJECTOR (adjuvant 8, RESEARCH_CARDS §3.2): the one collider an
+ * adjuvant adds. A 0.5 u-wide stream from the muzzle straight up the board
+ * to the back edge, drawn at exactly this width (like a lane beam). It is a
+ * player weapon: it never touches the syringe's own core or graze tests. */
+export const JET = Object.freeze({ width: 0.5, muzzle: 0.9 });
+export const jetRect = (x, z) => ({ x, width: JET.width, fromZ: RULES.back, toZ: z - JET.muzzle });
+/** A body (circle, or a capsule of half-length `half` along x) overlaps the
+ * jet rectangle. */
+export function jetHits(rect, cx, cz, r, half = 0) {
+  return Math.abs(cx - rect.x) < rect.width / 2 + r + half && cz - r < rect.toZ && cz + r > rect.fromZ;
+}
