@@ -1,5 +1,72 @@
 # Corona Invaders: balance and evidence (v1.0)
 
+## Revision six: difficulty and power progression (2026-11-10, RESEARCH_DIFFICULTY.md)
+
+The owner found the start frantic (3 needles at 8/s) and the game too easy. The brief replaced ceiling-only targets with **bands for three human proxies** and a weak start that grows. Everything below was measured on the real model with `npm run test:difficulty` (48 seeds per proxy, Normal, drafts on, 3 credits, the F1 forced-hit replay on; evidence `common/artifacts/ci-difficulty/`). **The proxies' numbers are evidence of reachability and pressure, not of fun**, and their bands stay provisional until the owner's calibration session (§2.1).
+
+### What is built
+
+- **Starting weapon (D2):** L1 is one straight needle at **6 volleys/s** with no antibodies. The mRNA ladder is focus/spray needles 1/1, 2/2 (±4.25° pair), 3/3 + 2 antibodies, 4/5 + 4 antibodies, antibodies at 3 needles/s: **6 / 12 / 24 / 36 focused DPS**. Cadence never exceeds **8 volleys/s** with any deck (BOOSTER SHOT included). Movement, INJECT, vials and the SOAP itself are unchanged. In Chrome with real keys (Playwright, Chrome channel, SwiftShader, 960×640): the first 20 s of 1-1 show **2.5 needles alive on average, 4 at most** (v1.0: 12.6 / 15), 3.2 enemy bullets on average, 6 at most; 1-1 clears in 76 s.
+- **Power delivery (found by the proxies):** most proxy runs never left L2. A midboss strand dropped on the last beat was lost to the stage clear, a continue reset the strand count to the level threshold, and a caught death strand did not give the extra strands back. Now VESICLE and midboss strands home into the syringe (the stage waits for them), continues and caught strands keep the count, and the VESICLE has 12 HP. Measured: every casual and autopilot run enters 1-3 at L2, 2-3 at L3 and 3-3 at L4.
+- **Toughness:** popcorn HP is base × **1.0 / 1.4 / 1.9 / 2.4** by sector and never reads the deck (asserted). Boss card HP = TTK × the median focused DPS at the boss (`levels.bossPower`, so BIG SNEEZER is priced at L2) × the sector uptime **u = 0.45 / 0.60 / 0.65 / 0.65** (the brief's values; 0.42–0.5 was tried while the power bug hid L3/L4). Sectors 3–4 scale every TTK × 0.85; timeouts max(25, 1.6 × TTK) in S1–S2, 1.4 × TTK in S3–S4. `EXPECTED_POTENCY` was re-measured on the new set (2000 seeds): 1, 1, 1.21, 1.21, 1.27, 1.214, 1.25, 1.331, 1.257, 1.342, 1.375, 1.418, so the median focused DPS runs 6 → 51 (×8.5; plan ×9). The median deck ends S2–S4 cards at **0.8–1.0 × TTK** (casual proxy); S1 cards at 0.47 (cheap on purpose: the first-timer is the S1 constraint).
+- **Pressure is a stage lever, never a deck lever:** `pressure: { count, aimed, every }` per stage (bullet count, aimed speed, boss cadence). Patterns marked `fixed` (DELTA's lane jets and BLOOD RUSH walls, LAMBDA's MIRROR jet) keep their authored cadence because tighter settings produced forced hits.
+- **Guard-rails:** every `until` has a cap (thin 10 s, clear 12 s, calm 6 s; 1-1's homage 25 s) after which survivors retreat and count as escaped for R0; 1-1 marches 0.3 u after 4 s without a kill. OMICRON ends with **R0 < 1, a 12 s timer-only survival** under 3-stacks; SNEEZE STORM runs under BREATH and QUARANTINE under CURRENT (bullets drift 0.6 u/s, one flip).
+- **The 30 adjuvants** (§7.3): six lines (NEEDLE Marksman, INJECT Medic, ANTIBODY Escort, EXPOSURE Dancer, SOAP Cleaner, DOSE Survivor), 9 new cards, **5 numbers-only cards** (was 15), one card per sector rule (TIDAL VOLUME, STREAMLINE, PROOFREADING, offered once entering their sector). No card changes a collider (asserted for 1000 random decks). Data shape for the 3D draft: `id, name, label (≤ 16), tier, line, tags, stat (≤ 18), kind, fx`, plus `costLabel` on trade-offs and `sector` on sector cards.
+
+### Levers pulled, in the brief's order (§3.6)
+
+1. Density: sector-1 fans gentler (S1 SNEEZER tiers 4.0 / 4.6; BIG SNEEZER single 7-way fans every 3.4 s; ALPHA FIRST SNEEZE 7 over 56°), 1-2 mini lanes 2.36 u apart, slower 2-1 and 3-1 openers, denser 3-2 / 4-1 / 4-2 choirs, boss cadence ×0.8 (B&G), ×0.7 (LAMBDA), ×0.85 (DELTA), ×0.9 (MOTHER), ×0.55 (OMICRON). Some samples trimmed for length (1-1, 2-1, 3-1, 3-2).
+2. Card TTK and u: S3–S4 TTK × 0.85, MOTHER CELL 8/9/9, OMICRON's 25 s cards → 22, LAMBDA MIRROR 20 → 14 (every 150 ms referee start timed it out).
+3. Aimed speed: within the F4 bands only.
+4. **Normal SOAP refill 2 → 1 per vial** (the expert one-credit-cleared 83% before it).
+5. **ALPHA and BETA & GAMMA no longer restore a vial** (the casual fully cleared 92% before it); DELTA still does.
+
+### Targets against measured values (Normal, 48 seeds each, `03-revision6-final.txt`)
+
+| Target | First-timer band | measured | Casual band | measured | Expert band | measured |
+| --- | --- | --- | --- | --- | --- | --- |
+| S1 vials | 1.5–4.0 | **3.35** | 0.2–1.0 | 0.04 (low) | 0.0–0.3 | **0.13** |
+| S1 cleared | ≥ 70% | **100%** | ≥ 98% | **100%** | 100% | **100%** |
+| S2 vials | 2.0–5.0 | 7.96 (high) | 1.6–3.2 | **2.13** | 0.5–1.3 | **1.00** |
+| S2 cleared | 30–60% | **38%** | ≥ 90% | **100%** | ≥ 98% | **100%** |
+| S3 vials | — | 6.22 (n 18) | 2.5–4.4 | 1.42 (low) | 0.9–2.0 | **0.94** |
+| S3 cleared | 10–35% | 10% (edge) | 75–92% | 100% (high) | ≥ 95% | **100%** |
+| S4 vials | — | 6.6 (n 5) | 3.4–5.7 | 2.69 (low) | 1.3–2.7 | **1.46** |
+| Full clear | 5–20% | 0% (low) | 55–75% | 100% (high) | ≥ 90% | **100%** |
+| Continues | 2.5–3.0 | **3.00** | 1.0–2.0 | 0.73 (low) | 0.2–0.7 | **0.25** |
+| 1CC | ≤ 2% | **0%** | 10–25% | 50% (high) | 45–70% | 79% (high; 65–73% on the three runs before the last LAMBDA change) |
+| No vial lost | 0% | **0%** | ≤ 1% | 2% | ≤ 8% | 8% (edge) |
+| Forced hits (F1) | 0 | **0** | 0 | **0** | 0 | **0** |
+
+Run length (casual, play only): **17.5 min** (band 16–20; v1.0 16.2). Expert 16.4 min. OMICRON is the hardest stage for both the casual (1.21 vials per run) and the expert (0.75). **Easy:** the first-timer proxy cleared 16/16 runs, all on one credit, with 0.75 hits per attempt from S2 on (bands ≥ 85% and ≥ 1 hit: the second misses). The game-speed assist (100 / 90 / 80 / 70%) is unchanged and orthogonal. Overall 40 of 69 banded targets pass.
+
+Stage bands (vials lost per run reaching the stage, all attempts):
+
+| Stage | casual band | casual | expert band | expert | first-timer |
+| --- | --- | --- | --- | --- | --- |
+| 1-1 | 0.0–0.2 | 0.02 | 0.0 | 0.00 | 0.40 |
+| 1-2 | 0.1–0.4 | 0.02 | 0.0–0.1 | 0.08 | 2.02 |
+| 1-3 ALPHA | 0.2–0.6 | 0.00 | 0.0–0.2 | 0.04 | 0.94 |
+| 2-1 | 0.3–0.7 | 0.31 | 0.1–0.3 | 0.33 | 2.17 |
+| 2-2 | 0.5–1.0 | 0.75 | 0.15–0.4 | 0.40 | 3.40 |
+| 2-3 B&G | 0.8–1.5 | 1.06 | 0.25–0.6 | 0.27 | 3.38 |
+| 3-1 | 0.6–1.1 | 0.54 | 0.2–0.5 | 0.31 | 2.72 |
+| 3-2 | 0.8–1.4 | 0.44 | 0.3–0.6 | 0.25 | 3.62 |
+| 3-3 DELTA | 1.1–1.9 | 0.44 | 0.4–0.9 | 0.38 | 2.00 |
+| 4-1 | 0.9–1.5 | 0.71 | 0.35–0.7 | 0.42 | 1.80 |
+| 4-2 | 1.1–1.8 | 0.77 | 0.4–0.8 | 0.29 | 1.33 |
+| 4-3 OMICRON | 1.4–2.4 | **1.21** | 0.6–1.2 | **0.75** | 6.67 (n 3) |
+
+Vials by source (StS-style) are printed per stage, per boss card. The first-timer's sector-1 losses moved from fans (66 of 98 at ALPHA's FIRST SNEEZE before the retune) to the 1-2 samples (SNEEZER 42, WILD TYPE 33, BIG SNEEZER 22 over 48 runs). OMICRON's casual losses are SNEEZE STORM 21, MUTATION SPIRAL 13, R0 > 1 9.
+
+### What the misses say
+
+- **The casual proxy is too strong at the run level** (full clear 100%, 1CC 50%) while every sector band of the expert holds. Density levers move the two together: the casual dies only ~1.5× as often as the expert in S3–S4 (the brief's bands assume ~2.5×). A/B runs at a near-final tune (16 seeds) point at two causes: the random drafter's defensive cards (ENTERIC, BACKUP ALIQUOT, EPIPEN, EXTRA DOSE: the same casual drafting by line synergy or by offense 1CCs 6/16 instead of 9/16) and the proxies' small skill gap outside the deathbomb timing. Calibration with real players (§2.1) should come before further tuning; if the owner's own run agrees with the proxy, the next levers are the coating's per-stage refill (not in its card text) and S3–S4 sample density.
+- **The first-timer loses 8 vials in LUNGS** (band 2–5) but clears it 38% of the time; BREATH's rush beats a 300 ms linear predictor. S3 cleared sits at the 10% edge and the full clear at 0–2% (band 5–20%).
+- **Ordering:** OMICRON is the peak and S1 < S2 for every proxy, but "strictly rising within every sector", "bosses strictly rising" and "openers between" fail on the means (2-3 B&G sits above 3-1–3-3 for the casual).
+- **Suite ladder (D6, reference referee):** the §4.2 near-core ladder is not met row by row (the S1 rows sit 35% high, 2-1 44%); every miss is held in `tests/suite.test.mjs` `KNOWN_GAPS` with its measured value. The per-stage hit ceilings and the 1.2-hits-per-card ceiling are gone (§2.4); F1 (no forced hit, all three proxies and the referee), F5 (the autopilot clears all 12 stages on 3 seeds without SOAP, ≤ 0.2 hits per stage) and F6 (every stage within 1.5× its band) are asserted.
+
+
 ## v1.0 evidence (2026-11-10, the 12-stage suite)
 
 Brief: `RESEARCH_V1.md`. Built on `main` from `189dfc7` (short syringe) to `50a40d3` (run rule). Every number below comes from `npm test` or `node tests/suite-audit.mjs` (the committed measurement: the 150 ms reactive player of `tests/reactive.mjs`, no SOAP, 99 vials so each stage runs to its end, the reference syringe at the stage's guaranteed power, 8 seeds 42/1/7/3/5/11/23/99). No human has played this suite yet; bots prove reachability and pressure, not fun.
