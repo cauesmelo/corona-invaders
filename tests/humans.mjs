@@ -11,10 +11,18 @@
  *
  * Human limits modelled (each has a source in the brief's table):
  *   - perception lag and a decision period (one committed direction each);
- *   - an attention cap (nearest N bullets; experts filter bullets moving away);
+ *   - an attention cap (nearest N bullets; experts filter bullets moving away).
+ *     The expert's cap is 16, not "all in view" (§2.1): with every bullet in
+ *     the risk function the expert was WORSE than the casual in dense fields
+ *     (OMICRON: 1CC 56% at infinity against 81-83% at 12-20 on the same build),
+ *     an artefact of the risk sum, not skill;
  *   - wrong-choice noise (a 2nd-4th best move) and lapses (keep the last move);
- *   - first-timers never hold focus;
- *   - panic SOAP when the chosen move still meets a bullet <= 0.16 s ahead;
+ *   - focus use is a probability per 1.2 s episode (first-timer 30%: the
+ *     1-2 protocol line teaches Shift but novices forget it; the others 100%);
+ *   - panic SOAP when the chosen move still meets a bullet <= 0.16 s ahead,
+ *     pressed after the profile's motor delay (`panicMs`, >= 150 ms), never on
+ *     the frame the thought forms: it saves when it lands before the hit or
+ *     inside the 0.18 s deathbomb window after it;
  *   - the deathbomb press lands one human reaction time after the hit flash
  *     (Gaussian, never earlier than 150 ms), against the 0.18 s window;
  *   - INJECT on a fraction of safe chances (a popcorn body <= 3 u ahead of
@@ -35,9 +43,9 @@ import { chooseInput } from '../autopilot.mjs';
 const FPS = 60;
 /** §2.1, exactly (D1s asserts these numbers). Times in ms. */
 export const PROFILES = Object.freeze({
-  firstTimer: Object.freeze({ id: 'firstTimer', label: 'FIRST-TIMER', lag: 300, decision: 200, attention: 6, noise: 0.15, lapse: 0.08, focus: false, panic: 0.3, deathbomb: Object.freeze([380, 80]), inject: 0.05, draft: 'rarest' }),
-  casual: Object.freeze({ id: 'casual', label: 'CASUAL', lag: 220, decision: 150, attention: 10, noise: 0.07, lapse: 0.03, focus: true, panic: 0.5, deathbomb: Object.freeze([280, 60]), inject: 0.25, draft: 'random' }),
-  expert: Object.freeze({ id: 'expert', label: 'EXPERT', lag: 150, decision: 100, attention: Infinity, noise: 0.02, lapse: 0, focus: true, panic: 0.75, deathbomb: Object.freeze([190, 40]), inject: 0.6, draft: 'synergy' }),
+  firstTimer: Object.freeze({ id: 'firstTimer', label: 'FIRST-TIMER', lag: 300, decision: 200, attention: 6, noise: 0.15, lapse: 0.08, focus: 0.3, panic: 0.3, panicMs: Object.freeze([330, 70]), deathbomb: Object.freeze([380, 80]), inject: 0.05, draft: 'rarest' }),
+  casual: Object.freeze({ id: 'casual', label: 'CASUAL', lag: 220, decision: 150, attention: 10, noise: 0.07, lapse: 0.03, focus: 1, panic: 0.5, panicMs: Object.freeze([250, 50]), deathbomb: Object.freeze([280, 60]), inject: 0.25, draft: 'random' }),
+  expert: Object.freeze({ id: 'expert', label: 'EXPERT', lag: 150, decision: 100, attention: 16, filters: true, noise: 0.02, lapse: 0, focus: 1, panic: 0.75, panicMs: Object.freeze([170, 35]), deathbomb: Object.freeze([190, 40]), inject: 0.6, draft: 'synergy' }),
 });
 /** Learning on a retry of the same stage (§2.1). */
 export const LEARNING = Object.freeze({ noise: 0.7, lapse: 0.7, attention: 2 });
@@ -111,7 +119,7 @@ function perceive(s, profile) {
     if (b.dead || Math.abs(b.x - sx) > 8 || b.z < sz - 9 || b.z > sz + 4) continue;
     const [vx, vz] = seenVelocity(s, b);
     // Experts filter bullets that are moving away and already past them.
-    if (profile.attention === Infinity && b.z > sz + 0.6 && vz > 0) continue;
+    if (profile.filters && b.z > sz + 0.6 && vz > 0) continue;
     shots.push({ x: b.x, z: b.z, vx, vz, r: (b.hit ?? b.radius ?? 0.16) + CORE, half: b.half || 0, curved: !!b.sine, d: Math.hypot(b.x - sx, b.z - sz) });
   }
   if (Number.isFinite(profile.attention) && shots.length > profile.attention) shots = shots.sort((a, b) => a.d - b.d).slice(0, profile.attention);
@@ -148,6 +156,9 @@ export function createHuman(profileOrId, { seed = 1, retries = 0, bombs = true, 
     target = null,
     injectGoal = null,
     bombAt = -1,
+    panicAt = -1,
+    focusUntil = -1,
+    focusOn = profile.focus >= 1,
     lastHitFrame = -1;
   const rolled = new Set(); // INJECT chances already judged (one roll per virus)
   return function chooseHuman(s, frame) {
@@ -163,7 +174,9 @@ export function createHuman(profileOrId, { seed = 1, retries = 0, bombs = true, 
     }
     // Sample so that a decision at frame f sees the world at f - lag.
     if ((frame + lagF) % period === 0) queue.push({ frame, v: perceive(s, profile) });
-    let bomb = bombs && frame === bombAt && s.ship.bombs > 0;
+    // A SOAP is only ever pressed on a scheduled frame (a reaction, never
+    // the frame the danger is seen); it is spent even if the danger passed.
+    let bomb = bombs && (frame === bombAt || frame === panicAt) && s.ship.bombs > 0 && !s.soapRing;
     if (frame % period === 0) {
       while (queue.length && queue[0].frame < frame - lagF) queue.shift();
       const snap = queue[0] && queue[0].frame <= frame - lagF + 1e-9 ? queue.shift() : null;
@@ -172,9 +185,11 @@ export function createHuman(profileOrId, { seed = 1, retries = 0, bombs = true, 
         if (!lapse) {
           const out = decide(s, snap.v, (frame - snap.frame) / FPS);
           move = out.move;
-          if (bombs && out.hitAt <= 0.16 && s.ship.bombs > 0 && s.ship.invulnerable <= 0 && !s.soapRing && coin(rng) < profile.panic) {
-            bomb = true;
-            log?.push({ kind: 'panic', frame });
+          if (bombs && out.hitAt <= 0.16 && panicAt < frame && s.ship.bombs > 0 && s.ship.invulnerable <= 0 && !s.soapRing && coin(rng) < profile.panic) {
+            const [mean, sd] = profile.panicMs;
+            const ms = Math.max(MIN_REACTION, mean + sd * gauss(rng));
+            panicAt = frame + Math.round((ms / 1000) * FPS);
+            log?.push({ kind: 'panic', frame, at: panicAt, ms, hitAt: out.hitAt });
           }
         }
       }
@@ -249,8 +264,14 @@ export function createHuman(profileOrId, { seed = 1, retries = 0, bombs = true, 
       [tx, tz, wx, wz] = [injectGoal.x, injectGoal.z, 0.6, 0.6];
     }
     // ---- Moves, scored by risk then goal ------------------------------------------
+    // Focus is held in 1.2 s episodes: a novice either remembers Shift for a
+    // while or does not, so each episode rolls the profile's probability.
+    if (profile.focus < 1 && v.t >= focusUntil) {
+      focusOn = coin(rng) < profile.focus;
+      focusUntil = v.t + 1.2;
+    }
     const moves = [];
-    for (let sp = 0; sp < (profile.focus ? 2 : 1); sp++) {
+    for (let sp = 0; sp < (focusOn ? 2 : 1); sp++) {
       const speed = sp ? speedSlow : speedFast;
       for (const [dx, dz] of DIRS) {
         if (sp && dx === 0 && dz === 0) continue;
@@ -274,7 +295,13 @@ export function createHuman(profileOrId, { seed = 1, retries = 0, bombs = true, 
           }
           for (const l of v.lanes) if (Math.abs(px - l.x) < l.w / 2 + 0.4 && pz > l.fromZ) risk += 30;
           for (const l of v.beams) if (Math.abs(px - l.x) < l.w / 2 + 0.4 && pz > l.fromZ) risk += 30;
-          for (const e of v.enemies) if (Math.hypot(e.x - px, e.z - pz) < e.r + CORE + 0.4) risk += 20;
+          // A body is judged where it will be: its seen velocity, straight on
+          // (a diver announces its line; a sway is slow). Formation members
+          // barely move, so this only changes anything for divers and flights.
+          for (const e of v.enemies) {
+            const [evx, evz] = vel.get(e.id) || [0, 0];
+            if (Math.hypot(e.x + evx * (t + lag) - px, e.z + evz * (t + lag) - pz) < e.r + CORE + 0.4) risk += 20;
+          }
         }
         // Ending inside a bullet's line (next 2 s) costs a little: people
         // sidestep out of a line instead of backing away along it.
@@ -332,7 +359,7 @@ export function autopilotAvoids(snap, until) {
  * play time and the sources of lost vials. `upTo` stops after that stage
  * (the fast subset in npm test). `forced` replays every hit with the
  * autopilot from 0.5 s earlier (F1). */
-export function playHumanRun({ proxy = 'casual', seed = 1, difficulty = 'normal', drafts = true, policy = null, upTo = STAGE_COUNT, forced = false, maxContinues = 12, frameBudget = 60 * 60 * 60, bombs = true, tweak = null } = {}) {
+export function playHumanRun({ proxy = 'casual', seed = 1, difficulty = 'normal', drafts = true, policy = null, upTo = STAGE_COUNT, forced = false, maxContinues = 12, frameBudget = 60 * 60 * 60, bombs = true, tweak = null, onForced = null } = {}) {
   // `tweak` overrides profile fields for experiments (never in the bands).
   const profile = tweak ? { ...PROFILES[proxy], ...tweak } : PROFILES[proxy];
   const s = createState({ seed, difficulty, drafts });
@@ -398,6 +425,7 @@ export function playHumanRun({ proxy = 'casual', seed = 1, difficulty = 'normal'
           if (snap && !autopilotAvoids(snap, s.waveElapsed + 0.1)) {
             st.forced++;
             (st.forcedAt ||= []).push(`${s.boss?.cards[s.boss.card]?.name ?? 'sample'}@${s.waveElapsed.toFixed(1)}s seed ${seed}`);
+            onForced?.(snap, s, ev); // QA: inspect a forced hit
           }
         }
       }

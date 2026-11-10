@@ -8,6 +8,8 @@
  * numbers are evidence of reachability and pressure, not of fun.
  *   FORCED=0 skips the F1 replay of every hit (faster while tuning).
  *   ONLY=casual,expert limits the proxies; EASY=0 skips the Easy runs.
+ *   TWEAK='{"attention":16}' overrides profile fields (experiments only).
+ *   DIFF=hard plays Hard instead of Normal (reported, never banded).
  */
 import { Worker, isMainThread, parentPort, workerData } from 'node:worker_threads';
 import { fileURLToPath } from 'node:url';
@@ -158,7 +160,11 @@ if (!isMainThread) {
     forced = process.env.FORCED !== '0';
   const only = (process.env.ONLY || 'firstTimer,casual,expert').split(',');
   const seeds = Array.from({ length: SEEDS }, (_, i) => 5000 + i * 101);
-  const jobs = only.flatMap((proxy) => seeds.map((seed) => ({ proxy, seed, forced })));
+  // TWEAK='{"attention":16}' overrides profile fields for an experiment (the
+  // numbers are then not the bands').
+  const tweak = process.env.TWEAK ? JSON.parse(process.env.TWEAK) : null;
+  const difficulty = process.env.DIFF || 'normal'; // DIFF=hard measures Hard (the bands are Normal's)
+  const jobs = only.flatMap((proxy) => seeds.map((seed) => ({ proxy, seed, forced, tweak, difficulty })));
   if (process.env.EASY !== '0') jobs.push(...seeds.slice(0, Math.min(SEEDS, 16)).map((seed) => ({ proxy: 'firstTimer', seed, difficulty: 'easy', forced: false, maxContinues: 12, tag: 'easy' })));
   const t0 = Date.now();
   const results = [];

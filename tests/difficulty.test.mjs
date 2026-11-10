@@ -8,14 +8,44 @@ import assert from 'node:assert/strict';
 import { PROFILES, LEARNING, MIN_REACTION, createHuman, learned, playHumanRun } from './humans.mjs';
 import { createState, newRun, update } from '../model.mjs';
 
-test('D1s profiles: the parameters are exactly §2.1', () => {
-  const row = (p) => [p.lag, p.decision, p.attention, p.noise, p.lapse, p.focus, p.panic, ...p.deathbomb, p.inject, p.draft];
-  assert.deepEqual(row(PROFILES.firstTimer), [300, 200, 6, 0.15, 0.08, false, 0.3, 380, 80, 0.05, 'rarest']);
-  assert.deepEqual(row(PROFILES.casual), [220, 150, 10, 0.07, 0.03, true, 0.5, 280, 60, 0.25, 'random']);
-  assert.deepEqual(row(PROFILES.expert), [150, 100, Infinity, 0.02, 0, true, 0.75, 190, 40, 0.6, 'synergy']);
+test('D1s profiles: §2.1 as recalibrated in revision seven (CALIBRATION in BALANCE.md)', () => {
+  // Changes against §2.1, each measured (BALANCE.md "Proxy calibration"):
+  // the expert attends to the 16 nearest bullets (all-in-view was worse than
+  // the casual in dense fields), the first-timer holds focus in 30% of 1.2 s
+  // episodes (the 1-2 protocol line teaches Shift), and every SOAP press has
+  // a motor delay (`panicMs`) instead of landing on the frame of the thought.
+  const row = (p) => [p.lag, p.decision, p.attention, p.noise, p.lapse, p.focus, p.panic, ...p.panicMs, ...p.deathbomb, p.inject, p.draft];
+  assert.deepEqual(row(PROFILES.firstTimer), [300, 200, 6, 0.15, 0.08, 0.3, 0.3, 330, 70, 380, 80, 0.05, 'rarest']);
+  assert.deepEqual(row(PROFILES.casual), [220, 150, 10, 0.07, 0.03, 1, 0.5, 250, 50, 280, 60, 0.25, 'random']);
+  assert.deepEqual(row(PROFILES.expert), [150, 100, 16, 0.02, 0, 1, 0.75, 170, 35, 190, 40, 0.6, 'synergy']);
   assert.deepEqual({ ...LEARNING }, { noise: 0.7, lapse: 0.7, attention: 2 });
   const l = learned(PROFILES.casual, 2);
   assert.ok(Math.abs(l.noise - 0.07 * 0.49) < 1e-12 && Math.abs(l.lapse - 0.03 * 0.49) < 1e-12 && l.attention === 14);
+});
+
+test('D1s panic SOAP: pressed only after a motor delay (>= 150 ms), never on the frame the danger is seen', () => {
+  for (const [id, p] of Object.entries(PROFILES)) {
+    const s = createState({ seed: 5 });
+    s.phase = 'playing';
+    s.ship.respawn = 0;
+    s.ship.bombs = 5;
+    s.enemies = [];
+    s.enemyShots = [];
+    // A field: stationary bullets 0.3 u apart for 3 u around the core, so
+    // every move (fast or focused, any direction) meets one inside 0.16 s.
+    let id0 = 0;
+    for (let gx = -3; gx <= 3.001; gx += 0.3)
+      for (let gz = -3; gz <= 3.001; gz += 0.3) if (Math.hypot(gx, gz) <= 3) s.enemyShots.push({ id: ++id0, x: s.ship.x + gx, z: s.ship.z + gz, vx: 0, vz: 0, hit: 0.15, half: 0, family: 'droplet' });
+    const log = [];
+    // Attention is lifted so the first-timer sees the whole field (the test is about the press, not the sight).
+    const human = createHuman({ ...p, panic: 1, attention: 99 }, { seed: 4, log });
+    const pressed = [];
+    for (let f = 0; f < 90; f++) if (human(s, f).bomb) pressed.push(f);
+    const first = log.find((e) => e.kind === 'panic');
+    assert.ok(first, `${id} never panicked in a field of bullets`);
+    assert.ok(first.ms >= MIN_REACTION && Math.abs(first.ms - p.panicMs[0]) <= 4 * p.panicMs[1] + 1, `${id} motor delay ${first.ms} ms`);
+    assert.ok(pressed.length && pressed[0] >= first.frame + Math.round((MIN_REACTION / 1000) * 60), `${id} pressed on frame ${pressed[0]}, thought on ${first.frame}`);
+  }
 });
 
 test('D1s inputs only: a proxy never edits the state or reads the stage RNG', () => {
