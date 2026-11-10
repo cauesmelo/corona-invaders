@@ -41,7 +41,7 @@ A stage is a script: formation grids that enter from the back and stop at z = �
 | Archetype | Silhouette (`shapes.mjs`) | Attack (W1 → W4 upgrades) | HP* |
 | --- | --- | --- | --- |
 | WILD TYPE / mini | The original sprite in 3D: core + 8 in-plane ball-tipped spikes (+2 above) | COUGH: 1 droplet → 2 → 2-way 14° fan → 3-way 18° fan; spikes bristle 0.5 s first | 3 / 1 |
-| SNEEZER | Puffy crown, soft spikes; swells 1.25× while inhaling 0.8 s | SNEEZE odd fan: 7 at 56°, 1 tier → 2 tiers → 9 → 9 × 3 tiers | 10 |
+| SNEEZER | Puffy crown, soft spikes; rears up and bristles its crown while inhaling 0.8 s (the body stays at its collider) | SNEEZE odd fan: 7 at 56°, 1 tier → 2 tiers → 9 → 9 × 3 tiers | 10 |
 | BUDDER | Two lobes and a seam (a capsule collider along the lobes) | COUGH; buds 2 shootable VIRIONs on death | 8 |
 | RNA WORM | Helix tube that wriggles, crossing the top (a capsule collider along the tube) | RNA STRAND aimed at you; a 1.5 s bead trail | 4 |
 | AEROSOL PUFF | A ring outline of tiny virions | AEROSOL spray, 5 → 7 bullets/s | 10 |
@@ -56,7 +56,7 @@ A stage is a script: formation grids that enter from the back and stop at z = �
 
 ## Bosses and mutation cards
 
-Grey-white CDC-style spheres with variant-green club spikes and two dot eyes (they narrow before an attack and close during a card break). One VIRAL LOAD pool; card HP = round(TTK × the reference DPS there × 0.7), with 24 the DPS at ALPHA, so every card ends by damage well inside its timeout (tested). Normal phases time out at 30 s, cards at 40 s; survival cards last their duration. Each card start cancels bullets into antigen tokens and holds 1.5 s with the name tape. A card is **NEUTRALIZED** (index × 10,000 × world, ×0.5 on Easy) if it ends by damage with no hit and no SOAP. Bosses move at most 3 u/s during cards. Only a boss's body sphere takes needles; its spikes are decoration.
+Grey-white CDC-style spheres with variant-green club spikes and an expressive face (personality.mjs: eyes narrow before an attack; a taunt at each card start; README "Villains with personality"). One VIRAL LOAD pool; card HP = round(TTK × the reference DPS there × 0.7), with 24 the DPS at ALPHA, so every card ends by damage well inside its timeout (tested). Normal phases time out at 30 s, cards at 40 s; survival cards last their duration. Each card start cancels bullets into antigen tokens and holds 1.5 s with the name tape. A card is **NEUTRALIZED** (index × 10,000 × world, ×0.5 on Easy) if it ends by damage with no hit and no SOAP. Bosses move at most 3 u/s during cards. Only a boss's body sphere takes needles; its spikes are decoration.
 
 | Boss | Cards (type, TTK s) | Gimmick |
 | --- | --- | --- |

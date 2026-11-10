@@ -144,7 +144,7 @@ The project constraint is an actual WebGL perspective scene. The bullet hell nee
    - squash and stretch when a virus inhales to sneeze
    - spikes bristle before a shot
    - jelly wobble on hit
-   - **Bosses only** get two simple dot eyes. They narrow to telegraph an attack and change at each mutation. Popcorn stays faceless, true to the sprite.
+   - **Bosses only** get two simple dot eyes. They narrow to telegraph an attack and change at each mutation. Popcorn stays faceless, true to the sprite. *(Superseded 2026-11-10: every villain now has a face; see §12.)*
 
 **Syringe redesign (the hero):**
 
@@ -445,13 +445,65 @@ The cabinet-as-lab-instrument fits; it needs side panels and themed readouts.
 - **Perspective and readability:** if the ratio-1.35 camera still distorts, increase pitch before reaching for an orthographic camera. The perspective scene is a project constraint.
 - **BREATH and CURRENT twists:** these change bullet motion globally. Prototype both behind flags and keep them only if the reactive bot and a human can read them.
 - **Fire-rate perception:** 8 volleys/s with thin needles should feel calm. Check it against the user's earlier lower-fire-rate request.
-- **Faces on bosses:** recommended for personality. Popcorn stays faceless to honor the sprite.
+- **Faces on bosses:** recommended for personality. Popcorn stays faceless to honor the sprite. *(Superseded 2026-11-10 by the user's feedback; see §12.)*
+
+## 12. Juicy SFX and villain personality (added 2026-11-10)
+
+**The user's feedback (translated):** "About Corona Invaders: the gameplay is cool, the SFX are really lame and need to improve; the sounds lack juice. The villains could have a bit more personality. The theme is great, but it is very generic and needs a bit more personality." Gameplay, patterns, speeds, campaign and every collider stay as they are.
+
+### 12.1 What was wrong with the sound (measured)
+
+`tests/browser/audio-measure.mjs` rendered the previous `audio.mjs` (commit 061c348) offline on 55 game events:
+
+- **Too quiet and flat.** Peaks sat between −46 and −26 dBFS, so a popcorn kill (−35 dBFS) was barely louder than a needle hit (−43 dBFS). There was no hierarchy.
+- **One layer each.** Every sound was one oscillator with a pitch slide: no transient, no low end and no tail. Repeats were identical apart from the chain-tier pitch.
+- **Clicks.** 28 of 40 single sounds started at full gain in 0 ms. Gains also held their default value of 1 before the first envelope event, which let single-sample spikes through (one measured at −13 dBFS).
+- **Gaps.** 12 events made no sound at all: respawn, power-up, cough wind-up, droplet dive and splash, boss entrances, phase change, card time-out, boss and midboss defeats, campaign won.
+- **No space or mix.** There was no stereo, no ducking, no voice cap and no limiter.
+
+### 12.2 Game-feel audio principles and what we built
+
+| Principle | Source | In the game |
+| --- | --- | --- |
+| Feedback should be layered and exaggerated, and every action needs a response, weight on impacts and a pause on big events | Jan Willem Nijman (Vlambeer), *The Art of Screenshake*, INDIGO Classes 2013 ([summary](https://www.gamedeveloper.com/design/vlambeer-co-founder-shares-advice-on-building-better-action-games)); Jonasson & Purho, *Juice It or Lose It* ([GDC Vault](https://gdcvault.com/play/1016487/contactUs)) | Kills are a click, a bubble pop, a size-scaled thump and a sparkle. Boss deaths escalate into a boom timed with the visual burst. Big events duck the bed |
+| Effects are stacks of many short layers that players can pick apart (Turner says he wants players to "figure out the layers") | Joonas Turner on Nuclear Throne's SFX ([his Steam forum post](https://steamcommunity.com/app/242680/discussions/0/615086038680148561), [Cliqist interview](https://cliqist.com/2018/02/08/eurogame-roadtrip-interview-nuclear-throne-sound-maestro-joonas-turner/), [GDC Europe 2015 primer](https://gamedeveloper.com/audio/video-how-great-sound-design-can-make-your-game-feel-better)) | 1–10 ms transients, pitched bodies of 30–90 ms, and tails only where size matters |
+| A clear mix with an importance system: the sounds that matter to play win; the constant ones stay low | Lawlor & Neumann, *Overwatch: The Elusive Goal, Play by Sound*, GDC 2016 ([GDC Vault](https://gdcvault.com/play/1023010/contactUs), [PC Gamer](https://pcgamer.com/how-overwatch-uses-sound-to-pinpoint-threats-you-cant-see)) | Auto-fire is the quietest and softest sound: −35 dBFS with a 4 ms attack. A voice cap drops low-priority sounds first, and the core-hit crack cuts through everything |
+| Audio as varied and unpredictable as the runs themselves; a gun game fires constantly, so repetition is the enemy | Enter the Gungeon's audio, Doseone with sound designer Erica Hampson ([Kotaku](https://kotaku.com/enter-the-gungeons-composer-talks-rap-video-game-music-1832497420)) | Pitch, band and noise offsets change on every play |
+| Danmaku convention: the graze is its own scoring tick, and the hit is unmistakable, with a short deathbomb window | Touhou graze and deathbomb ([Embodiment of Scarlet Devil](https://en.wikipedia.org/wiki/Embodiment_of_Scarlet_Devil)) | A distinct high "tsk" that climbs a semitone per consecutive graze. A glassy crack on the hit says "SOAP now", then the vial-lost sting |
+| Speech-like babble gives characters voices without words | Animal Crossing's Animalese ([Nookipedia](https://nookipedia.com/wiki/Animalese)) | Formant syllables per character. Bosses babble their lines with vowels taken from the text |
+| Loudness, not peak, is what the ear compares | ITU-R BS.1770 ([ITU](https://www.itu.int/rec/R-REC-BS.1770)) | Measured as K-weighted momentary loudness (LUFS-M) alongside sample peak |
+
+### 12.3 Villain personality: principles and constraints
+
+| Principle | Source | In the game |
+| --- | --- | --- |
+| Squash and stretch, anticipation, secondary action and appeal make a drawing a character | Thomas & Johnston's twelve principles ([overview](https://en.wikipedia.org/wiki/Twelve_basic_principles_of_animation)) | Bodies breathe, rear up before an attack, flinch on hits and pop on death. Crowns sway and twitch as secondary action. Every virus gets a readable face |
+| Boss mechanics come first and the animation serves them; motion stays consistent so players can react | Studio MDHR on Cuphead bosses ([Game Developer](https://gamedeveloper.com/business/road-to-the-igf-studio-mdhr-s-i-cuphead-i-), [Game Informer](https://gameinformer.com/feature/2022/12/27/how-studio-mdhr-builds-a-cuphead-boss)) | No pattern, speed or timing changed. Expressions follow the telegraphs that already exist (eyes narrow, an "o" before a cough, the sneeze inhale) |
+| A boss is introduced by name and shows character between attacks | Spell-card declarations (§2); [Undertale battle deep dive](https://www.gamedeveloper.com/design/game-design-deep-dive-i-undertale-i-s-action-based-rpg-battles) | A name card with a one-line personality. Each card start brings a taunt bubble, which is safe because the card start cancels every bullet; gloats and a defeat line follow |
+| Each enemy needs a distinct identity from silhouette, colour, motion and sound together | §5.3 (one job, one family, one telegraph) | A personality per type (table in the README): the grunt, the choir, the drama queen, the show-off, the sneak, the airhead, the daredevil, the schemer, the victim, the brute, the diva, the coward, the courier, plus a personality for each boss |
+
+**Bullet-hell constraints (all tested):**
+
+- **Colliders.** No collider changes: a snapshot test covers them.
+- **Footprint.** No body is drawn wider than its collider. Motion is squash, stretch and tilt around the board-plane centre, normalised to the collider footprint. The old sneeze swell (1.25×) and hit punch (1.14×) were removed for this reason.
+- **Faces.** Faces sit inside their silhouettes, below every bullet, in virus greens and dark ink only.
+- **Text.** Speech appears only right after bullets were cancelled.
+
+This revises the earlier "popcorn stays faceless" call (§4.1, §11): the user asked for personality, and a face is the cheapest strong carrier of it. The VESICLE stays faceless so its supply icon reads first.
+
+### 12.4 Results
+
+- **README "Sound"** has the before/after table: peak, LUFS-M, attack and length.
+- **Busy mix.** It peaked at −24.1 dBFS before and −4.4 dBFS after, with 0 samples at or above 0.99.
+- **README "Villains with personality"** has the footprint, face and frame-time numbers. The drawn footprint stays at 91.6–100.0% of the collider, the worst face is 0.29 px inside its silhouette, and SwiftShader frame medians are 16.7 ms before and after.
 
 ## Sources
 
 Read directly: [Boghog's bullet hell 101](https://shmups.wiki/library/Boghog's_bullet_hell_shmup_101) · [Sparen DDSG A3](https://sparen.github.io/ph3tutorials/ddsga3.html) · [Sparen DDSG A4](https://sparen.github.io/ph3tutorials/ddsga4.html) · [shmups.wiki Touhou](https://shmups.wiki/library/Unknwn/Touhou) · [The 1-pixel collision box](https://significant-bits.com/the-1-pixel-collision-box) · [Nomad's design sins](https://nomadsreviews.co.uk/post/design-sins-and-pet-peeves-in-shoot-em-ups) · [Undertale battle deep dive](https://www.gamedeveloper.com/design/game-design-deep-dive-i-undertale-i-s-action-based-rpg-battles) · [Nex Machina design](https://www.gamedeveloper.com/design/how-housemarque-designed-the-vibrant-bullet-hell-scape-of-i-nex-machina-i-) · Wikipedia: [Ikaruga](https://en.wikipedia.org/wiki/Ikaruga), [Mushihimesama](https://en.wikipedia.org/wiki/Mushihimesama), [Enter the Gungeon](https://en.wikipedia.org/wiki/Enter_the_Gungeon) · [BMJ blog on COVID visuals](https://blogs.bmj.com/covid-19/2020/04/22/make-covid-19-visuals-gross/).
 
 Search summaries (fan wikis, reviews and press; treat details as approximate): [Jamestown](https://shmups.wiki/library/Jamestown) · [Crimzon Clover](https://shmups.wiki/library/Crimzon_Clover) · [Danmaku Unlimited 3](https://shmups.wiki/library/Danmaku_Unlimited_3) · [DoDonPachi DaiOuJou](https://shmups.wiki/library/DoDonPachi_3) · [ESP Ra.De.](https://shmups.wiki/library/ESP_Ra.De.) · [Radiant Silvergun](https://shmups.wiki/library/Radiant_Silvergun) · [Galaga Legions](https://en.wikipedia.org/wiki/Galaga_Legions) · [Imperishable Night](https://en.wikipedia.org/wiki/Imperishable_Night) · [Tyrian](https://en.wikipedia.org/wiki/Tyrian_(video_game)) · [Just Shapes & Beats at GDC](https://shacknews.com/article/104019/just-shapes--beats-hands-on-at-gdc-2018) · [Bullet heaven tag](https://pcgamer.com/gaming-industry/its-official-steam-decrees-bullet-heaven-the-name-of-the-vampire-survivors-genre) · [Nex Machina, Engadget](https://www.engadget.com/2016-12-03-nex-machina-housemarque-resogun-sequel-interview-preview.html) · [CDC illustration, UGA](https://news.uga.edu/alissa-eckert-and-dan-higgins-visualizing-a-virus) · [Wallpaper](https://www.wallpaper.com/design/design-emergency-alissa-eckert-designs-covid-19-illustration) · [WHO Greek letters](https://www.aljazeera.com/amp/news/2021/5/31/who-renames-covid-19-variants-with-greek-letters-to-avoid-stigma) · [Soap and envelopes (WEF)](https://weforum.org/agenda/2020/03/coronavirus-soap-covid-19-virus-hygiene) · [Engineering.com](https://www.engineering.com/story/a-history-of-violencehow-soap-attacks-a-coronavirus) · [Apple COVID app rule (CNBC)](https://www.cnbc.com/2020/03/05/apple-rejects-coronavirus-apps-that-arent-from-health-organizations.html).
+
+§12 sources (2026-11-10, from search summaries; treat details as approximate): Nijman's *Art of Screenshake* ([Game Developer](https://www.gamedeveloper.com/design/vlambeer-co-founder-shares-advice-on-building-better-action-games)) · *Juice It or Lose It* ([GDC Vault](https://gdcvault.com/play/1016487/contactUs)) · Joonas Turner ([Cliqist](https://cliqist.com/2018/02/08/eurogame-roadtrip-interview-nuclear-throne-sound-maestro-joonas-turner/), [Game Developer](https://www.gamedeveloper.com/business/meet-joonas-turner-vlambeer-s-sound-guy), [GDC Europe 2015](https://gamedeveloper.com/audio/video-how-great-sound-design-can-make-your-game-feel-better)) · Overwatch *Play by Sound* ([GDC Vault](https://gdcvault.com/play/1023010/contactUs), [PC Gamer](https://pcgamer.com/how-overwatch-uses-sound-to-pinpoint-threats-you-cant-see)) · Enter the Gungeon audio ([Kotaku](https://kotaku.com/enter-the-gungeons-composer-talks-rap-video-game-music-1832497420)) · [Embodiment of Scarlet Devil](https://en.wikipedia.org/wiki/Embodiment_of_Scarlet_Devil) · [Animalese](https://nookipedia.com/wiki/Animalese) · [ITU-R BS.1770](https://www.itu.int/rec/R-REC-BS.1770) · [Twelve principles of animation](https://en.wikipedia.org/wiki/Twelve_basic_principles_of_animation) · Cuphead bosses ([Game Developer](https://gamedeveloper.com/business/road-to-the-igf-studio-mdhr-s-i-cuphead-i-), [Game Informer](https://gameinformer.com/feature/2022/12/27/how-studio-mdhr-builds-a-cuphead-boss)).
 
 General references, not re-read this round: [Dr. Mario](https://en.wikipedia.org/wiki/Dr._Mario) and [Cells at Work!](https://en.wikipedia.org/wiki/Cells_at_Work!).
 
