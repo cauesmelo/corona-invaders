@@ -31,7 +31,7 @@ export const WORLDS = Object.freeze([
  * HP is on the bullet-hell scale (the player deals ~24 effective DPS).
  * `attack` is an emitter preset from patterns.mjs. */
 export const ARCHETYPES = Object.freeze({
-  mini: { label: 'WILD TYPE', hp: 1, radius: 0.42, score: 50, attack: { preset: 'cough', params: { n: 1, speed: 6 } } },
+  mini: { label: 'WILD TYPE', hp: 1, radius: 0.42, score: 50, attack: { preset: 'cough', params: { n: 1, speed: 5.2 } } },
   wild: { label: 'WILD TYPE', hp: 3, radius: 0.6, score: 100, attack: { preset: 'cough', params: { n: 1, speed: 6.5 } }, byWorld: { 2: { n: 2, speed: 7 }, 3: { n: 2, spread: 14, speed: 7.5 }, 4: { n: 3, spread: 18, speed: 7.5 } } },
   // Inhales (swells 1.25x for 0.8 s: "ah... ah..."), then sneezes an odd fan.
   sneezer: { label: 'SNEEZER', hp: 10, radius: 0.8, score: 300, attack: { preset: 'sneeze', params: { n: 7, spread: 56, speeds: [4.5] } }, byWorld: { 2: { speeds: [4, 5.5] }, 3: { n: 9, speeds: [4, 5.5] }, 4: { n: 9, speeds: [4, 5.5, 7] } } },
@@ -98,6 +98,9 @@ const PATHS = Object.freeze({
 const grid = (rows, o = {}) => ({ group: { rows, spacing: 2.3, rowGap: 1.9, z: -11.2, sway: 1.1, frequency: 0.7, descent: 0.22, ...o } });
 const fly = (path, kind = 'wild', count = 6, o = {}) => ({ flight: { path, kind, count, interval: 0.32, speed: 6.5, fire: { preset: 'cough', params: { n: 1, speed: 6.5 }, at: 0.42 }, ...o } });
 const until = (what, left = 0) => ({ until: what, left });
+// A surge gives a stage its shape: for a few seconds the choir fires ~2x as
+// often with one more singer (still inside the stage bullet cap).
+const surge = (seconds) => ({ surge: seconds });
 const wait = (seconds) => ({ wait: seconds });
 
 /** Per-world pressure. `choir`: seconds between formation volleys (slow when
@@ -116,8 +119,9 @@ export const LEVELS = Object.freeze(
       code: '1-1',
       name: 'FIRST CONTACT',
       kind: 'sample',
-      intro: { icon: 'wild', text: 'MOVE IN 2D. ONLY THE WHITE DOT CAN BE HIT.' },
-      choir: { interval: [2, 1.4], size: [2, 3] },
+      intro: { icon: 'wild', text: 'MOVE IN 2D. ONLY THE GLOWING CORE CAN BE HIT.' },
+      // Softer than the rest of world 1 (playtest: newcomers died to coughs).
+      choir: { interval: [2.5, 1.8], size: [1, 2] },
       maxBullets: 30,
       script: [
         // Homage: the original game's 4 x 15 grid of 60 mini coronas.
@@ -144,7 +148,7 @@ export const LEVELS = Object.freeze(
       code: '1-2',
       name: 'GESUNDHEIT',
       kind: 'sample',
-      intro: { icon: 'sneezer', text: 'SNEEZERS INHALE, THEN FAN. HOLD SHIFT TO FOCUS.' },
+      intro: { icon: 'sneezer', text: 'HOLD SHIFT: SLOWER MOVES, A STRONGER NEEDLE.' },
       script: [
         grid(['N...N', 'WWWWW'], { spacing: 2.6 }),
         wait(5),
@@ -152,6 +156,7 @@ export const LEVELS = Object.freeze(
         until('thin', 2),
         fly('arcL', 'wild', 5),
         grid(['W.N.N.W', 'WWWWWWW']),
+        surge(5),
         wait(6),
         fly('swoopR', 'wild', 5),
         until('thin', 3),
@@ -173,6 +178,7 @@ export const LEVELS = Object.freeze(
         fly('swoopL', 'wild', 5),
         until('thin', 2),
         grid(['UW.WU', 'WWWWWW']),
+        surge(5),
         wait(5),
         fly('arcR', 'wild', 5),
         until('clear'),
@@ -225,6 +231,7 @@ export const LEVELS = Object.freeze(
         { worms: { count: 2, z: -9.5, dir: -1 } },
         until('thin', 3),
         grid(['N.N.N', 'WWWWWW']),
+        surge(6),
         wait(4),
         { worms: { count: 3, z: -9, dir: 1 } },
         wait(5),
@@ -249,6 +256,7 @@ export const LEVELS = Object.freeze(
         fly('arcL', 'wild', 6),
         until('thin', 2),
         grid(['NWUWN', 'WWWWW'], { spacing: 2.6 }),
+        surge(6),
         { vesicle: { dir: -1 } },
         wait(5),
         { puffs: [{ x: 11, z: -7, vx: -1.1 }] },
@@ -273,6 +281,7 @@ export const LEVELS = Object.freeze(
         { puffs: [{ x: 11, z: -7, vx: -1.1 }] },
         until('thin', 3),
         grid(['UWNWU', 'WNWNW', 'WWWWW']),
+        surge(6),
         wait(3),
         fly('swoopR', 'wild', 6),
         wait(5),
@@ -305,6 +314,7 @@ export const LEVELS = Object.freeze(
         fly('dropL', 'wild', 5),
         until('thin', 3),
         grid(['DNDND', 'WWWWW', 'W.W.W']),
+        surge(7),
         wait(4),
         fly('dropR', 'wild', 5),
         { worms: { count: 2, z: -9.5, dir: -1 } },
@@ -334,6 +344,7 @@ export const LEVELS = Object.freeze(
         fly('arcL', 'wild', 6),
         until('thin', 2),
         grid(['CWCWC', 'WCWCW'], { spacing: 2.4, rowGap: 1.7 }),
+        surge(7),
         wait(4),
         { worms: { count: 2, z: -9.5, dir: 1 } },
         until('thin', 2),
@@ -364,6 +375,7 @@ export const LEVELS = Object.freeze(
         { worms: { count: 2, z: -9.5, dir: 1 } },
         until('thin', 3),
         grid(['KDKDK', 'NWNWN', 'WWWWW']),
+        surge(7),
         wait(3),
         { worms: { count: 2, z: -9.5, dir: -1 } },
         wait(4),
@@ -409,6 +421,7 @@ export const LEVELS = Object.freeze(
         fly('arcR', 'wild', 6),
         until('thin', 2),
         grid(['BKBKB', 'WNWNW', 'WWWWW']),
+        surge(8),
         wait(4),
         { worms: { count: 2, z: -9.5, dir: -1 } },
         wait(4),
@@ -432,6 +445,7 @@ export const LEVELS = Object.freeze(
         fly('swoopR', 'wild', 6),
         until('thin', 3),
         grid(['KDKDK', 'CWCWC']),
+        surge(8),
         { worms: { count: 2, z: -9, dir: -1 } },
         wait(4),
         { puffs: [{ x: 11, z: -7, vx: -1.1 }] },
@@ -460,6 +474,7 @@ export const LEVELS = Object.freeze(
         fly('dropL', 'wild', 6),
         until('thin', 2),
         grid(['UHUHU', 'WCWCW', 'WWWWW']),
+        surge(8),
         { worms: { count: 3, z: -9.5, dir: 1 } },
         fly('arcL', 'wild', 6),
         wait(4),

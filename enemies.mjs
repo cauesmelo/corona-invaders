@@ -171,7 +171,8 @@ export function scheduleChoir(s, level, dt) {
   const total = Math.max(1, s.enemies.filter((e) => e.group >= 0 && e.mode !== 'flight').length);
   const k = 1 - members.length / total;
   const [slow, fast] = level.choir.interval;
-  s.choirClock = slow + (fast - slow) * k;
+  const surging = s.sector.surge > 0;
+  s.choirClock = (slow + (fast - slow) * k) * (surging ? 0.5 : 1);
   if (!budgetOk(s, level, 8)) {
     s.choirClock = 0.35;
     return;
@@ -196,7 +197,7 @@ export function scheduleChoir(s, level, dt) {
   // Big shooters (sneezer, heavy) sing alone or in pairs (alone in world 1):
   // their fans are wide.
   const cap = kind === 'sneezer' || kind === 'heavy' ? (level.world === 1 ? 1 : 2) : hi;
-  let count = Math.min(pool.length, cap, lo + Math.floor(random(s) * (hi - lo + 1)));
+  let count = Math.min(pool.length, cap + (surging ? 1 : 0), lo + Math.floor(random(s) * (hi - lo + 1)) + (surging ? 1 : 0));
   while (count-- > 0 && pool.length) {
     const e = pool.splice(Math.floor(random(s) * pool.length), 1)[0];
     attack(s, e, level);

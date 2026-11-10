@@ -33,7 +33,9 @@ export const RULES = Object.freeze({
   // for a lower fire rate earlier, so the player never floods the screen).
   fireInterval: 0.125,
   needleSpeed: 34,
-  sprayAngle: (9 * Math.PI) / 180,
+  // SPRAY spread: +/-4 degrees. At +/-9 the side needles missed a boss at
+  // range, halving unfocused damage, and cards ended on the timer (playtest).
+  sprayAngle: (4 * Math.PI) / 180,
   needleSpacing: 0.25,
   antibodyInterval: 0.25, // each antibody option fires 4 needles/s
   maxPower: 4,
@@ -84,6 +86,9 @@ export const RULES = Object.freeze({
   // guarantees at that point (24 at power 1-2, 30 at 3, 42 at 4; brief 6-7).
   referenceDps: 24,
   powerDps: Object.freeze([24, 24, 30, 42]),
+  // Playtest: cards still ran 2-3.5 min per boss at realistic DPS. Card HP
+  // is TTK x DPS x 0.7, so a real player ends cards before the timeout.
+  cardHpScale: 0.7,
   phaseTimeout: 30,
   cardTimeout: 40,
   cardIntro: 1.5,

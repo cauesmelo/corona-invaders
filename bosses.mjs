@@ -64,7 +64,7 @@ export const BOSSES = Object.freeze({
       phase('TRIANGULATE', 18, [P('sniffle', { n: 6, spread: 40, speed: 5 }, 0.9, { from: 'vertex' })], { move: 'sway' }),
       card('LANE SNEEZE', 22, [P('jet', { width: 2, at: 'owner' }, 2.8), P('sneeze', { n: 7, spread: 50, speeds: [4.5, 6] }, 2.8, { at: 1.6 })], { move: 'track' }),
       card('HALVES', 24, [P('ring', { n: 14, speed: 4 }, 1.3, { from: 'alt' }), P('cough', { n: 2, speed: 7 }, 2, { from: 'near', at: 0.8 })], { move: 'halves', split: true }),
-      card('BLOOD RUSH', 24, [P('wall', { gaps: 1, gapWidth: 2.4, speed: 3.2 }, 3.4), P('cough', { n: 1, speed: 7 }, 2.6, { from: 'near', at: 1.3 })], { move: 'halves', rush: true }),
+      card('BLOOD RUSH', 18, [P('wall', { gaps: 1, gapWidth: 2.4, speed: 3.2 }, 4), P('cough', { n: 1, speed: 7 }, 2.6, { from: 'near', at: 1.3 })], { move: 'halves', rush: true }),
       card('Δ CASCADE', 20, [P('replicate', { n: 3, spread: 40, speed: 3.4, maxGen: 2, splitEvery: 1.1 }, 1.7, { from: 'alt' })], { move: 'halves' }),
     ],
   },
@@ -77,7 +77,8 @@ export const BOSSES = Object.freeze({
     cards: [
       phase(
         'SPIKE CROWN',
-        35,
+        // Was 35 s against a 30 s phase timeout: it could never be cleared.
+        20,
         [
           P('cough', { n: 3, spread: 24, speed: 7.5 }, 1.4, { from: 'node:cough' }),
           P('ring', { n: 18, speed: 3.9, family: 'spike' }, 1.9, { from: 'node:ring', at: 0.8 }),
@@ -132,7 +133,10 @@ export const BOSSES = Object.freeze({
       // A tracker never pairs with an aimed stream: you cannot stream past a
       // boss that follows you. Even fans (stay put) plus slow rings instead.
       phase('TRACKING', 16, [P('sniffle', { n: 8, spread: 50, speed: 5 }, 1.6), P('ring', { n: 12, speed: 3.6 }, 2.6, { at: 1.2 })], { move: 'track' }),
-      card('MIRROR', 20, [P('jet', { width: 1.8, at: 'owner' }, 2.6), P('ring', { n: 16, speed: 4 }, 1.9, { at: 1.3 })], { move: 'mirror1' }),
+      // The jet locks on where you stood at telegraph start (not on LAMBDA's
+      // own column), and LAMBDA mirrors you 3 u aside: its only damage spot is
+      // never inside the beam (playtest: the hardest card in the game).
+      card('MIRROR', 20, [P('jet', { width: 1.8, at: 'ship' }, 2.6), P('ring', { n: 16, speed: 4 }, 1.9, { at: 1.3 })], { move: 'mirror1' }),
     ],
   },
 });
@@ -143,7 +147,7 @@ const BOSS_Z = -7.2;
 
 const timeoutFor = (c) => (c.type === 'survival' ? c.duration : c.type === 'phase' ? RULES.phaseTimeout : RULES.cardTimeout);
 /** Card HP: TTK x reference DPS (x0.85 on Easy). */
-export const cardHp = (c, hpScale = 1, dps = RULES.referenceDps) => (c.type === 'survival' ? 0 : Math.round(c.ttk * dps * hpScale));
+export const cardHp = (c, hpScale = 1, dps = RULES.referenceDps) => (c.type === 'survival' ? 0 : Math.round(c.ttk * dps * hpScale * RULES.cardHpScale));
 
 const living = (s) => s.enemies.filter((e) => e.alive && e.kind === 'boss');
 export function bossPart(s, from, entry) {
@@ -230,7 +234,10 @@ function targets(s, b, parts, dt) {
     if (move === 'sway') x = Math.sin(t * 0.32) * 4;
     else if (move === 'still') x = core.x * (1 - Math.min(1, dt * 0.8));
     else if (move === 'track') x = clamp(sx, -6.5, 6.5);
-    else if (move === 'mirror1') x = clamp(-sx, -6.5, 6.5);
+    else if (move === 'mirror1') {
+      x = clamp(-sx, -6.5, 6.5);
+      if (Math.abs(x - sx) < 3) x = clamp(sx + (sx > 0 ? -3 : 3), -6.5, 6.5);
+    }
     out.set(core.id, [x, z]);
   }
   const twins = parts.filter((p) => p.part === 'twin');
@@ -260,7 +267,8 @@ function targets(s, b, parts, dt) {
     for (const h of halves) out.set(h.id, [h.tag === 'L' ? -xr : xr, BOSS_Z + Math.sin(t * 0.5) * 0.4]);
   }
   for (const n of parts.filter((p) => p.part === 'node')) {
-    const a = (n.slot * Math.PI) / 2 + t * 0.45;
+    // Slow orbit (1 u/s at the rim): the nodes are the only targets.
+    const a = (n.slot * Math.PI) / 2 + t * 0.3;
     const cx = core?.x ?? 0,
       cz = core?.z ?? BOSS_Z;
     out.set(n.id, [cx + Math.cos(a) * 3.4, cz + Math.sin(a) * 2.2]);
@@ -324,7 +332,7 @@ function beginCard(s, b, index) {
     const core = parts.find((p) => p.part === 'core');
     const hp = Math.round(c.hp / 4);
     ['cough', 'ring', 'bloom', 'drip'].forEach((tag, slot) =>
-      makePart(s, 'node', 0.85, { tag, slot, local: true, hp: slot === 3 ? c.hp - hp * 3 : hp, maxHp: hp, x: core?.x ?? 0, z: core?.z ?? BOSS_Z }),
+      makePart(s, 'node', 1.05, { tag, slot, local: true, hp: slot === 3 ? c.hp - hp * 3 : hp, maxHp: hp, x: core?.x ?? 0, z: core?.z ?? BOSS_Z }),
     );
   }
   if (c.nucleus) {
@@ -401,8 +409,13 @@ export const bossVulnerable = (s, p) => !!s.boss && isVulnerable(s, s.boss, p);
  * so the glowing nucleus can always be reached. */
 export const bossIntangible = (s, p) => {
   const b = s.boss;
-  if (!b || b.state === 'defeated' || p.part !== 'twin') return false;
-  return !!b.cards[b.card]?.nucleus && p.id !== b.nucleus;
+  if (!b || b.state === 'defeated') return false;
+  const c = b.cards[b.card];
+  // SPIKE CROWN: the shielded core lets needles through to the nodes (a
+  // core that ate every needle made the card unclearable for many players).
+  if (c?.nodes) return p.part === 'core';
+  if (p.part !== 'twin') return false;
+  return !!c?.nucleus && p.id !== b.nucleus;
 };
 
 /** Apply damage to a boss part. Returns {blocked} so a closed plate sparks

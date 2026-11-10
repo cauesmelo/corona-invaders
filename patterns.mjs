@@ -25,7 +25,7 @@ const DEG = Math.PI / 180;
  * speed down from these, never up). Units: n bullets, speed u/s, angles in
  * degrees, times in s, widths in u. */
 export const LIMITS = Object.freeze({
-  cough: { tele: 0.5, n: [1, 3], speed: [6, 9], spread: [0, 30], minGap: 0.5 },
+  cough: { tele: 0.5, n: [1, 3], speed: [5, 9], spread: [0, 30], minGap: 0.5 },
   sneeze: { tele: 0.8, n: [7, 11], odd: true, spread: [50, 70], speed: [4, 7], reps: [1, 3], repGap: [0.3, 0.6], minGap: 0.5 },
   sniffle: { tele: 0.8, n: [6, 10], even: true, spread: [40, 60], speed: [4, 6.5], minGap: 0.5 },
   ring: { tele: 0.8, n: [6, 24], speed: [2.5, 5], interval: [0.8, 1.5], reps: [1, 12], gaps: [0, 2], minGap: 0.5 },

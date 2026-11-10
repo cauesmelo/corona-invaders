@@ -31,7 +31,7 @@ test('card HP = TTK x the guaranteed DPS there (24 at power 1-2, 30 at 3, 42 at 
     const dps = RULES.powerDps[entryPower(HOME[type]) - 1];
     assert.equal(s.dpsRef, dps);
     def.cards.forEach((c, i) => {
-      assert.equal(b.cards[i].hp, c.type === 'survival' ? 0 : Math.round(c.ttk * dps), `${type} ${c.name}`);
+      assert.equal(b.cards[i].hp, c.type === 'survival' ? 0 : Math.round(c.ttk * dps * RULES.cardHpScale), `${type} ${c.name}`);
       assert.equal(b.cards[i].timeout, c.type === 'phase' ? 30 : c.type === 'card' ? 40 : c.duration);
     });
     assert.equal(b.maxHp, b.cards.reduce((n, c) => n + c.hp, 0));
@@ -41,14 +41,29 @@ test('card HP = TTK x the guaranteed DPS there (24 at power 1-2, 30 at 3, 42 at 
   assert.deepEqual(BOSSES.alpha.cards.map((c) => c.ttk), [18, 22, 22, 18]);
 });
 
+test('every card can end by damage: its HP at 75% of the reference DPS fits in 80% of its timeout', () => {
+  // Playtest: OMICRON SPIKE CROWN (35 s TTK vs a 30 s timeout) was unclearable
+  // and most cards ended on the timer. 75% models aim and movement losses.
+  for (const [type, def] of Object.entries(BOSSES)) {
+    const s = cardArena(type, 0);
+    for (const c of s.boss.cards) {
+      if (c.type === 'survival') continue;
+      const seconds = c.hp / (0.75 * s.dpsRef);
+      assert.ok(seconds <= 0.8 * c.timeout, `${type} ${c.name}: ${seconds.toFixed(1)} s at realistic DPS vs ${c.timeout} s timeout`);
+    }
+  }
+});
+
 test('the VIRAL LOAD pool: notches per card, the displayed phase follows the pool', () => {
   const s = cardArena('alpha', 0);
   s.boss.practiceCard = null;
   let hud = bossStatus(s);
-  assert.equal(hud.hp, 1920, 'ALPHA: (18 + 22 + 22 + 18) s x 24');
+  const card = (ttk) => Math.round(ttk * 24 * 0.7);
+  const pool = card(18) + card(22) + card(22) + card(18);
+  assert.equal(hud.hp, pool, 'ALPHA: (18 + 22 + 22 + 18) s x 24 x 0.7');
   assert.equal(hud.phases, 4);
-  assert.deepEqual(hud.notches.map((n) => +n.toFixed(4)), [1488 / 1920, 960 / 1920, 432 / 1920].map((n) => +n.toFixed(4)));
-  s.boss.hp = 700; // a QA fixture may set the pool directly
+  assert.deepEqual(hud.notches.map((n) => +n.toFixed(4)), [pool - card(18), card(22) + card(18), card(18)].map((n) => +(n / pool).toFixed(4)));
+  s.boss.hp = 500; // a QA fixture may set the pool directly
   hud = bossStatus(s);
   assert.equal(hud.phase, 3);
   assert.equal(hud.attack, 'COUGH COUGH', 'the live card is unchanged until the boss acts');
@@ -216,6 +231,7 @@ test('OMICRON SPIKE CROWN: the core is shielded, four nodes each own one attack,
   const nodes = parts(s, 'node');
   assert.deepEqual(nodes.map((n) => n.tag).sort(), ['bloom', 'cough', 'drip', 'ring']);
   assert.equal(damageBoss(s, parts(s, 'core')[0], 5).blocked, true);
+  assert.ok(bossIntangible(s, parts(s, 'core')[0]), 'needles pass the shielded core to reach the nodes');
   const drip = nodes.find((n) => n.tag === 'drip');
   while (drip.alive) damageBoss(s, drip, 20);
   for (let t = 0; t < 12; t += 1 / 60) {

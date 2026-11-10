@@ -22,17 +22,20 @@ function playCard(type, card, x) {
     update(s, 1 / 60, player(s, f));
     peak = Math.max(peak, s.enemyShots.length);
   }
-  return { hits: s.damageTaken, peak, bombs: s.bombsUsed };
+  return { hits: s.damageTaken, peak, bombs: s.bombsUsed, ended: s.boss?.results?.[0]?.reason ?? 'none' };
 }
 const cards = [];
 for (const [type, def] of Object.entries(BOSSES))
   def.cards.forEach((c, i) => {
     const runs = STARTS.map((x) => playCard(type, i, x));
-    cards.push({ type, name: c.name, runs, mean: runs.reduce((n, r) => n + r.hits, 0) / runs.length, worst: Math.max(...runs.map((r) => r.hits)) });
+    cards.push({ type, name: c.name, survival: c.type === 'survival', runs, mean: runs.reduce((n, r) => n + r.hits, 0) / runs.length, worst: Math.max(...runs.map((r) => r.hits)) });
   });
 
 test('card table (diagnostic)', (t) => {
-  for (const c of cards) t.diagnostic(`${c.type.padEnd(13)} ${c.name.padEnd(16)} hits ${c.runs.map((r) => r.hits).join(' ')} mean ${c.mean.toFixed(1)} peak ${Math.max(...c.runs.map((r) => r.peak))}`);
+  for (const c of cards) t.diagnostic(`${c.type.padEnd(13)} ${c.name.padEnd(16)} hits ${c.runs.map((r) => r.hits).join(' ')} mean ${c.mean.toFixed(1)} peak ${Math.max(...c.runs.map((r) => r.peak))} ended ${c.runs.map((r) => r.ended[0]).join('')}`);
+});
+test('the same reactive player ends every card by damage, not on the timer, from most starts', () => {
+  for (const c of cards.filter((c) => !c.survival)) assert.ok(c.runs.filter((r) => r.ended === 'cleared').length >= 4, `${c.type} ${c.name}: ${c.runs.map((r) => r.ended).join(' ')}`);
 });
 test('every boss and midboss card is dodgeable without SOAP by a 150 ms reactive player from 5 starts', () => {
   assert.equal(cards.length, Object.values(BOSSES).reduce((n, b) => n + b.cards.length, 0));

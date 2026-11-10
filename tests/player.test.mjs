@@ -82,14 +82,14 @@ test('the syringe moves in a 2D box: x within +/-8.9, z within -3..12', () => {
   assert.ok(Math.hypot(s.ship.x - RULES.moveMinX, s.ship.z - 12) <= 11.5 * 0.1 + 1e-6);
 });
 
-test('auto-fire: 8 volleys/s; SPRAY fans 3 needles at +/-9 degrees, NEEDLE fires 3 parallel', () => {
+test('auto-fire: 8 volleys/s; SPRAY fans 3 needles at +/-4 degrees, NEEDLE fires 3 parallel', () => {
   let s = quiet();
   update(s, 1);
   assert.ok(s.shotsFired >= 8 && s.shotsFired <= 9, String(s.shotsFired));
   s = quiet();
   update(s, 1 / 120);
   const xs = s.shots.map((n) => Math.atan2(n.vx, -n.vz));
-  assert.deepEqual(xs.map((a) => Math.round((a * 180) / Math.PI)).sort((a, b) => a - b), [-9, 0, 9]);
+  assert.deepEqual(xs.map((a) => Math.round((a * 180) / Math.PI)).sort((a, b) => a - b), [-4, 0, 4]);
   s = quiet();
   update(s, 1 / 120, { focus: true });
   assert.equal(s.shots.length, 3);

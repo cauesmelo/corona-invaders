@@ -810,6 +810,10 @@ function runScript(s, level, dt) {
     else if (st.puffs) for (const p of st.puffs) spawnPuff(s, p);
     else if (st.vesicle) spawnVesicle(s, st.vesicle);
     else if (st.midboss) createBoss(s, st.midboss, { world: level.world });
+    else if (st.surge) {
+      sec.surge = st.surge;
+      pushEvent(s, 'surge', { seconds: st.surge });
+    }
     sec.step++;
   }
 }
@@ -929,6 +933,7 @@ function substep(s, dt, input) {
   s.confirmQueued = false;
   const level = getLevel(s.wave);
   s.waveElapsed += dt;
+  if (s.sector.surge > 0) s.sector.surge = Math.max(0, s.sector.surge - dt);
   tickChain(s, dt);
   if (s.bombQueued) {
     s.bombQueued = false;
