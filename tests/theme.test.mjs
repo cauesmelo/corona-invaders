@@ -65,13 +65,13 @@ test('no cartoon faces: regular viruses are faceless and bosses show only sculpt
 test('the syringe has no crossbars: nothing extends sideways beyond the barrel + 0.2 u, and the needle points up-field', () => {
   const limit = SYRINGE.barrelRadius + 0.2;
   for (const p of SYRINGE.parts) {
-    const half = p.type === 'collar' ? p.rx : p.r ?? 0;
+    const half = Math.max(p.r ?? 0, p.r1 ?? 0);
     assert.ok(half <= limit + 1e-9, `${p.role}: ${half} u sideways`);
     assert.ok(!PLANE_WORDS.test(p.role), p.role);
   }
   const needle = SYRINGE.parts.find((p) => p.role === 'needle'),
     barrel = SYRINGE.parts.find((p) => p.role === 'barrel');
-  assert.ok(needle.z < barrel.z - barrel.length / 2, 'needle ahead (toward -z, up-field)');
+  assert.ok(needle.z1 <= barrel.z0 && needle.z0 < 0, 'needle ahead (toward -z, up-field)');
 });
 
 test('names: viruses and WHO Greek-letter variants only; the previous aircraft names are gone', () => {

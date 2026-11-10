@@ -35,8 +35,16 @@ export const COLLIDERS = Object.freeze({
 /** A needle is a thin segment: its tip is the shot position, its tail trails
  * NEEDLE.length behind along the travel. */
 export const NEEDLE = Object.freeze({ r: 0.06, length: 0.9 });
-/** The syringe body that catches supplies (the drawn barrel's half-width). */
-export const BODY_RADIUS = 0.4;
+/** The syringe body that catches supplies: the drawn barrel's half-width
+ * (shapes.SYRINGE, 0.28 u since the v1.0 short syringe). */
+export const BODY_RADIUS = 0.28;
+/** INJECT (RESEARCH_V1.md 5.4): the needle tip is a point collider of radius
+ * 0.05 u, 0.95 u up-field of the core on the board plane, where the drawn tip
+ * is (the 10 degree tilt lifts it 0.17 u; the steep camera's parallax puts
+ * its image back within 1 px of this point, checked in the browser audit).
+ * It only ever touches viruses: it can never hurt the player. */
+export const INJECT = Object.freeze({ reach: 0.95, r: 0.05, reload: 0.5, reloadElite: 0.8, eliteDamage: 10, hitstop: 0.06 });
+export const needleTip = (ship) => [ship.x, ship.z - INJECT.reach];
 /** The core marker: a flat disc on the collision plane itself (not lifted
  * above it, so perspective cannot enlarge or shift it), whose outer edge is
  * the collider. The 128 px texture draws that edge at radius `texEdge` of a

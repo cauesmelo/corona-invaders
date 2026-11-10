@@ -44,9 +44,12 @@ export const RULES = Object.freeze({
   // for a lower fire rate earlier, so the player never floods the screen).
   fireInterval: 0.125,
   needleSpeed: 34,
-  // SPRAY spread: +/-4 degrees. At +/-9 the side needles missed a boss at
-  // range, halving unfocused damage, and cards ended on the timer (playtest).
-  sprayAngle: (4 * Math.PI) / 180,
+  // SPRAY step: 4.25 degrees. Power 1-2 fire 3 needles (+/-4.25), power 3+
+  // fire 5 (+/-8.5 degrees: 3.1 u of coverage at 10 u for clearing popcorn,
+  // RESEARCH_V1.md 3.8). The +/-4.25 pair still lands on a boss 17.6 u away
+  // (1.31 u off the axis, inside r >= 1.45); a +/-9 degree pair at power 1
+  // missed bosses and cards ended on the timer (playtest).
+  sprayAngle: (4.25 * Math.PI) / 180,
   needleSpacing: 0.25,
   antibodyInterval: 0.25, // each antibody option fires 4 needles/s
   maxPower: 4,

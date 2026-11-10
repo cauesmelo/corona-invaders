@@ -10,7 +10,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { RULES, ARCHETYPES, BOSSES } from '../model.mjs';
-import { COLLIDERS, NEEDLE, BODY_RADIUS, MARKER, GRAZE_RING, enemyScale, bodyRadiusOf } from '../hitboxes.mjs';
+import { COLLIDERS, NEEDLE, BODY_RADIUS, INJECT, MARKER, GRAZE_RING, enemyScale, bodyRadiusOf } from '../hitboxes.mjs';
 import { SHAPES, shapeFor } from '../shapes.mjs';
 import { CHARACTERS, characterOf, bodyMotion, bossMenace, footprint, BOSS_SCRIPT, bossLine, bossCard, marchTempo, syllablesOf, talkTime } from '../personality.mjs';
 import { cardArena } from './helpers.mjs';
@@ -21,7 +21,10 @@ const SNAPSHOT = {
   RULES: { shipRadius: 0.2, grazeRadius: 1, bombRadius: 15, maskRadius: 1.25, bulletY: 0.55 },
   COLLIDERS: { droplet: { r: 0.15, half: 0.12 }, aerosol: { r: 0.15, half: 0 }, spike: { r: 0.13, half: 0.16 }, rna: { r: 0.15, half: 0 }, virion: { r: 0.2, half: 0 }, glob: { r: 0.42, half: 0 } },
   NEEDLE: { r: 0.06, length: 0.9 },
-  BODY_RADIUS: 0.4,
+  // v1.0 short syringe (RESEARCH_V1.md 4.2): the supply catcher is the 0.28 u
+  // barrel (was 0.4); the core and every enemy collider are unchanged.
+  BODY_RADIUS: 0.28,
+  INJECT: { reach: 0.95, r: 0.05 },
   MARKER: { r: 0.2, y: 0.55, texEdge: 60, texHalf: 64 },
   GRAZE_RING: { outer: 1, inner: 0.96, y: 0.55 },
   ARCH: { mini: [0.42, 0], wild: [0.6, 0], sneezer: [0.8, 0], budder: [0.62, 0.28], worm: [0.38, 0.9], puff: [0.9, 0], droplet: [0.55, 0], hijacker: [0.55, 0], cell: [0.8, 0], heavy: [0.85, 0], bloom: [0.85, 0], vesicle: [0.75, 0], virion: [0.5, 0] },
@@ -34,6 +37,7 @@ test('collider sizes are exactly as before the personality pass', () => {
   assert.deepEqual(JSON.parse(JSON.stringify(COLLIDERS)), SNAPSHOT.COLLIDERS);
   assert.deepEqual({ ...NEEDLE }, SNAPSHOT.NEEDLE);
   assert.equal(BODY_RADIUS, SNAPSHOT.BODY_RADIUS);
+  assert.deepEqual({ reach: INJECT.reach, r: INJECT.r }, SNAPSHOT.INJECT);
   assert.deepEqual({ ...MARKER }, SNAPSHOT.MARKER);
   assert.deepEqual({ ...GRAZE_RING }, SNAPSHOT.GRAZE_RING);
   assert.deepEqual(Object.fromEntries(Object.entries(ARCHETYPES).map(([k, a]) => [k, [a.radius, a.half || 0]])), SNAPSHOT.ARCH);

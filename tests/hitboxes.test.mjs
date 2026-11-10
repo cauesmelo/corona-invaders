@@ -57,7 +57,7 @@ test('the syringe: one core at the barrel centre, drawn at exactly the collision
   assert.equal(SYRINGE.core.r, RULES.shipRadius);
   assert.equal(SYRINGE.core.z, 0);
   const barrel = SYRINGE.parts.find((p) => p.role === 'barrel');
-  assert.equal(barrel.z, 0, 'the chamber sits at the barrel centre');
+  assert.equal((barrel.z0 + barrel.z1) / 2, 0, 'the chamber sits at the barrel centre');
   assert.ok(close(SYRINGE.barrelRadius * SYRINGE.scale, BODY_RADIUS, 0.001), 'the drawn barrel half-width is the supply catcher');
   assert.ok(2 * RULES.shipRadius * 15 >= 6, 'about 6 px or more even at 15 px/u (320 px wide)');
   const src = readFileSync(new URL('../render.mjs', import.meta.url), 'utf8');

@@ -101,29 +101,47 @@ export const SHAPES = Object.freeze({
   lambda: { color: PALETTE.bossBody, spikes: PALETTE.delta, parts: [{ type: 'sphere', r: 1, scale: [1, 1.15, 1] }, { type: 'clubs', count: 18, r: 1, length: 0.38, head: 0.14 }, { type: 'clubs', count: 6, r: 1, length: 1, head: 0.15, groups: 1, spread: 0.3 }, { type: 'torus', r: 1.35, tube: 0.04, role: 'halo' }, { type: 'pits', slant: 0.3, r: 1, points: [[-0.32, 0.82, 0.55, 0.13], [0.32, 0.82, 0.55, 0.13]], lift: 1.15 }] },
 });
 
-/** The hero. The needle points up-field; nothing extends sideways beyond the
- * barrel width + 0.2 u (the previous crossbars read as wings from above). */
+/** The hero (RESEARCH_V1.md 4.2): a short glass capsule around its glowing
+ * dose. 1.64 u from needle tip to thumb rest (was 5.1 u), drawn at scale 1,
+ * tilted 10 degrees on the core. Every point lies inside the 1.0 u graze ring
+ * (the farthest is the needle tip at 0.95 u), so a bullet over the body is
+ * also inside the ring: it reads as a graze, which is true, instead of a
+ * missed hit. Only the 0.2 u core collides; the needle tip is INJECT's
+ * collider (hitboxes.INJECT). Positions are along the axis from the core at
+ * 0, negative up-field. Nothing extends sideways beyond the collar (no
+ * crossbars: from above they read as wings). */
 export const SYRINGE = Object.freeze({
-  barrelRadius: 0.3,
-  // Drawn scale of the parts below, and the collision core: a glowing vaccine
-  // chamber at the barrel centre, marked at exactly the core radius (0.2 u).
-  scale: 1.333,
+  barrelRadius: 0.28,
+  scale: 1,
+  // 10 degrees: the steep camera still sees the barrel's side, and the tip
+  // lifts only 0.17 u off the collision plane (parallax under 2 px).
+  tilt: (10 * Math.PI) / 180,
   core: Object.freeze({ r: 0.2, z: 0 }),
-  parts: [
-    { type: 'cylinder', role: 'barrel', r: 0.3, length: 1.7, z: 0 },
-    { type: 'cylinder', role: 'fluid', r: 0.255, length: 1.64, z: 0 },
-    { type: 'sphere', role: 'vaccine chamber', r: 0.13, z: 0 },
-    { type: 'cylinder', role: 'rubber stopper', r: 0.27, length: 0.16, z: 0.9 },
-    { type: 'cylinder', role: 'hub', r: 0.16, length: 0.3, z: -0.98 },
-    { type: 'cylinder', role: 'needle', r: 0.032, length: 1.1, z: -1.66 },
-    { type: 'cylinder', role: 'plunger rod', r: 0.085, length: 0.6, z: 1.12 },
-    { type: 'disc', role: 'thumb rest', r: 0.3, z: 1.44 },
-    // Finger grips: a rounded, squashed collar ring around the barrel end,
-    // never a flat crossbar (from above, crossbars read as wings).
-    { type: 'collar', role: 'finger grip', rx: 0.48, rz: 0.12, z: 0.86 },
-    { type: 'marks', role: 'graduations', count: 7, r: 0.31 },
-  ],
+  tip: -0.95,
+  parts: Object.freeze([
+    // Each part: z0 -> z1 along the axis, half-width r (r1 when it tapers).
+    Object.freeze({ type: 'cone', role: 'needle', z0: -0.95, z1: -0.52, r: 0.03, outline: 0.06 }),
+    Object.freeze({ type: 'cylinder', role: 'hub', z0: -0.52, z1: -0.4, r: 0.07, r1: 0.13 }),
+    Object.freeze({ type: 'cylinder', role: 'barrel', z0: -0.4, z1: 0.4, r: 0.28 }),
+    Object.freeze({ type: 'cylinder', role: 'fluid', z0: -0.38, z1: 0.38, r: 0.24 }),
+    Object.freeze({ type: 'sphere', role: 'vaccine chamber', z0: -0.2, z1: 0.2, r: 0.2 }),
+    // A rounded torus collar (rx = outer half-width), never a crossbar.
+    Object.freeze({ type: 'collar', role: 'finger grip', z0: 0.31, z1: 0.41, r: 0.42 }),
+    Object.freeze({ type: 'cylinder', role: 'plunger rod', z0: 0.4, z1: 0.62, r: 0.07 }),
+    Object.freeze({ type: 'disc', role: 'thumb rest', z0: 0.64, z1: 0.69, r: 0.26 }),
+    Object.freeze({ type: 'marks', role: 'graduations', z0: -0.3, z1: 0.3, r: 0.285, count: 5 }),
+  ]),
 });
+/** The drawn silhouette on the board plane: one rectangle per solid part
+ * (axis span projected by the tilt, half-width), for overlap measurements
+ * (tests/suite-audit.mjs) and the area-weighted centroid test. */
+export function syringeOutline(spec = SYRINGE) {
+  const c = Math.cos(spec.tilt ?? 0),
+    k = spec.scale ?? 1;
+  return spec.parts
+    .filter((p) => !['fluid', 'vaccine chamber', 'graduations'].includes(p.role))
+    .map((p) => ({ role: p.role, z0: p.z0 * c * k, z1: p.z1 * c * k, half: Math.max(p.r, p.r1 ?? 0, p.outline ?? 0) * k }));
+}
 
 /** Archetype -> mesh spec. Bosses and parts map by boss type and part. */
 export function shapeFor(e, bossType) {

@@ -22,7 +22,7 @@ import * as THREE from './vendor/three.module.js';
 import { cameraLayout, FRAMING_POINTS, pxPerUnit } from './camera.mjs';
 import { RULES, getLevel, chainMultiplier, antibodyOffsets } from './model.mjs';
 import { SHAPES, SYRINGE, PALETTE, shapeFor } from './shapes.mjs';
-import { COLLIDERS, NEEDLE, MARKER, GRAZE_RING, markerQuad, spriteLayout, bulletQuad, enemyScale, bodyRadiusOf, bulletAxis, needleSegment } from './hitboxes.mjs';
+import { COLLIDERS, NEEDLE, MARKER, GRAZE_RING, INJECT, markerQuad, spriteLayout, bulletQuad, enemyScale, bodyRadiusOf, bulletAxis, needleSegment } from './hitboxes.mjs';
 import { characterOf, bodyMotion, bossMenace, marchTempo, bossLine, talkTime, DEFEAT_FINAL, DEFEAT_POPS } from './personality.mjs';
 import { INTRO as BOSS_INTRO } from './bosses.mjs';
 
@@ -423,6 +423,25 @@ function bulletTexture(kind) {
       g.fillStyle = '#ffffff';
       g.beginPath();
       g.arc(0, 0, 36, 0, Math.PI * 2);
+      g.fill();
+    } else if (kind === 'dot-focus') {
+      // Focus: the same marker with a thin white edge ring drawn ON the
+      // collider's edge, inside it (RESEARCH_V1.md 4.3).
+      g.fillStyle = '#ffffff';
+      g.beginPath();
+      g.arc(0, 0, MARKER.texEdge, 0, Math.PI * 2);
+      g.fill();
+      g.fillStyle = '#04161c';
+      g.beginPath();
+      g.arc(0, 0, MARKER.texEdge - 5, 0, Math.PI * 2);
+      g.fill();
+      g.fillStyle = '#7fe8ff';
+      g.beginPath();
+      g.arc(0, 0, 48, 0, Math.PI * 2);
+      g.fill();
+      g.fillStyle = '#ffffff';
+      g.beginPath();
+      g.arc(0, 0, 34, 0, Math.PI * 2);
       g.fill();
     } else if (kind === 'antigen') {
       g.fillStyle = '#e9fdff';
@@ -1003,107 +1022,108 @@ export function createRenderer({ canvas, stage, settings }) {
   }
 
   // ---- The syringe (the hero) ---------------------------------------------------
+  // RESEARCH_V1.md 4: 1.64 u long, every point inside the 1.0 u graze ring,
+  // the glowing dose (the 0.2 u core marker, drawn separately on top) at the
+  // barrel centre. Built straight from shapes.SYRINGE (z0 -> z1 along the
+  // axis, negative up-field), so the drawing is the spec the tests measure.
   const ship = new THREE.Group();
   const syringe = new THREE.Group();
   ship.add(syringe);
-  // Tilted 20 degrees so the steep camera sees the barrel's side profile.
-  syringe.rotation.x = 0.35;
-  // Drawn at SYRINGE.scale so the barrel's half-width is the body that
-  // catches supplies (hitboxes.BODY_RADIUS); only the core can be hit.
+  // Tilted 10 degrees on the core (was 20): the camera still sees the side of
+  // the barrel, and the needle tip lifts only 0.17 u off the board plane.
+  syringe.rotation.x = SYRINGE.tilt;
   syringe.scale.setScalar(SYRINGE.scale);
   scene.add(ship);
-  // Glass, vaccine, rubber, plastic and steel: lit, shaded and glossy, so the
-  // hero reads as a real 3D object at any size.
+  // Glass, vaccine, rubber, plastic and steel: lit, shaded and glossy. Every
+  // body material is transparent so focus can ghost the body to 35%.
   const glassMat = new THREE.MeshPhysicalMaterial({ color: '#e9fbff', transparent: true, opacity: 0.42, roughness: 0.04, metalness: 0, clearcoat: 1, clearcoatRoughness: 0.05, depthWrite: false, side: THREE.DoubleSide });
-  const fluidMat = new THREE.MeshStandardMaterial({ color: PALETTE.vaccine, emissive: '#1fb8d8', emissiveIntensity: 0.55, roughness: 0.15, metalness: 0 });
-  const chamberMat = new THREE.MeshBasicMaterial({ color: '#e9fdff', toneMapped: false });
-  const steel = new THREE.MeshStandardMaterial({ color: '#f1f6fa', roughness: 0.18, metalness: 0.9, emissive: '#6fcfe8', emissiveIntensity: 0.12 });
-  const plastic = new THREE.MeshPhysicalMaterial({ color: '#f4f8fa', roughness: 0.35, metalness: 0, clearcoat: 0.6, clearcoatRoughness: 0.3 });
-  const rubber = new THREE.MeshStandardMaterial({ color: '#1d2a33', roughness: 0.75, metalness: 0 });
+  const fluidMat = new THREE.MeshStandardMaterial({ color: PALETTE.vaccine, emissive: '#1fb8d8', emissiveIntensity: 0.9, roughness: 0.15, metalness: 0, transparent: true });
+  const steel = new THREE.MeshStandardMaterial({ color: '#f1f6fa', roughness: 0.18, metalness: 0.9, emissive: '#6fcfe8', emissiveIntensity: 0.12, transparent: true });
+  const plastic = new THREE.MeshPhysicalMaterial({ color: '#f4f8fa', roughness: 0.35, metalness: 0, clearcoat: 0.6, clearcoatRoughness: 0.3, transparent: true });
+  const rubber = new THREE.MeshStandardMaterial({ color: '#1d2a33', roughness: 0.75, metalness: 0, transparent: true });
   const hubMat = new THREE.MeshPhysicalMaterial({ color: '#7fe8ff', transparent: true, opacity: 0.75, roughness: 0.2, clearcoat: 0.8 });
-  const outlineMat = new THREE.MeshBasicMaterial({ color: '#03080b', side: THREE.BackSide });
-  const flashMats = [glassMat, fluidMat, plastic, steel];
-  for (const m of flashMats) m.userData.emissive = (m.emissive ? m.emissive.clone() : null), (m.userData.ei = m.emissiveIntensity ?? 0);
+  const outlineMat = new THREE.MeshBasicMaterial({ color: '#03080b', side: THREE.BackSide, transparent: true });
+  const markMat = new THREE.MeshBasicMaterial({ color: '#0e3640', transparent: true });
+  const bodyMats = [glassMat, fluidMat, steel, plastic, rubber, hubMat, outlineMat, markMat];
+  for (const m of bodyMats) m.userData.opacity = m.opacity;
   const along = (geo) => geo.rotateX(Math.PI / 2); // cylinders run along z
+  const partOf = (role) => SYRINGE.parts.find((p) => p.role === role);
+  const mid = (p) => (p.z0 + p.z1) / 2,
+    len = (p) => p.z1 - p.z0;
   const plunger = new THREE.Group();
   let fluid = null,
     meniscus = null,
-    stopper = null;
-  const barrelLen = SYRINGE.parts.find((p) => p.role === 'barrel').length;
+    stopper = null,
+    tipGlint = null;
+  const barrel = partOf('barrel'),
+    fluidPart = partOf('fluid');
   for (const p of SYRINGE.parts) {
-    if (p.type === 'cylinder' && p.role === 'barrel') {
-      syringe.add(new THREE.Mesh(along(new THREE.CylinderGeometry(p.r, p.r, p.length, 24, 1, true)), glassMat));
-      // Dark silhouette shell: keeps the barrel readable on any backdrop.
-      const shell = new THREE.Mesh(along(new THREE.CylinderGeometry(p.r * 1.09, p.r * 1.09, p.length * 1.01, 18)), outlineMat);
-      syringe.add(shell);
-      for (const z of [-p.length / 2, p.length / 2]) {
-        const lip = new THREE.Mesh(new THREE.TorusGeometry(p.r, 0.028, 6, 24), plastic);
+    if (p.role === 'barrel') {
+      syringe.add(new THREE.Mesh(along(new THREE.CylinderGeometry(p.r, p.r, len(p), 24, 1, true)), glassMat));
+      // Dark silhouette shell: keeps the glass readable on any backdrop.
+      syringe.add(new THREE.Mesh(along(new THREE.CylinderGeometry(p.r * 1.08, p.r * 1.08, len(p) * 1.01, 18)), outlineMat));
+      for (const z of [p.z0, p.z1]) {
+        const lip = new THREE.Mesh(new THREE.TorusGeometry(p.r, 0.022, 6, 24), plastic);
         lip.position.z = z;
         syringe.add(lip);
       }
     } else if (p.role === 'fluid') {
-      // The vaccine: its level follows the Dose Chain; a domed meniscus caps it.
+      // The vaccine: its level is EXPOSURE toward the next SOAP (grazes /
+      // 100), filling from the needle end; a domed meniscus caps it.
       fluid = new THREE.Mesh(along(new THREE.CylinderGeometry(p.r, p.r, 1, 20)), fluidMat);
       syringe.add(fluid);
       meniscus = new THREE.Mesh(new THREE.SphereGeometry(p.r, 18, 8, 0, Math.PI * 2, 0, Math.PI / 2).rotateX(Math.PI / 2), fluidMat);
-      meniscus.scale.set(1, 1, 0.35);
+      meniscus.scale.set(1, 1, 0.3);
       syringe.add(meniscus);
-    } else if (p.role === 'vaccine chamber') {
-      // The glowing chamber at the barrel centre: the core is here.
-      const ch = new THREE.Mesh(new THREE.IcosahedronGeometry(p.r, 2), chamberMat);
-      ch.position.z = p.z;
-      syringe.add(ch, sprite('#bff6ff', 1.1, 0.55));
-    } else if (p.role === 'rubber stopper') {
       stopper = new THREE.Group();
-      stopper.add(new THREE.Mesh(along(new THREE.CylinderGeometry(p.r, p.r, p.length, 20)), rubber));
-      for (const dz of [-p.length / 3, p.length / 3]) {
-        const rib = new THREE.Mesh(new THREE.TorusGeometry(p.r, 0.022, 6, 24), rubber);
-        rib.position.z = dz;
-        stopper.add(rib);
-      }
-      plunger.add(stopper);
+      stopper.add(new THREE.Mesh(along(new THREE.CylinderGeometry(p.r, p.r, 0.08, 20)), rubber));
+      syringe.add(stopper);
     } else if (p.role === 'hub') {
-      const hub = new THREE.Mesh(along(new THREE.CylinderGeometry(p.r * 0.55, p.r, p.length, 6)), hubMat);
-      hub.position.z = p.z;
+      const hub = new THREE.Mesh(along(new THREE.CylinderGeometry(p.r, p.r1, len(p), 8)), hubMat);
+      hub.position.z = mid(p);
       syringe.add(hub);
     } else if (p.role === 'needle') {
-      const needle = new THREE.Mesh(along(new THREE.CylinderGeometry(p.r * 0.7, p.r, p.length, 10)), steel);
-      needle.position.z = p.z;
-      const tip = new THREE.Mesh(along(new THREE.ConeGeometry(p.r * 0.7, 0.14, 8)).rotateX(Math.PI), steel);
-      tip.position.z = p.z - p.length / 2 - 0.07;
-      const outline = new THREE.Mesh(along(new THREE.CylinderGeometry(p.r * 2.1, p.r * 2.1, p.length, 6)), outlineMat);
-      outline.position.z = p.z;
+      // Shaft + cone tip; the dark 0.06 u outline keeps it visible on light
+      // backdrops. The white glint is INJECT's "loaded" light.
+      const shaft = len(p) - 0.12;
+      const needle = new THREE.Mesh(along(new THREE.CylinderGeometry(p.r, p.r, shaft, 10)), steel);
+      needle.position.z = p.z1 - shaft / 2;
+      const tip = new THREE.Mesh(along(new THREE.ConeGeometry(p.r, 0.12, 8)).rotateX(Math.PI), steel);
+      tip.position.z = p.z0 + 0.06;
+      const outline = new THREE.Mesh(along(new THREE.CylinderGeometry(p.outline, p.outline, len(p) - 0.04, 6)), outlineMat);
+      outline.position.z = mid(p) + 0.02;
       syringe.add(needle, tip, outline);
-      const glint = sprite('#ffffff', 0.5, 0.8);
-      glint.position.z = tip.position.z - 0.05;
-      syringe.add(glint);
+      tipGlint = sprite('#ffffff', 0.32, 0.85);
+      tipGlint.position.z = p.z0;
+      syringe.add(tipGlint);
     } else if (p.role === 'plunger rod') {
-      const rod = new THREE.Mesh(along(new THREE.CylinderGeometry(p.r, p.r, p.length, 10)), plastic);
-      rod.position.z = p.z;
+      const rod = new THREE.Mesh(along(new THREE.CylinderGeometry(p.r, p.r, len(p), 10)), plastic);
+      rod.position.z = mid(p);
       plunger.add(rod);
     } else if (p.type === 'disc') {
-      const disc = new THREE.Mesh(along(new THREE.CylinderGeometry(p.r, p.r, 0.07, 24)), plastic);
-      disc.position.z = p.z;
-      const rim = new THREE.Mesh(new THREE.TorusGeometry(p.r, 0.03, 6, 24), plastic);
-      rim.position.z = p.z;
-      plunger.add(disc, rim);
+      const disc = new THREE.Mesh(along(new THREE.CylinderGeometry(p.r, p.r, len(p), 24)), plastic);
+      disc.position.z = mid(p);
+      plunger.add(disc);
     } else if (p.type === 'collar') {
-      const collar = new THREE.Mesh(new THREE.TorusGeometry(0.34, 0.11, 10, 28), plastic);
-      collar.scale.set(p.rx / 0.45, 0.6, 1);
-      collar.position.z = p.z;
+      // Rounded torus around the barrel's back end: outer radius = p.r.
+      const tube = len(p) / 2;
+      const collar = new THREE.Mesh(new THREE.TorusGeometry(p.r - tube, tube, 10, 28), plastic);
+      collar.position.z = mid(p);
       syringe.add(collar);
     } else if (p.type === 'marks') {
-      const markMat = new THREE.MeshBasicMaterial({ color: '#0e3640' });
       for (let i = 0; i < p.count; i++) {
-        const mark = new THREE.Mesh(new THREE.TorusGeometry(p.r, i % 2 ? 0.008 : 0.014, 4, 24, i % 2 ? Math.PI * 0.6 : Math.PI * 1.1), markMat);
+        const mark = new THREE.Mesh(new THREE.TorusGeometry(p.r, i % 2 ? 0.006 : 0.011, 4, 24, i % 2 ? Math.PI * 0.6 : Math.PI * 1.1), markMat);
         mark.rotation.z = Math.PI * 0.45;
-        mark.position.z = -barrelLen / 2 + 0.18 + i * ((barrelLen - 0.36) / (p.count - 1));
+        mark.position.z = p.z0 + (i * (p.z1 - p.z0)) / (p.count - 1);
         syringe.add(mark);
       }
     }
   }
   syringe.add(plunger);
-  let shipFlash = 0;
+  void barrel;
+  let ghost = 1,
+    coreHot = false,
+    exposureLevel = 0;
   const shipLight = new THREE.PointLight(PALETTE.vaccine, 6, 5);
   scene.add(shipLight);
   // Antibody options: Y-shaped, cyan.
@@ -1112,7 +1132,8 @@ export function createRenderer({ canvas, stage, settings }) {
     [new THREE.CapsuleGeometry(0.06, 0.28, 2, 6), M(-0.12, 0, -0.14, 1, 1, 1, new THREE.Quaternion().setFromEuler(new THREE.Euler(Math.PI / 2, 0, -0.7)))],
     [new THREE.CapsuleGeometry(0.06, 0.28, 2, 6), M(0.12, 0, -0.14, 1, 1, 1, new THREE.Quaternion().setFromEuler(new THREE.Euler(Math.PI / 2, 0, 0.7)))],
   ]);
-  const optionMat = new THREE.MeshStandardMaterial({ color: PALETTE.vaccine, emissive: PALETTE.vaccine, emissiveIntensity: 0.8 });
+  // 60% opacity: the antibodies never read as part of the body.
+  const optionMat = new THREE.MeshStandardMaterial({ color: PALETTE.vaccine, emissive: PALETTE.vaccine, emissiveIntensity: 0.8, transparent: true, opacity: 0.6 });
   const options = Array.from({ length: 4 }, () => {
     const m = new THREE.Mesh(yGeo, optionMat);
     m.scale.setScalar(1.25);
@@ -1153,6 +1174,21 @@ export function createRenderer({ canvas, stage, settings }) {
   const antigenPool = pool('antigen', 240, 45);
   const dot = pool('dot', 1, 80);
   dot.count = 1;
+  const dotMaps = { plain: dot.material.map, focus: bulletTexture('dot-focus') };
+  // Graze feedback while unfocused: a 0.2 s arc of the ring at the bullet's
+  // bearing (the ring itself shows only in focus).
+  const grazeArcs = Array.from({ length: 8 }, () => {
+    const m = new THREE.Mesh(
+      new THREE.RingGeometry(GRAZE_RING.inner - 0.03, GRAZE_RING.outer, 12, 1, -0.35, 0.7).rotateX(-Math.PI / 2),
+      new THREE.MeshBasicMaterial({ color: PALETTE.vaccine, transparent: true, opacity: 0, depthTest: false, depthWrite: false, toneMapped: false }),
+    );
+    m.renderOrder = 79;
+    m.visible = false;
+    m.userData.life = 0;
+    scene.add(m);
+    return m;
+  });
+  let grazeArcCursor = 0;
   const grazeRing = new THREE.Mesh(
     new THREE.RingGeometry(GRAZE_RING.inner, GRAZE_RING.outer, 48).rotateX(-Math.PI / 2),
     new THREE.MeshBasicMaterial({ color: PALETTE.vaccine, transparent: true, opacity: 0, depthTest: false, depthWrite: false, toneMapped: false }),
@@ -1501,8 +1537,7 @@ export function createRenderer({ canvas, stage, settings }) {
   }
   function onEvent(ev, s) {
     const motion = settings.effects();
-    if (ev.type === 'shot') plunger.position.z = 0.08;
-    else if (ev.type === 'hit' && ev.id) {
+    if (ev.type === 'hit' && ev.id) {
       const m = enemyMeshes.get(ev.id);
       if (m) {
         const ud = m.userData;
@@ -1537,12 +1572,10 @@ export function createRenderer({ canvas, stage, settings }) {
       mood.gloat = 1.6; // every villain gloats
       fx.trauma += 0.5;
       fx.flash = 0.55;
-      shipFlash = 0.3;
       addBurst(ev.x, ev.z, PALETTE.danger, 3);
       addBurst(ev.x, ev.z, '#ffffff', 1.4);
       spawnDebris(ev.x, ev.z, PALETTE.vaccine, 14, 1.3);
     } else if (ev.type === 'hit-core') {
-      shipFlash = 0.3;
       addBurst(ev.x, ev.z, PALETTE.danger, 1.8);
     } else if (ev.type === 'respawn') addBurst(ev.x, Math.min(ev.z, 12.5), PALETTE.vaccine, 2);
     else if (ev.type === 'bomb') {
@@ -1557,7 +1590,14 @@ export function createRenderer({ canvas, stage, settings }) {
     else if (ev.type === 'split') addBurst(ev.x, ev.z, '#ffffff', 1.6);
     else if (ev.type === 'cured') addBurst(ev.x, ev.z, PALETTE.vaccine, 1.6);
     else if (ev.type === 'splash') addBurst(ev.x, ev.z, PALETTE.danger, 1.2);
-    else if (ev.type === 'graze' && motion && Math.random() < 0.5) addBurst(ev.x, ev.z, '#e9fdff', 0.25);
+    else if (ev.type === 'graze') {
+      // The arc at the bullet's bearing (RingGeometry's arc is centred on +x;
+      // after rotateX(-pi/2) a y rotation phi points it at (cos phi, -sin phi)).
+      const a = grazeArcs[grazeArcCursor++ % grazeArcs.length];
+      a.rotation.y = Math.atan2(-(ev.z - (s?.ship.z ?? 0)), ev.x - (s?.ship.x ?? 0));
+      a.userData.life = 0.2;
+      if (motion && Math.random() < 0.5) addBurst(ev.x, ev.z, '#e9fdff', 0.25);
+    }
     fx.trauma = Math.min(1, fx.trauma);
   }
 
@@ -2071,33 +2111,35 @@ export function createRenderer({ canvas, stage, settings }) {
     ship.position.set(sh.x, BULLET_Y, sh.z);
     // Respawn invulnerability flickers at 10 Hz (never hides the hitbox dot).
     ship.visible = sh.invulnerable <= 0 || !motion || Math.floor(visualTime * 20) % 2 === 0;
-    plunger.position.z = Math.max(0, plunger.position.z - dt * 1.2);
-    // The vaccine level rises with the Dose Chain: the stopper and the
-    // meniscus ride the level; the chamber at the core always glows.
-    const fill = 0.55 + 0.45 * Math.min(1, s.chain.count / 32);
-    const front = -0.82,
-      level = front + 1.64 * fill;
+    // INJECT: the plunger is pushed in on a cure and draws back over the
+    // reload; the tip glint is bright when loaded and dim while reloading.
+    const reload = sh.injectReload || 0,
+      reloadMax = sh.injectReloadMax || 0.5;
+    plunger.position.z = -0.1 * Math.min(1, reload / reloadMax);
+    if (tipGlint) tipGlint.material.opacity = reload > 0 ? 0.15 : 0.85 + (motion ? 0.15 * Math.sin(visualTime * 9) : 0);
+    // EXPOSURE: the vaccine level is the graze progress toward the next SOAP
+    // (RESEARCH_V1.md 3.7), filling from the needle end; the stopper rides it.
+    const fill = Math.max(0, Math.min(1, (sh.grazeProgress || 0) / RULES.grazePerBomb));
+    const front = fluidPart.z0,
+      level = front + 0.02 + (fluidPart.z1 - front - 0.02) * fill;
+    exposureLevel = fill;
     if (fluid) {
-      fluid.scale.set(1, 1, level - front);
+      fluid.scale.set(1, 1, Math.max(0.001, level - front));
       fluid.position.z = (front + level) / 2;
       meniscus.position.z = level;
-      stopper.position.z = level + 0.08 - 0.9;
+      meniscus.visible = fluid.visible = fill > 0.001;
+      stopper.position.z = Math.min(fluidPart.z1, level + 0.04);
     }
-    // Hit state: a hot pink-white flash on every material for 0.3 s.
-    shipFlash = Math.max(0, shipFlash - dt);
-    const hot = shipFlash > 0 || sh.dying > 0;
-    for (const m of flashMats) {
-      if (!m.emissive) continue;
-      if (hot) {
-        m.emissive.set(Math.floor(visualTime * 30) % 2 ? '#ff4fa3' : '#ffffff');
-        m.emissiveIntensity = 0.9;
-      } else {
-        m.emissive.copy(m.userData.emissive);
-        m.emissiveIntensity = m.userData.ei;
-      }
-    }
+    // Focus ghosts the body to 35%, so bullets crossing it plainly hit
+    // nothing; the core marker (drawn separately) never ghosts.
+    ghost = sh.focus && s.phase === 'playing' ? 0.35 : 1;
+    for (const m of bodyMats) m.opacity = m.userData.opacity * ghost;
+    // The Dose Chain lives in the dose's glow.
     const tier = chainMultiplier(s.chain.count);
-    fluidMat.emissiveIntensity = 0.6 + (tier - 1) * 0.2;
+    fluidMat.emissiveIntensity = 0.9 + (tier - 1) * 0.2;
+    // Hit (the 0.18 s deathbomb window): only the core flashes pink-white.
+    coreHot = sh.dying > 0;
+    dot.material.color.set(coreHot ? (Math.floor(visualTime * 30) % 2 ? '#ff4fa3' : '#ffffff') : '#ffffff');
     shipLight.position.set(sh.x, 1.2, sh.z);
     // The hitbox dot sits in the barrel, always drawn on top (depthTest off,
     // so it can lie exactly on the collision plane without z-fighting).
@@ -2110,6 +2152,17 @@ export function createRenderer({ canvas, stage, settings }) {
     dot.setMatrixAt(0, tmp.matrix);
     dot.instanceMatrix.needsUpdate = true;
     dot.visible = s.phase !== 'title';
+    const map = sh.focus ? dotMaps.focus : dotMaps.plain;
+    if (dot.material.map !== map) {
+      dot.material.map = map;
+      dot.material.needsUpdate = true;
+    }
+    for (const a of grazeArcs) {
+      a.userData.life = Math.max(0, a.userData.life - dt);
+      a.visible = a.userData.life > 0 && !sh.focus;
+      a.material.opacity = 0.75 * (a.userData.life / 0.2);
+      a.position.set(sh.x, GRAZE_RING.y, sh.z);
+    }
     // Focus: a faint cyan 1.0 u graze ring. It appears at full strength on
     // the frame Shift goes down (feedback on the press, not 70 ms later) and
     // only fades out on release.
@@ -2259,6 +2312,32 @@ export function createRenderer({ canvas, stage, settings }) {
     const p = new THREE.Vector3(x, y, z).project(camera);
     return { ndcX: p.x, ndcY: p.y, pixelX: ((p.x + 1) * stage.clientWidth) / 2, pixelY: ((1 - p.y) * stage.clientHeight) / 2 };
   };
+  /** QA: the drawn syringe measured from its real matrices (tip and thumb
+   * rest projected to CSS px), its focus ghost, EXPOSURE level and glint. */
+  function syringeInfo(s) {
+    ship.position.set(s.ship.x, BULLET_Y, s.ship.z);
+    ship.updateMatrixWorld(true);
+    const at = (z) => {
+      const v = new THREE.Vector3(0, 0, z).applyMatrix4(syringe.matrixWorld);
+      return project([v.x, v.y, v.z]);
+    };
+    const tip = at(SYRINGE.tip),
+      back = at(partOf('thumb rest').z1),
+      collider = project([s.ship.x, BULLET_Y, s.ship.z - INJECT.reach]);
+    return {
+      lengthPx: Math.hypot(tip.pixelX - back.pixelX, tip.pixelY - back.pixelY),
+      tip,
+      tipCollider: collider,
+      tipErrorPx: Math.hypot(tip.pixelX - collider.pixelX, tip.pixelY - collider.pixelY),
+      ghost,
+      bodyOpacity: plastic.opacity,
+      exposure: exposureLevel,
+      coreHot,
+      glint: tipGlint ? tipGlint.material.opacity : 0,
+      visible: ship.visible,
+      markerVisible: dot.visible,
+    };
+  }
   return {
     renderer,
     camera,
@@ -2420,6 +2499,7 @@ export function createRenderer({ canvas, stage, settings }) {
         hitboxPx: 2 * RULES.shipRadius * pxPerUnit(layout, h, [0, BULLET_Y, s.ship.z]),
         minBulletPx: 2 * Math.min(...Object.values(COLLIDERS).map((c) => c.r)) * pxPerUnit(layout, h, [0, BULLET_Y, -12.5]),
         camera: { fov: layout.fov, position: layout.position, target: layout.target },
+        syringe: syringeInfo(s),
       };
       camera.position.copy(saved);
       camera.lookAt(...layout.target);

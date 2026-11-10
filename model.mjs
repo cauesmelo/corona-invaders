@@ -26,7 +26,7 @@ import {
 } from './enemies.mjs';
 import { BOSSES, createBoss, updateBoss, damageBoss, bombBoss, bossStatus, voidCapture, bossVulnerable, bossIntangible } from './bosses.mjs';
 import { awardKill, breakChain, tickChain, chainMultiplier, addScore, r0Of, r0Bonus } from './scoring.mjs';
-import { sweptHit, bulletGap, needleSegment, pointSegDist2, segSegDist2, beamHits, NEEDLE, BODY_RADIUS } from './hitboxes.mjs';
+import { sweptHit, bulletGap, needleSegment, pointSegDist2, segSegDist2, beamHits, NEEDLE, BODY_RADIUS, INJECT } from './hitboxes.mjs';
 
 /** Enemy collider: a circle, or a capsule along x for elongated bodies
  * (RNA WORM, BUDDER). */
@@ -469,7 +469,9 @@ function moveShip(s, input, dt) {
 /** Antibody option offsets (u from the core). They tuck in while focused. */
 export function optionOffsets(power, focus) {
   if (power < 2) return [];
-  const near = focus ? [[-0.6, 0.35], [0.6, 0.35]] : [[-1.15, 0.45], [1.15, 0.45]];
+  // At least 0.3 u clear of the 0.28 u barrel; unfocused they sit outside the
+  // 1.0 u graze ring, focused they tuck in (RESEARCH_V1.md 4.2).
+  const near = focus ? [[-0.75, 0.35], [0.75, 0.35]] : [[-1.15, 0.45], [1.15, 0.45]];
   if (power < 4) return near;
   const far = focus ? [[-1.0, 0.9], [1.0, 0.9]] : [[-1.9, 1.2], [1.9, 1.2]];
   return [...near, ...far];
@@ -481,7 +483,8 @@ function autoFire(s) {
   const ship = s.ship;
   if (!canAct(s) || ship.dying > 0) return;
   const damage = ship.powerups.booster > 0 ? RULES.boosterMultiplier : 1;
-  const muzzle = ship.z - 0.9;
+  // Needles leave the drawn needle tip.
+  const muzzle = ship.z - INJECT.reach;
   const push = (x, z, angle) =>
     s.shots.push({ id: nextId(s), x, z, vx: Math.sin(angle) * RULES.needleSpeed, vz: -Math.cos(angle) * RULES.needleSpeed, radius: 0.12, damage });
   if (ship.fireCooldown <= 0) {
@@ -503,7 +506,10 @@ function autoFire(s) {
   }
   if (ship.power >= 2 && ship.antibodyCooldown <= 0) {
     ship.antibodyCooldown = RULES.antibodyInterval;
-    for (const [ox, oz] of optionOffsets(ship.power, ship.focus)) push(ship.x + ox, ship.z + oz - 0.4, ship.focus ? 0 : Math.sign(ox) * 0.05);
+    // Focused antibodies converge on the needle line 9 u ahead (they sit
+    // outside a 0.6 u target's reach at +/-0.75 u), so focus concentrates
+    // every needle on one target; unfocused they splay slightly outward.
+    for (const [ox, oz] of optionOffsets(ship.power, ship.focus)) push(ship.x + ox, ship.z + oz - 0.4, ship.focus ? -Math.atan2(ox, 9) : Math.sign(ox) * 0.05);
     s.projectilesFired += optionOffsets(ship.power, ship.focus).length;
   }
 }
