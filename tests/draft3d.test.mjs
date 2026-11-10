@@ -6,7 +6,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from '../vendor/three.module.js';
-import { ALL_CARDS, CARD } from '../cards.mjs';
+import { ALL_CARDS, CARD, SYNERGIES } from '../cards.mjs';
 import { FONT } from '../ui.mjs';
 import { controlsHTML, cartridgeChip, LINE_GLYPH } from '../formulate.mjs';
 import {
@@ -21,6 +21,9 @@ import {
   labelOf,
   labelLayout,
   captionOf,
+  hasGlyph,
+  glyphBitmap,
+  textDots,
   deriveStat,
   revealSchedule,
   revealEnd,
@@ -44,19 +47,125 @@ test('D7 labels: every card prints a name and one stat line; trade-offs add a sh
   }
 });
 
-test('D7 lettering: every character a label, caption or header can print has a dot-matrix glyph', () => {
-  // The label face is ui.mjs FONT plus draft3d's extra symbols; an unknown
-  // character would silently print as a blank.
-  const known = (ch) => ch === ' ' || FONT[ch] || FONT[ch.toUpperCase()] || '+%×→←():,;≤≥±°\'=◆◇−–#*…'.includes(ch);
+test('D7 lettering: every character a label, caption or header can print has its own dot-matrix glyph (the real table), a 5x7 bitmap with lit dots', () => {
+  // An unknown character would silently print as a blank, so the test reads
+  // draft3d's own table (hasGlyph) and walks every string a player can see:
+  // each label line, each caption with and without every synergy partner,
+  // the full-name synergy rows, the header and the tier words.
   const texts = [];
+  const ctx = { power: 1, difficulty: 'normal', titer: 0, stage: 2 };
   for (const c of ALL_CARDS) {
     const l = labelOf(c.id);
-    texts.push(l.name, l.stat, l.cost, ...captionOf(c.id, [], { power: 1, difficulty: 'normal', titer: 0, stage: 2 }).lines.map((x) => x.text));
+    texts.push(l.name, l.stat, l.cost);
+    const partners = SYNERGIES.filter((s) => s.includes(c.id)).map((s) => s.find((x) => x !== c.id));
+    for (const deck of [[], ...partners.map((p) => [{ id: p, at: 1 }])]) texts.push(...captionOf(c.id, deck, ctx).lines.map((x) => x.text));
   }
-  texts.push('1-1 CLEARED · PICK ONE', 'TITER ◆◇◇', 'COMMON', 'RARE', 'EPIC', 'LEGENDARY');
+  texts.push('1-1 CLEARED · PICK ONE', 'TITER ◆◇◇', 'ALPHA SEQUENCED 0/3', 'BETA & GAMMA SEQUENCED 2/3', 'COMMON', 'RARE', 'EPIC', 'LEGENDARY');
   const missing = new Set();
-  for (const t of texts) for (const ch of t) if (!known(ch)) missing.add(ch);
+  for (const t of texts) for (const ch of t) if (!hasGlyph(ch)) missing.add(ch);
   assert.deepEqual([...missing], [], `glyphs missing: ${[...missing].join(' ')}`);
+  // Every glyph a card string uses is a 35-cell bitmap with at least one lit dot.
+  const used = new Set(texts.join('').replace(/ /g, ''));
+  for (const ch of used) {
+    const bits = glyphBitmap(ch);
+    assert.equal(bits.length, 35, `glyph ${ch} is 5x7`);
+    assert.ok(bits.includes('#'), `glyph ${ch} has lit dots`);
+  }
+  // Look-alikes stay distinct (a 0 is not an O, a minus is not a hyphen's twin by accident).
+  assert.notEqual(glyphBitmap('0'), glyphBitmap('O'));
+  assert.notEqual(glyphBitmap('→'), glyphBitmap('-'));
+  assert.notEqual(glyphBitmap('×'), glyphBitmap('+'));
+});
+
+test('D7 label lines: the card\'s own label (<= 16) is the first line, the stat <= 18 the second, nothing is squeezed below 0.75 of the dot pitch', () => {
+  for (const c of ALL_CARDS) {
+    const l = labelOf(c.id);
+    assert.ok(c.label && c.label.length <= 16, `${c.id}: label "${c.label}" <= 16`);
+    assert.equal(l.name, c.label.toUpperCase(), `${c.id}: the cartridge prints the card's label, not its full name`);
+    assert.ok(l.name.length <= 16 && l.stat.length <= 18, `${c.id}: ${l.name.length}/${l.stat.length} characters`);
+    const lay = labelLayout(l);
+    for (const [k, ln] of [['name', lay.name], ['stat', lay.stat], ['cost', lay.foot]]) {
+      if (!ln) continue;
+      assert.ok(ln.pitchX / ln.pitchY >= 0.75 - 1e-9, `${c.id} ${k} squeezed to ${(ln.pitchX / ln.pitchY).toFixed(2)}`);
+      assert.ok(ln.x0 + ln.width <= lay.len + 1e-9, `${c.id} ${k} runs past the plate`);
+      // The run in dots matches the text (a stale width would overflow).
+      assert.ok(Math.abs(ln.width - textDots(ln.text) * ln.pitchX) < 1e-9);
+    }
+    if (c.tradeoff) assert.ok(lay.foot && l.cost.length <= 24, `${c.id}: the pink COST line`);
+  }
+  // The two trade-offs read as such on the plate.
+  assert.equal(labelOf('glass-syringe').cost, 'COST −1 VIAL');
+  assert.equal(labelOf('live-culture').cost, 'COST −10% EMPTY');
+});
+
+test('D7 captions never end in half a word and the SYNERGY row names both cartridges whole', () => {
+  const ctx = { power: 2, difficulty: 'normal', titer: 0, stage: 4 };
+  let withSynergy = 0;
+  for (const c of ALL_CARDS) {
+    const partners = SYNERGIES.filter((s) => s.includes(c.id)).map((s) => s.find((x) => x !== c.id));
+    for (const deck of [[], ...partners.map((p) => [{ id: p, at: 1 }])]) {
+      const cap = captionOf(c.id, deck, ctx);
+      const rows = cap.lines.map((l) => l.text);
+      assert.ok(rows.every((r) => r.length <= 44), `${c.id}: a row over 44 characters`);
+      // Row 36 characters is the wrap width: a clipped effect ends on a whole word + an ellipsis.
+      for (const r of cap.lines.filter((l) => l.tone === 'ink')) if (r.text.endsWith('…')) assert.ok(r.text.length <= 36 && / /.test(r.text), `${c.id}: "${r.text}"`);
+      assert.ok(!rows.some((r) => r.endsWith('…')), `${c.id} with ${deck.map((d) => d.id)}: truncated "${rows.join(' / ')}"`);
+      const syn = cap.lines.find((l) => l.tone === 'cyan');
+      if (deck.length) {
+        withSynergy++;
+        assert.ok(syn, `${c.id}: a SYNERGY row with ${deck[0].id}`);
+        for (const id of [c.id, deck[0].id]) assert.ok(syn.text.includes(CARD[id].label), `${c.id}: "${syn.text}" names ${CARD[id].label} whole`);
+      }
+    }
+  }
+  assert.equal(withSynergy, SYNERGIES.length * 2, 'every printed synergy was exercised from both cards');
+});
+
+test('D7 caption rows keep a legible dot pitch: the rail condenses a row to fit (976 px), never below 70% of the row pitch and 3.6 px', () => {
+  const ctx = { power: 2, difficulty: 'normal', titer: 0, stage: 4 };
+  let worst = 6,
+    row = '';
+  for (const c of ALL_CARDS) {
+    const partners = SYNERGIES.filter((s) => s.includes(c.id)).map((s) => s.find((x) => x !== c.id));
+    for (const deck of [[], ...partners.map((p) => [{ id: p, at: 1 }])]) {
+      const rows = captionOf(c.id, deck, ctx).lines;
+      // Three rows are drawn at a 4.8 px pitch, one or two at 6.2 (draft3d drawCaption).
+      const pitch0 = rows.length > 2 ? 4.8 : 6.2;
+      for (const r of rows) {
+        const pitch = Math.min(pitch0, 976 / textDots(r.text));
+        if (pitch / pitch0 < worst / pitch0 || worst === 6) [worst, row] = [pitch, r.text];
+        // A 36-character row at the two-row 6.2 px pitch is 0.73 by design.
+        assert.ok(pitch / pitch0 >= 0.7, `${c.id}: "${r.text}" squeezed to ${(pitch / pitch0).toFixed(2)}`);
+      }
+    }
+  }
+  assert.ok(worst >= 3.6, `narrowest caption row ${worst.toFixed(2)} px: "${row}"`);
+});
+
+test('card briefs: <= 72 characters, two caption rows, and only where the full sentence needs more', () => {
+  const briefs = ALL_CARDS.filter((c) => c.brief);
+  assert.ok(briefs.length >= 8);
+  for (const c of briefs) {
+    assert.ok(c.brief.length <= 72, `${c.id} brief ${c.brief.length}`);
+    // Two 36-character rows after the same greedy wrap the caption uses.
+    const rows = [];
+    let line = '';
+    for (const w of c.brief.toUpperCase().split(/\s+/)) {
+      if (!line) line = w;
+      else if ((line + ' ' + w).length <= 36) line += ' ' + w;
+      else {
+        rows.push(line);
+        line = w;
+      }
+    }
+    rows.push(line);
+    assert.ok(rows.length <= 2, `${c.id}: brief wraps to ${rows.length} rows`);
+  }
+});
+
+test('card text reads as English: ANTIGEN MEMORY\'s antigen tokens fly (not "antigen fly")', () => {
+  assert.match(CARD['antigen-memory'].text(CARD['antigen-memory'].fx, 1), /antigen tokens \(.*\) fly as needles/);
+  assert.ok(!/antigen \(the body/.test(CARD['antigen-memory'].text(CARD['antigen-memory'].fx, 1)));
 });
 
 test('D7 captions: at most three rows of at most 44 characters; a trade-off or synergy gets its own row', () => {
