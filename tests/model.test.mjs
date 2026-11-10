@@ -86,18 +86,22 @@ test('vials: a sample clear restores none, a boss clear restores one; the boss F
   assert.equal(s.wave, 2);
   assert.equal(s.health, 1, 'no vial after a sample');
   assert.equal(s.checkpoint.stage, 2);
-  s = running(42, 3);
-  s.health = 1;
-  clearSector(s);
-  assert.equal(s.transitionHold, true);
-  update(s, 5);
-  assert.equal(s.wave, 3, 'the FIELD NOTE waits');
-  update(s, 1 / 60, { confirm: true });
-  update(s, 1 / 60);
-  update(s, 1.5);
-  update(s, 1.5);
-  assert.equal(s.wave, 4);
-  assert.equal(s.health, 2, '+1 vial after a boss');
+  // ALPHA and BETA & GAMMA restore none (RESEARCH_DIFFICULTY 3.6 lever 5);
+  // DELTA (and every later boss) restores one.
+  for (const [stage, gain] of [[3, 0], [6, 0], [9, 1]]) {
+    s = running(42, stage);
+    s.health = 1;
+    clearSector(s);
+    assert.equal(s.transitionHold, true);
+    update(s, 5);
+    assert.equal(s.wave, stage, 'the FIELD NOTE waits');
+    update(s, 1 / 60, { confirm: true });
+    update(s, 1 / 60);
+    update(s, 1.5);
+    update(s, 1.5);
+    assert.equal(s.wave, stage + 1);
+    assert.equal(s.health, 1 + gain, `${gain} vial after boss ${stage}`);
+  }
   assert.equal(confirmReport(s), false);
   // Never above the difficulty's maximum.
   s = running(42, 3);
@@ -170,7 +174,9 @@ test('practice: one vial, nothing unlocks, a MUTATION LAB card ends the run when
   for (let i = 0; i < 600 && s.boss.state !== 'fight'; i++) update(s, 1 / 60);
   s.boss.hp = s.boss.cards[1].floor + 1;
   update(s, 1 / 60);
-  for (let i = 0; i < 120 && s.phase === 'playing'; i++) update(s, 1 / 60);
+  // One needle at L2 pair: stand under the swaying boss (ordinary input).
+  const under = () => ({ targetX: s.enemies.find((e) => e.kind === 'boss' && e.alive)?.x ?? 0 });
+  for (let i = 0; i < 600 && s.phase === 'playing'; i++) update(s, 1 / 60, under());
   assert.equal(s.phase, 'won');
   assert.equal(s.practice.result.card, 1);
   // Retry inside practice keeps the practice setup.

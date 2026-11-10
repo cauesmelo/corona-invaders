@@ -15,7 +15,7 @@ import { RULES, nextId, pushEvent } from './core.mjs';
 import { cancelBullets } from './bullets.mjs';
 import { bulletGap, pointSegDist2, jetRect, jetHits, INJECT } from './hitboxes.mjs';
 import { voidCapture, bossIntangible } from './bosses.mjs';
-import { CARD, CAPS, needleMul } from './cards.mjs';
+import { CARD, CAPS, needleMul, needlesPerVolley, fireRateNow } from './cards.mjs';
 
 const DEG = Math.PI / 180;
 const axisDist = (e, x, z) => Math.sqrt(pointSegDist2(x, z, e.x - (e.half || 0), e.z, e.x + (e.half || 0), e.z));
@@ -37,8 +37,60 @@ export function aimUp(s, x, z, range, arc) {
   return Math.max(-arc * DEG, Math.min(arc * DEG, a));
 }
 
-/** The player's projectiles alive (needles + split + innate) stay <= 120. */
+/** The player's projectiles alive (needles + split + innate + antigen) stay <= 120. */
 export const roomFor = (s, n = 1) => s.shots.length + n <= CAPS.projectiles;
+
+/** The needle multiplier's inputs at this instant (cards.mjs needleMul):
+ * focus with STEADY HAND's 0.6 s lock, the graze ring, FEVER, HORMESIS. */
+export function needleState(s) {
+  const ship = s.ship;
+  return {
+    focus: ship.focus,
+    locked: !!(s.kit.steady && ship.focus && ship.focusHeld >= CARD['steady-hand'].fx.hold),
+    ringBusy: ship.ringBusy,
+    fever: ship.fever > 0,
+    hormesis: ship.hormesisBonus || 0,
+  };
+}
+
+/** FC RECEPTOR: the heading (push convention) to the last virus the needles
+ * hit, if it is alive, within 12 u and within +/-30 degrees of straight up
+ * the board; otherwise null (the antibody fires its default line). */
+export function fcAim(s, x, z) {
+  const id = s.ship.lastHit;
+  if (!id) return null;
+  const e = s.enemies.find((v) => v.id === id);
+  if (!e || !tangible(s, e)) return null;
+  const fx = CARD['fc-receptor'].fx;
+  if (Math.hypot(e.x - x, e.z - z) > fx.range) return null;
+  const a = Math.atan2(e.x - x, -(e.z - z));
+  return Math.abs(a) <= fx.arc * DEG ? a : null;
+}
+
+/** ANTIGEN MEMORY: `n` needles (1x needle damage) fly from a cure at the
+ * nearest tangible virus within 10 u, fanned 6 degrees apart; with no virus
+ * in range they fly straight up the board. They score like any needle. */
+export function antigenNeedles(s, x, z, n) {
+  const fx = CARD['antigen-memory'].fx;
+  let best = null,
+    bestD = fx.range;
+  for (const e of s.enemies) {
+    if (!tangible(s, e)) continue;
+    const d = Math.hypot(e.x - x, e.z - z);
+    if (d < bestD && d > 1e-3) [best, bestD] = [e, d];
+  }
+  const heading = best ? Math.atan2(best.x - x, -(best.z - z)) : 0;
+  const damage = fx.mult * needleMul(s.kit, needleState(s));
+  let fired = 0;
+  for (let i = 0; i < n && roomFor(s); i++) {
+    const a = heading + (i - (n - 1) / 2) * 6 * DEG;
+    s.shots.push({ id: nextId(s), x, z, vx: Math.sin(a) * RULES.needleSpeed, vz: -Math.cos(a) * RULES.needleSpeed, radius: 0.12, damage, baseDamage: damage, antigen: true, hitIds: [] });
+    fired++;
+  }
+  s.projectilesFired += fired;
+  if (fired) pushEvent(s, 'antigen-needles', { x, z, count: fired });
+  return fired;
+}
 
 /** Per-substep timers: coating re-form, FEVER, AUTOCLAVE, FOAM, INNATE. */
 export function tickKit(s, dt) {
@@ -53,6 +105,12 @@ export function tickKit(s, dt) {
     }
   }
   if (ship.fever > 0) ship.fever = Math.max(0, ship.fever - dt);
+  if (ship.boostShot > 0) ship.boostShot = Math.max(0, ship.boostShot - dt);
+  if (ship.waveCooldown > 0) ship.waveCooldown = Math.max(0, ship.waveCooldown - dt);
+  if (kit.hormesis) {
+    ship.hormesis = ship.hormesis.filter((t) => t > s.clock);
+    ship.hormesisBonus = Math.min(CARD.hormesis.fx.cap, ship.hormesis.length * CARD.hormesis.fx.per);
+  }
   if (ship.innateCooldown > 0) ship.innateCooldown = Math.max(0, ship.innateCooldown - dt);
   if (kit.autoclave && s.phase === 'playing') {
     ship.autoclave = (ship.autoclave || 0) + dt;
@@ -73,10 +131,10 @@ export function tickKit(s, dt) {
   }
 }
 
-/** ENTERIC COATING / LNP SHELL: a hit reaching the core is absorbed if a
- * charge is left. 1.0 s of invulnerability, no vial lost; the absorb voids
- * the boss card's capture and counts as a lost vial for the stage medal.
- * LNP's bubble turns bullets within 3 u into antigen tokens. */
+/** ENTERIC COATING: a hit reaching the core is absorbed if a charge is left
+ * (1, or 2 with a second copy). 1.0 s of invulnerability, no vial lost; the
+ * absorb voids the boss card's capture and counts as a lost vial for the
+ * stage medal. */
 export function absorbHit(s, cause) {
   const ship = s.ship,
     kit = s.kit;
@@ -86,12 +144,7 @@ export function absorbHit(s, cause) {
   ship.invulnerable = Math.max(ship.invulnerable, CARD['enteric-coating'].fx.invuln);
   s.sector.absorbs = (s.sector.absorbs || 0) + 1;
   voidCapture(s);
-  let cleared = 0;
-  if (kit.lnp) {
-    const r = CARD['lnp-shell'].fx.pop;
-    cleared = cancelBullets(s, { reason: 'lnp', filter: (b) => bulletGap(b, ship.x, ship.z) < r });
-  }
-  pushEvent(s, 'absorb', { x: ship.x, z: ship.z, left: ship.coat, by: cause?.by, lnp: kit.lnp, cleared });
+  pushEvent(s, 'absorb', { x: ship.x, z: ship.z, left: ship.coat, by: cause?.by });
   return true;
 }
 
@@ -117,8 +170,8 @@ export function updateJet(s, dt, { damageEnemy, awardKill }) {
   ship.jetClock = 0;
   const rect = jetRect(ship.x, ship.z);
   const booster = ship.powerups.booster > 0 ? RULES.boosterMultiplier : 1;
-  const perNeedle = needleMul(kit, { focus: true, ringBusy: ship.ringBusy, fever: ship.fever > 0 }) * booster;
-  const dps = kit.fireRate * jetNeedles(kit) * perNeedle * CARD['jet-injector'].fx.jet;
+  const perNeedle = needleMul(kit, needleState(s)) * booster;
+  const dps = fireRateNow(kit, ship.boostShot > 0) * needlesPerVolley(kit, true) * perNeedle * CARD['jet-injector'].fx.jet;
   for (const e of s.enemies) {
     if (!tangible(s, e)) continue;
     if (!jetHits(rect, e.x, e.z, e.radius, e.half || 0)) continue;
@@ -133,8 +186,6 @@ export function updateJet(s, dt, { damageEnemy, awardKill }) {
   }
   pushEvent(s, 'jet', { x: ship.x, z: rect.toZ });
 }
-/** The focused needle count the jet replaces (and scales with). */
-const jetNeedles = (kit) => Math.min(CAPS.focusNeedles, (kit.power >= 4 ? 5 : kit.power >= 3 ? 4 : 3) + (kit.twin ? 1 : 0));
 
 /** SPLIT TIP: a needle that kills a virus splits into 2 needles at +/-25
  * degrees from its heading, at the needle's damage. Split needles never
@@ -164,7 +215,7 @@ export function innateShot(s) {
   if (a === null) return false;
   ship.innateCooldown = 1 / fx.cap;
   const booster = ship.powerups.booster > 0 ? RULES.boosterMultiplier : 1;
-  const damage = fx.mult * needleMul(kit, { focus: ship.focus, ringBusy: ship.ringBusy, fever: ship.fever > 0 }) * booster;
+  const damage = fx.mult * needleMul(kit, needleState(s)) * booster;
   s.shots.push({ id: nextId(s), x: ship.x, z: ship.z - INJECT.reach, vx: Math.sin(a) * RULES.needleSpeed, vz: -Math.cos(a) * RULES.needleSpeed, radius: 0.12, damage, innate: true });
   s.projectilesFired++;
   return true;

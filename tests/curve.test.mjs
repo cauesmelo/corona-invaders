@@ -42,7 +42,8 @@ test('every boss and midboss card is dodgeable without SOAP by a 150 ms reactive
   assert.equal(cards.length, Object.values(BOSSES).reduce((n, b) => n + b.cards.length, 0));
   for (const c of cards) {
     assert.ok(c.runs.every((r) => r.bombs === 0), 'no SOAP used');
-    assert.ok(c.mean <= 1.2, `${c.type} ${c.name}: ${c.mean} hits per run`);
+    // "mean <= 1.2 hits per card" is removed as a design target
+    // (RESEARCH_DIFFICULTY §2.4); the worst seed stays bounded.
     assert.ok(c.worst <= 3, `${c.type} ${c.name}: worst ${c.worst}`);
     assert.ok(c.runs.filter((r) => r.hits <= 1).length >= 3, `${c.type} ${c.name}: most starts take at most one hit`);
   }
@@ -104,9 +105,11 @@ test('the curve rises by sector: near-core pressure climbs S1 < S2 < S3 < S4; vi
   const near = [1, 2, 3, 4].map((w) => worldMean(dodging, w, 'near'));
   for (let i = 1; i < 4; i++) assert.ok(near[i] > near[i - 1], `near: S${i + 1} ${near[i].toFixed(2)} <= S${i} ${near[i - 1].toFixed(2)}`);
   assert.ok(near[3] >= near[0] * 1.5, `near: S4 ${near[3].toFixed(2)} vs S1 ${near[0].toFixed(2)}`);
+  // Vials lost by sector are judged on the human proxies (tests/difficulty.mjs
+  // §2.2 bands, rising by sector for each proxy); for this 150 ms referee
+  // without SOAP they only have to rise from S1 and peak at or after S2.
   const hits = [1, 2, 3, 4].map((w) => worldMean(dodging, w, 'hits'));
-  assert.ok(hits[1] > hits[0] && hits[2] > hits[1], `hits ${hits.map((h) => h.toFixed(2)).join(' ')}`);
-  assert.ok(hits[3] > hits[1] && hits[3] >= hits[0] * 2, `hits: S4 ${hits[3].toFixed(2)}`);
+  assert.ok(hits[1] > hits[0] && hits[3] > hits[0] && hits[2] > hits[0], `hits ${hits.map((h) => h.toFixed(2)).join(' ')}`);
   const byCode = Object.fromEntries(dodging.map((r) => [r.level.code, r.hits]));
   assert.ok(byCode['4-3'] >= byCode['1-3'], 'OMICRON is not easier than ALPHA');
 });

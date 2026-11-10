@@ -30,8 +30,8 @@ import { sweptHit, bulletGap, needleSegment, pointSegDist2, segSegDist2, beamHit
 // Adjuvants (RESEARCH_CARDS.md): the pure draft and modifier set, and the
 // behaviours that need the board. With `drafts: false` (the default for
 // fixtures) s.kit equals the base rules and every hook below is inert.
-import { kitOf, createRun, openDraft, pick, resample, discard, bossCleared, reviveRun, expectedPotency, needleMul, abMul, needlesPerVolley, CARD } from './cards.mjs';
-import { tickKit, absorbHit, updateJet, splitNeedle, innateShot, dropAliquot, aimUp, roomFor } from './syringe-kit.mjs';
+import { kitOf, createRun, openDraft, pick, resample, discard, bossCleared, reviveRun, expectedPotency, needleMul, abMul, needlesPerVolley, antibodiesOf, fireRateNow, CARD } from './cards.mjs';
+import { tickKit, absorbHit, updateJet, splitNeedle, innateShot, dropAliquot, aimUp, roomFor, needleState, antigenNeedles, fcAim } from './syringe-kit.mjs';
 
 /** Enemy collider: a circle, or a capsule along x for elongated bodies
  * (RNA WORM, BUDDER). */
@@ -55,8 +55,15 @@ function setPower(ship, level) {
  * syringe: no deck, damage x the stage's expected potency (RESEARCH_CARDS 2.6). */
 export function refreshKit(s) {
   const scale = s.drafts && !s.run ? expectedPotency(s.wave, STAGE_COUNT) : 1;
-  s.kit = kitOf(s.run?.deck ?? [], { power: s.ship?.power ?? 1, difficulty: s.difficulty, titer: s.run?.titer ?? 0, stage: s.wave, scale });
+  s.kit = kitOf(s.run?.deck ?? [], { power: s.ship?.power ?? 1, difficulty: s.difficulty, titer: s.run?.titer ?? 0, stage: s.wave, clean: cleanSamples(s), scale });
   return s.kit;
+}
+/** AFFINITY MATURATION: samples cleared without losing a vial (an absorb
+ * counts as lost, as for the medal) since the stage it was taken after. */
+function cleanSamples(s) {
+  const aff = s.run?.deck.find((d) => d.id === 'affinity-maturation');
+  if (!aff) return 0;
+  return Object.values(s.medals || {}).filter((r) => r.stage > aff.at && r.vialsLost === 0 && !r.absorbs).length;
 }
 function freshShip(s, power = 1) {
   return {
@@ -86,6 +93,18 @@ function freshShip(s, power = 1) {
     innateCooldown: 0,
     ringBusy: false,
     jetOn: false,
+    // Dynamic adjuvant state: STEADY HAND's focus hold, BOOSTER SHOT's
+    // timer, MASS VACCINATION's cure log, HORMESIS stacks (expiry times),
+    // STREAMLINE's run in one direction, FC RECEPTOR's last needle target.
+    focusHeld: 0,
+    boostShot: 0,
+    cureLog: [],
+    waveCooldown: 0,
+    hormesis: [],
+    hormesisBonus: 0,
+    streamTime: 0,
+    streamDir: 0,
+    lastHit: null,
   };
 }
 
@@ -115,6 +134,8 @@ function setupSector(s, stage, { card = null } = {}) {
     twist: { kind: level.twist, scale: 1, drift: 0, dir: 1, warn: false, stage: 'calm' },
     twistOverride: null,
     bulletCap: level.maxBullets ?? 60,
+    // Stage pressure (levels.mjs): bullet count and aimed speed factors.
+    pressure: { count: level.pressure?.count ?? 1, aimed: level.pressure?.aimed ?? 1, every: level.pressure?.every ?? 1 },
     stageBullets: 0,
     // 1-1 opens with 3 s of silence (RESEARCH_V1.md 2.2).
     choirClock: level.silence ?? 1.6,
@@ -531,7 +552,7 @@ function lose(s, cause) {
   pushEvent(s, 'lost', { by: cause.by, credit, creditsLeft: creditsLeft(s), runOver: s.runOver, code: getLevel(s.wave).code, at: s.waveElapsed });
 }
 /** FINAL REPORT (RESEARCH_V1.md 5.3): score, the 1CC stamp, credits used,
- * variants sequenced (NEUTRALIZED cards of the four variant bosses, x/19),
+ * variants sequenced (NEUTRALIZED cards of the four variant bosses, x/20),
  * medals and whether the specimen was contained. The draft adds the build. */
 export function finalReport(s, contained) {
   const variantCards = LEVELS.filter((l) => l.kind === 'boss').reduce((n, l) => n + BOSSES[l.boss].cards.length, 0);
@@ -588,13 +609,25 @@ function moveShip(s, input, dt) {
   const focus = !!input.focus;
   if (focus !== ship.focus) pushEvent(s, 'focus', { on: focus });
   ship.focus = focus;
-  // Instant: the speed of the step is the speed of the held keys (core.mjs).
-  // Adjuvants scale the normal speed only (10.5-12.9 u/s); focus stays 5.0.
-  ship.speed = focus ? s.kit.focusSpeed : s.kit.speed;
+  // STEADY HAND locks after 0.6 s of continuous focus (released on release).
+  ship.focusHeld = focus ? (ship.focusHeld || 0) + dt : 0;
   let ax = input.axisX ?? input.axis ?? 0,
     az = input.axisZ ?? 0;
   ax = clamp(Number(ax) || 0, -1, 1);
   az = clamp(Number(az) || 0, -1, 1);
+  // Instant: the speed of the step is the speed of the held keys (core.mjs).
+  // Focus stays 5.0. STREAMLINE (keyboard only): 0.4 s held one horizontal
+  // way gives +10% (+15% with the CURRENT), capped at 12.9 u/s; turning or
+  // stopping resets it, so a reversal is never faster than the base speed.
+  const dir = Math.abs(ax) > 0.2 ? Math.sign(ax) : 0;
+  ship.streamTime = dir && dir === ship.streamDir ? (ship.streamTime || 0) + dt : 0;
+  ship.streamDir = dir;
+  let speed = s.kit.speed;
+  if (s.kit.streamline && !focus && dir && ship.streamTime >= CARD.streamline.fx.hold) {
+    const withFlow = s.twist?.drift && Math.sign(s.twist.drift) === dir;
+    speed = Math.min(12.9, speed * (1 + (withFlow ? CARD.streamline.fx.current : CARD.streamline.fx.speed)));
+  }
+  ship.speed = focus ? s.kit.focusSpeed : speed;
   const len = Math.hypot(ax, az);
   // Which device moved the syringe this sample (the draft hides speed cards
   // from touch players: a 1:1 drag makes speed meaningless).
@@ -628,7 +661,9 @@ function moveShip(s, input, dt) {
 
 /** Antibody option offsets (u from the core). They tuck in while focused. */
 export function optionOffsets(power, focus) {
-  if (power < 2) return [];
+  // The antibodies are the L3 milestone (RESEARCH_DIFFICULTY 3.2): 2 at L3,
+  // 4 at L4 (CLONAL EXPANSION passes its own level, cards.mjs abPower).
+  if (power < 3) return [];
   // At least 0.3 u clear of the 0.28 u barrel; unfocused they sit outside the
   // 1.0 u graze ring, focused they tuck in (RESEARCH_V1.md 4.2).
   const near = focus ? [[-0.75, 0.35], [0.75, 0.35]] : [[-1.15, 0.45], [1.15, 0.45]];
@@ -647,7 +682,8 @@ function autoFire(s) {
   const booster = ship.powerups.booster > 0 ? RULES.boosterMultiplier : 1;
   // Needle damage: 1 x booster on the base kit; adjuvants add their buckets
   // (capped at +70%), then the titer limit (cards.mjs needleMul).
-  const damage = kit.active ? booster * needleMul(kit, { focus: ship.focus, ringBusy: ship.ringBusy, fever: ship.fever > 0 }) : booster;
+  const locked = !!(kit.steady && ship.focus && ship.focusHeld >= CARD['steady-hand'].fx.hold);
+  const damage = kit.active ? booster * needleMul(kit, needleState(s)) : booster;
   // Needles leave the drawn needle tip.
   const muzzle = ship.z - INJECT.reach;
   const pierce = kit.pierce || ship.fever > 0 ? 1 : 0;
@@ -659,21 +695,27 @@ function autoFire(s) {
     return true;
   };
   if (ship.fireCooldown <= 0) {
-    const interval = 1 / kit.fireRate;
+    // BOOSTER SHOT: +2 volleys/s for 2 s after a cure, never above 8/s.
+    const interval = 1 / fireRateNow(kit, ship.boostShot > 0);
     ship.fireCooldown += interval;
     if (ship.fireCooldown <= 0) ship.fireCooldown = interval;
     let n = 0;
     if (ship.focus && kit.jet) {
       // JET INJECTOR: the focused needles become the jet (updateJet).
     } else if (ship.focus) {
-      const count = needlesPerVolley(kit, true);
-      for (let i = 0; i < count; i++) push(ship.x + (i - (count - 1) / 2) * RULES.needleSpacing, muzzle, 0);
+      // Parallel needles 0.25 u apart; STEADY HAND's lock pulls them into
+      // one line (0.08 u) so the whole stream lands on one target.
+      const count = needlesPerVolley(kit, true),
+        gap = locked ? CARD['steady-hand'].fx.spacing : RULES.needleSpacing;
+      for (let i = 0; i < count; i++) push(ship.x + (i - (count - 1) / 2) * gap, muzzle, 0);
       n = count;
     } else {
-      // SPRAY at RULES.sprayAngle steps; TWIN BARREL adds the next step (3->5, 5->7).
-      const count = needlesPerVolley(kit, false),
-        half = (count - 1) / 2;
-      for (let k = -half; k <= half; k++) push(ship.x, muzzle, k * RULES.sprayAngle);
+      // SPRAY at RULES.sprayAngle steps: an odd count includes the axis
+      // (0, +/-1, +/-2 steps), an even count straddles it (+/-1, +/-2 ...),
+      // so L2's pair sits at +/-4.25 degrees. TWIN BARREL adds one needle.
+      const count = needlesPerVolley(kit, false);
+      const steps = count % 2 ? Array.from({ length: count }, (_, i) => i - (count - 1) / 2) : Array.from({ length: count }, (_, i) => (i < count / 2 ? -(count / 2 - i) : i - count / 2 + 1));
+      for (const k of steps) push(ship.x, muzzle, k * RULES.sprayAngle);
       n = count;
     }
     s.shotsFired++;
@@ -681,7 +723,7 @@ function autoFire(s) {
     pushEvent(s, 'shot', { x: ship.x, z: muzzle, focus: ship.focus, jet: ship.focus && kit.jet });
   }
   const abPower = kit.abPower ?? ship.power;
-  if (abPower >= 2 && ship.antibodyCooldown <= 0) {
+  if (antibodiesOf(kit) > 0 && ship.antibodyCooldown <= 0) {
     ship.antibodyCooldown = 1 / kit.abRate;
     const offsets = optionOffsets(abPower, ship.focus);
     const abDamage = kit.active ? booster * abMul(kit) : damage;
@@ -694,7 +736,8 @@ function autoFire(s) {
       // every needle on one target; unfocused they splay slightly outward.
       // HERD IMMUNITY instead aims each at the nearest virus within 9 u,
       // clamped to +/-60 degrees of straight up the board.
-      const aimed = kit.herd ? aimUp(s, x, z, herd.aim, herd.arc) : null;
+      // FC RECEPTOR first follows the last virus the needles hit.
+      const aimed = (kit.fc ? fcAim(s, x, z) : null) ?? (kit.herd ? aimUp(s, x, z, herd.aim, herd.arc) : null);
       push(x, z, aimed ?? (ship.focus ? -Math.atan2(ox, 9) : Math.sign(ox) * 0.05), abDamage, kit.active ? { ab: true, pierce: 0 } : null);
     }
     s.projectilesFired += offsets.length;
@@ -767,14 +810,16 @@ function updateAntigens(s, dt) {
     const dx = ship.x - a.x,
       dz = ship.z - a.z,
       d = Math.hypot(dx, dz);
-    const v = Math.min(d, (6 + a.age * 30) * dt);
+    // MICELLE pulls the SOAP's own tokens in 3x faster.
+    const pull = s.kit.micelle && a.reason === 'soap' ? CARD.micelle.fx.pull : 1;
+    const v = Math.min(d, (6 + a.age * 30) * pull * dt);
     a.x += (dx / (d || 1)) * v;
     a.z += (dz / (d || 1)) * v;
     if (d < 0.6 || a.age > 1.4) {
       a.dead = true;
-      addScore(s, RULES.antigenScore * s.kit.antigenScore * chainMultiplier(s.chain.count));
-      // ANTIGEN HARVEST (when INJECT is cut): each token is 0.25 graze.
-      if (s.kit.antigenProgress) grazeTowardSoap(s, s.kit.antigenProgress);
+      addScore(s, RULES.antigenScore * chainMultiplier(s.chain.count));
+      // MICELLE: each token your SOAP made adds 1 graze toward the next SOAP.
+      if (s.kit.micelle && a.reason === 'soap') grazeTowardSoap(s, CARD.micelle.fx.graze);
     }
   }
   if (s.antigens.some((a) => a.dead)) {
@@ -786,6 +831,7 @@ function updateAntigens(s, dt) {
 // ---- Enemies: damage and kills ---------------------------------------------------
 function killEnemy(s, e, source) {
   e.alive = false;
+  s.sector.lastKill = s.waveElapsed;
   const a = ARCHETYPES[e.kind] || {};
   // A cure by INJECT scores x2 (RESEARCH_V1.md 5.4).
   const { mult, points } = awardKill(s, (a.score ?? 100) * (source === 'inject' ? 2 : 1));
@@ -856,20 +902,26 @@ function updateInject(s) {
   if (target) inject(s, target);
 }
 function inject(s, e) {
-  const ship = s.ship;
+  const ship = s.ship,
+    kit = s.kit;
   const elite = e.kind === 'boss' || ELITES.has(e.kind);
-  // RETRACTABLE NEEDLE reloads 30% faster (kit.injectReload 0.7; 1 otherwise).
-  ship.injectReload = ship.injectReloadMax = (elite ? INJECT.reloadElite : INJECT.reload) * s.kit.injectReload;
+  // Reload 0.5 s (elites 0.8 s); RETRACTABLE NEEDLE 0.3 / 0.5 s (kit).
+  ship.injectReload = ship.injectReloadMax = elite ? kit.injectReloadElite : kit.injectReload;
   s.injections++;
   s.sector.injections++;
   requestHitstop(s, INJECT.hitstop);
   const x = e.x,
     z = e.z,
     kind = e.kind;
+  // PROOFREADING reads the tell before the cure removes it: an emitter of
+  // this virus still in its telegraph (inhale, aim lock) or a MUTATION flash.
+  const tell = !elite && kit.proofreading && (e.mutating > 0 || s.emitters.some((em) => em.ownerId === e.id && em.state === 'tele'));
   // Bullets the victim already fired are cancelled at the source.
   const cancelled = cancelBullets(s, { reason: 'inject', filter: (b) => b.owner === e.id });
-  if (!elite) killEnemy(s, e, 'inject');
-  else {
+  if (!elite) {
+    killEnemy(s, e, 'inject');
+    cured(s, x, z, cancelled, tell);
+  } else {
     const amount = INJECT.eliteDamage * hpRatio(s);
     if (e.kind === 'boss') damageBoss(s, e, amount, 'inject');
     else {
@@ -880,6 +932,53 @@ function inject(s, e) {
     }
   }
   pushEvent(s, 'inject', { x, z, kind, id: e.id, elite, cured: !e.alive, cancelled });
+}
+
+/** A cure's adjuvant effects (the INJECT line, RESEARCH_DIFFICULTY §7.3). */
+function cured(s, x, z, cancelled, tell) {
+  const ship = s.ship,
+    kit = s.kit;
+  if (!kit.active) return;
+  // BOOSTER SHOT: +2 volleys/s for 2 s (refreshes).
+  if (kit.booster) ship.boostShot = CARD['booster-shot'].fx.time;
+  // PROOFREADING: a cure during the tell reloads the plunger at once.
+  if (tell) {
+    ship.injectReload = 0;
+    pushEvent(s, 'proofread', { x, z });
+  }
+  // ANTIGEN MEMORY: the cured body and its cancelled bullets fly as needles.
+  if (kit.antigenMemory) antigenNeedles(s, x, z, Math.min(CARD['antigen-memory'].fx.max, 1 + cancelled));
+  // MASS VACCINATION: 4 cures within 6 s release a 3 u cure wave.
+  if (kit.massVax) {
+    const fx = CARD['mass-vaccination'].fx;
+    ship.cureLog = [...ship.cureLog.filter((t) => s.clock - t < fx.window), s.clock];
+    if (ship.cureLog.length >= fx.cures && ship.waveCooldown <= 0) {
+      ship.cureLog = [];
+      ship.waveCooldown = fx.cooldown;
+      cureWave(s, x, z, fx);
+    }
+  }
+}
+/** MASS VACCINATION's wave: popcorn inside is cured, bullets inside become
+ * antigen, boss parts inside lose 2% of the current card (once each). It
+ * never touches the syringe: it is a disc around the last cure. */
+function cureWave(s, x, z, fx) {
+  const bullets = cancelBullets(s, { reason: 'wave', filter: (b) => bulletGap(b, x, z) < fx.radius });
+  let n = 0;
+  const hitBoss = new Set();
+  for (const e of s.enemies) {
+    if (!e.alive || e.harmless || enemyPointDist(e, x, z) > fx.radius + e.radius) continue;
+    if (e.kind === 'boss') {
+      if (bossIntangible(s, e) || hitBoss.has('boss')) continue;
+      hitBoss.add('boss');
+      const card = s.boss?.cards[s.boss.card];
+      if (card?.hp) damageBoss(s, e, card.hp * fx.boss, 'wave');
+    } else if (!ELITES.has(e.kind)) {
+      killEnemy(s, e, 'wave');
+      n++;
+    }
+  }
+  pushEvent(s, 'cure-wave', { x, z, radius: fx.radius, cured: n, bullets });
 }
 
 /** Damage that is defined against base HP (cell pops, SOAP) scales with the
@@ -951,6 +1050,8 @@ function updateShots(s, dt) {
       if (d2 > reach * reach) continue;
       done = true;
       const r = damageEnemy(s, e, shot.damage ?? 1, 'shot');
+      // FC RECEPTOR follows the last virus the syringe's own needles hit.
+      if (!shot.ab && !r?.blocked) s.ship.lastHit = e.id;
       if (shot.hitIds) {
         // OPSONIN TAG: antibody needles tag what they hit for 2 s.
         if (shot.ab && s.kit.tag && !r?.blocked) e.taggedUntil = s.waveElapsed + CARD['opsonin-tag'].fx.tagTime;
@@ -1038,17 +1139,25 @@ function updateHazards(s) {
     // Graze: the bullet's solid edge entered the drawn 1.0 u ring.
     if (!b.grazed && gap < RULES.grazeRadius) {
       b.grazed = true;
-      s.grazes++;
-      s.sector.grazes++;
-      addScore(s, RULES.grazeScore);
-      grazeTowardSoap(s, 1);
-      pushEvent(s, 'graze', { x: b.x, z: b.z });
-      // FEVER: every 40th graze, 5 s of +20% and pierce.
-      if (s.kit.fever && ++ship.feverCount >= CARD.fever.fx.every) {
-        ship.feverCount = 0;
-        ship.fever = CARD.fever.fx.time;
-        pushEvent(s, 'fever', { x: ship.x, z: ship.z });
+      // TIDAL VOLUME: a bullet moving faster than 6 u/s on screen (BREATH's
+      // exhale included) counts as 2 grazes.
+      const fast = s.kit.tidal && Math.hypot(b.vx + (s.twist?.drift || 0), b.vz) * (s.twist?.scale ?? 1) > CARD['tidal-volume'].fx.speed;
+      const count = fast ? CARD['tidal-volume'].fx.count : 1;
+      for (let g = 0; g < count; g++) {
+        s.grazes++;
+        s.sector.grazes++;
+        addScore(s, RULES.grazeScore);
+        grazeTowardSoap(s, 1);
+        // FEVER: every 40th graze, 5 s of +20% and pierce.
+        if (s.kit.fever && ++ship.feverCount >= CARD.fever.fx.every) {
+          ship.feverCount = 0;
+          ship.fever = CARD.fever.fx.time;
+          pushEvent(s, 'fever', { x: ship.x, z: ship.z });
+        }
+        // HORMESIS: +2% for 2 s per graze (the last 10 stacks are kept).
+        if (s.kit.hormesis) ship.hormesis = [...ship.hormesis.slice(-9), s.clock + CARD.hormesis.fx.time];
       }
+      pushEvent(s, 'graze', { x: b.x, z: b.z, count });
       // INNATE RESPONSE: each graze fires an aimed needle (<= 10/s).
       if (s.kit.innate) innateShot(s);
     }
@@ -1079,22 +1188,26 @@ function updateTelegraphs(s, dt) {
  * exhale x1.3. CURRENT (bloodstream): 0.8 u/s sideways drift that flips every
  * 30 s after a 2 s warning. DELTA's BLOOD RUSH doubles it and flips every 6 s. */
 function updateTwist(s, level) {
-  const kind = s.twistOverride?.kind === 'rush' ? 'rush' : level.twist;
+  // A boss card may borrow a sector's twist (DELTA's BLOOD RUSH; OMICRON's
+  // SNEEZE STORM under BREATH and QUARANTINE under CURRENT), timed from the
+  // card start so its warning always comes first.
+  const over = s.twistOverride;
+  const kind = over?.kind ?? level.twist;
   const tw = s.twist;
   const prev = tw.stage;
   tw.kind = kind;
   tw.scale = 1;
   tw.drift = 0;
   tw.warn = false;
-  const t = s.waveElapsed;
+  const t = over?.from !== undefined ? s.waveElapsed - over.from : s.waveElapsed;
   if (kind === 'breath') {
     const c = t % 6;
     tw.stage = c < 1 ? 'warn' : c < 2.5 ? 'inhale' : c < 4 ? 'exhale' : 'calm';
     tw.warn = c < 1;
     tw.scale = tw.stage === 'inhale' ? 0.6 : tw.stage === 'exhale' ? 1.3 : 1;
   } else if (kind === 'current' || kind === 'rush') {
-    const period = kind === 'rush' ? 6 : 30,
-      speed = kind === 'rush' ? 1.6 : 0.8;
+    const period = over?.period ?? (kind === 'rush' ? 6 : 30),
+      speed = over?.speed ?? (kind === 'rush' ? 1.6 : 0.8);
     const n = Math.floor(t / period),
       c = t - n * period;
     tw.dir = n % 2 ? -1 : 1;
@@ -1106,7 +1219,11 @@ function updateTwist(s, level) {
 }
 
 // ---- Stage scripts -------------------------------------------------------------
-const hostile = (e) => e.alive && e.kind !== 'vesicle';
+// A retreating survivor (an expired `until` cap) no longer holds the script.
+const hostile = (e) => e.alive && e.kind !== 'vesicle' && e.mode !== 'retreat';
+/** Every `until` waits at most its cap (RESEARCH_DIFFICULTY 4.3, F6 nothing
+ * stalls): a weak build can never leave a stage hanging. */
+const UNTIL_CAP = Object.freeze({ thin: 10, clear: 12, calm: 6 });
 function scriptCondition(s, step) {
   if (step.until === 'clear')
     return !s.sector.flights.length && !s.enemies.some(hostile) && (!s.boss || s.boss.state === 'defeated');
@@ -1114,6 +1231,29 @@ function scriptCondition(s, step) {
   // A rest starts once at most 3 bullets are still alive.
   if (step.until === 'calm') return s.enemyShots.length <= 3;
   return true;
+}
+function retreat(s) {
+  let n = 0;
+  for (const e of s.enemies) {
+    if (!e.alive || e.kind === 'boss' || e.kind === 'vesicle' || e.mode === 'retreat' || e.group < 0) continue;
+    e.mode = 'retreat';
+    e.escapable = true;
+    e.harmless = false;
+    s.sector.spawned++;
+    n++;
+  }
+  if (n) pushEvent(s, 'retreat', { count: n });
+}
+/** The Space Invaders march (1-1, RESEARCH_DIFFICULTY 4.3): after `march`
+ * seconds without a kill every formation steps 0.3 u closer (never past its
+ * z = -4 front line), so columns keep passing over a still player and a
+ * single needle always finds work. */
+function march(s, level) {
+  const sec = s.sector;
+  if (s.waveElapsed - Math.max(sec.lastKill ?? 0, sec.lastMarch ?? 0) < level.march) return;
+  sec.lastMarch = s.waveElapsed;
+  for (const g of s.groups) g.march = (g.march || 0) + 0.3;
+  pushEvent(s, 'march', {});
 }
 function noteSpawn(s, kind) {
   if (!s.sector.seen.includes(kind)) s.sector.seen.push(kind);
@@ -1138,7 +1278,16 @@ function runScript(s, level, dt) {
       if (sec.waitT > 0) return;
       sec.waitT = null;
     } else if (st.until) {
-      if (!scriptCondition(s, st)) return;
+      if (!scriptCondition(s, st)) {
+        sec.untilT = (sec.untilT ?? 0) + (waited ? 0 : dt);
+        waited = true;
+        if (sec.untilT < (st.cap ?? UNTIL_CAP[st.until] ?? 20)) return;
+        // The cap expired: the formation's survivors retreat off the back of
+        // the board and count as escaped for R0 (bosses keep their timers).
+        retreat(s);
+        if (!scriptCondition(s, st)) return;
+      }
+      sec.untilT = 0;
     } else if (st.group) {
       spawnGroup(s, st.group, s.groups.length);
       // A new grid sings soon after it settles (1.4 s entry), so a rest never
@@ -1271,7 +1420,9 @@ function finishSector(s, level) {
   s.transition = RULES.transition;
   s.transitionHold = !!level.worldEnd;
   s.holdTime = 0;
-  s.pendingHeal = level.kind === 'boss' ? 'boss' : 'none';
+  // ALPHA and BETA & GAMMA no longer restore a vial (RESEARCH_DIFFICULTY 3.6
+  // lever 5: the casual proxy fully cleared 92%, band 55-75%); DELTA does.
+  s.pendingHeal = level.kind === 'boss' && level.heal !== false ? 'boss' : 'none';
   if (level.worldEnd) pushEvent(s, 'report', { world: level.world, note: WORLDS[level.world - 1].note });
 }
 
@@ -1488,6 +1639,7 @@ function substep(s, dt, input) {
   autoFire(s);
   updateTwist(s, level);
   runScript(s, level, dt);
+  if (level.march) march(s, level);
   updateEnemies(s, level, dt);
   updateBoss(s, level, dt);
   // Midbosses always leave an mRNA supply (a guaranteed power step).

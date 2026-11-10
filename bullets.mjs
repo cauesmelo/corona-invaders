@@ -211,7 +211,8 @@ export function cancelBullets(s, { reason, filter = () => true, tokens = true } 
     if (b.dead) continue;
     if (b.cancelable !== false && filter(b)) {
       n++;
-      if (tokens && s.antigens.length < 240) s.antigens.push({ id: nextId(s), x: b.x, z: b.z, age: 0 });
+      // The reason travels with the token (MICELLE pays for the SOAP's own).
+      if (tokens && s.antigens.length < 240) s.antigens.push({ id: nextId(s), x: b.x, z: b.z, age: 0, reason });
     } else keep.push(b);
   }
   s.enemyShots = keep;

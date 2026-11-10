@@ -78,7 +78,8 @@ test('T12: the 1CC stamp needs the whole run from 1-1 on zero credits spent', ()
   selectStage(t, 7);
   assert.equal(oneCredit(t), false, 'a run from the tray at 3-1 is not a 1CC');
   assert.equal(finalReport(createState({ seed: 3 }), true).oneCredit, true);
-  assert.equal(finalReport(createState({ seed: 3 }), true).variantCards, 19);
+  // 20: OMICRON's 12 s R0 < 1 survival exam joined the 19 (revision six).
+  assert.equal(finalReport(createState({ seed: 3 }), true).variantCards, 20);
 });
 
 test('T12: +1 vial after a boss and none after a sample (the boss FIELD NOTE waits for a press)', () => {

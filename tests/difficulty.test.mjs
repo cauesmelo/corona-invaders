@@ -60,3 +60,25 @@ test('D1s reachability: one seed per proxy clears 1-1 (Normal, drafts on)', () =
     assert.ok(st?.cleared, `${proxy} did not clear 1-1`);
   }
 });
+
+test('D1 fast banded subset: sector 1 on 6 seeds per proxy (the whole bands are npm run test:difficulty)', () => {
+  const seeds = [5000, 5101, 5202, 5303, 5404, 5505];
+  const s1 = (proxy) =>
+    seeds.map((seed) => {
+      const r = playHumanRun({ proxy, seed, upTo: 3 });
+      const st = r.stages.filter((x) => x.stage <= 3);
+      return { cleared: !!st.find((x) => x.stage === 3)?.cleared, vials: st.reduce((n, x) => n + x.vialsLost, 0) };
+    });
+  const mean = (rs) => rs.reduce((n, r) => n + r.vials, 0) / rs.length;
+  const ft = s1('firstTimer'),
+    ca = s1('casual'),
+    ex = s1('expert');
+  // The start bites a novice but is learnable (§2.2: >= 70% clear, 1.5-4 vials).
+  assert.ok(ft.filter((r) => r.cleared).length >= 3, `first-timer cleared S1 ${ft.filter((r) => r.cleared).length}/6`);
+  assert.ok(mean(ft) >= 1 && mean(ft) <= 6, `first-timer S1 vials ${mean(ft).toFixed(2)}`);
+  assert.ok(ca.every((r) => r.cleared) && mean(ca) <= 1.2, `casual S1 vials ${mean(ca).toFixed(2)}`);
+  assert.ok(ex.every((r) => r.cleared) && mean(ex) <= 0.6, `expert S1 vials ${mean(ex).toFixed(2)}`);
+  // Casual and expert both lose almost nothing in S1 (bands 0.2-1.0 and
+  // 0-0.3); 6 seeds cannot order them, so only the novice gap is asserted.
+  assert.ok(mean(ft) > mean(ca) + 0.5 && mean(ft) > mean(ex) + 0.5, 'the first-timer loses clearly more');
+});

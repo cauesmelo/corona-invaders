@@ -40,22 +40,27 @@ export const RULES = Object.freeze({
   pointerSpeed: 11.5, // mouse: follow the cursor's board point at normal speed
   dragSpeed: 30, // touch: finger travel maps 1:1, capped at 30 u/s
   bulletY: 0.55, // every bullet, the hitbox dot and collision share one plane
-  // Auto-fire: 8 volleys/s. Thin needles keep the stream calm (the user asked
-  // for a lower fire rate earlier, so the player never floods the screen).
-  fireInterval: 0.125,
+  // Auto-fire: 6 volleys/s (RESEARCH_DIFFICULTY.md 3.1). The owner found the
+  // old start (3 needles at 8/s, 24 needles/s, 12-15 on screen) frantic; one
+  // needle at 6/s keeps about 3 on screen in 1-1 and makes aiming matter
+  // from the first second. Adjuvants never push it above 8/s (cards.mjs).
+  fireInterval: 1 / 6,
   needleSpeed: 34,
-  // SPRAY step: 4.25 degrees. Power 1-2 fire 3 needles (+/-4.25), power 3+
-  // fire 5 (+/-8.5 degrees: 3.1 u of coverage at 10 u for clearing popcorn,
-  // RESEARCH_V1.md 3.8). The +/-4.25 pair still lands on a boss 17.6 u away
-  // (1.31 u off the axis, inside r >= 1.45); a +/-9 degree pair at power 1
-  // missed bosses and cards ended on the timer (playtest).
+  // The mRNA ladder (cards.mjs focusCount / sprayCount / abCount): L1 one
+  // straight needle, L2 two (focus 0.25 u apart; spray +/-4.25 degrees, which
+  // still lands on a boss 17.6 u away: 1.31 u off the axis, inside r >= 1.45),
+  // L3 three (0, +/-4.25) plus 2 antibodies, L4 four in focus and five in
+  // spray (+/-8.5 degrees: 3.1 u of coverage at 10 u for popcorn) plus 4.
   sprayAngle: (4.25 * Math.PI) / 180,
   needleSpacing: 0.25,
-  antibodyInterval: 0.25, // each antibody option fires 4 needles/s
+  antibodyInterval: 1 / 3, // each antibody option fires 3 needles/s
   maxPower: 4,
   // SOAP burst (the bomb). Soap really breaks the lipid envelope of a
   // coronavirus, so the bomb is a soap bubble ring.
-  bombsPerVial: 2,
+  // SOAP restored per lost vial and at stage start on Normal: 1 (was 2;
+  // RESEARCH_DIFFICULTY 3.6 lever 4, pulled because the expert proxy
+  // one-credit-cleared 83% of runs, band 45-70%). Easy refills 3.
+  bombsPerVial: 1,
   maxBombs: 5,
   bombRadius: 15,
   bombGrow: 0.6,
@@ -97,13 +102,24 @@ export const RULES = Object.freeze({
   substep: 1 / 120,
   maxStep: 2,
   formationFrontZ: -4,
-  // Bosses: card HP = TTK x the effective DPS of the power the campaign
-  // guarantees at that point (24 at power 1-2, 30 at 3, 42 at 4; brief 6-7).
-  referenceDps: 24,
-  powerDps: Object.freeze([24, 24, 30, 42]),
-  // Playtest: cards still ran 2-3.5 min per boss at realistic DPS. Card HP
-  // is TTK x DPS x 0.7, so a real player ends cards before the timeout.
-  cardHpScale: 0.7,
+  // Focused DPS of the mRNA levels with every needle hitting: 6 / 12 / 24 /
+  // 36 (one to four needles at 6/s, plus 2 or 4 antibodies at 3/s).
+  powerDps: Object.freeze([6, 12, 24, 36]),
+  // Enemy toughness is authored, never read from the deck (RESEARCH_DIFFICULTY
+  // 3.5): popcorn HP (and SOAP / burst / INJECT damage defined against it) is
+  // base HP x the sector factor. It grows 2.4x over the run while median
+  // power grows about 9x, so a build is felt.
+  popcornHp: Object.freeze([1, 1.4, 1.9, 2.4]),
+  // Boss and midboss card HP = TTK x the median focused DPS at that point x
+  // the sector's card uptime u (the share of time a real player's needles
+  // land on a moving boss while dodging). The low S1 value prices a
+  // novice's single-needle aim; the median deck ends cards at about TTK.
+  // Measured with the human proxies (tests/difficulty.mjs, 2026-11-10): at
+  // the brief's 0.45 / 0.60 / 0.65 / 0.65 the casual and expert timed out
+  // S2-S4 cards at 1.2-1.4 x TTK having dealt 80-90%, an uptime of about
+  // 0.45-0.5 (deaths cost a power level, dodging costs aim).
+  cardUptime: Object.freeze([0.42, 0.5, 0.45, 0.45]),
+  ttkScale: Object.freeze([1, 1, 0.85, 0.85]),
   phaseTimeout: 30,
   cardTimeout: 40,
   cardIntro: 1.5,

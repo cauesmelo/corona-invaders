@@ -83,17 +83,26 @@ test('the syringe moves in a 2D box: x within +/-8.9, z within -3..12', () => {
   assert.ok(Math.hypot(s.ship.x - RULES.moveMinX, s.ship.z - 12) <= 11.5 * 0.1 + 1e-6);
 });
 
-test('auto-fire: 8 volleys/s; SPRAY fans 3 needles at +/-4 degrees, NEEDLE fires 3 parallel', () => {
+test('D2 auto-fire: 6 volleys/s; L1 fires one straight needle in spray and focus; L2 a pair (+/-4.25 deg spray, 0.25 u focus)', () => {
   let s = quiet();
   update(s, 1);
-  assert.ok(s.shotsFired >= 8 && s.shotsFired <= 9, String(s.shotsFired));
+  assert.ok(s.shotsFired >= 6 && s.shotsFired <= 7, String(s.shotsFired));
   s = quiet();
   update(s, 1 / 120);
-  const xs = s.shots.map((n) => Math.atan2(n.vx, -n.vz));
-  assert.deepEqual(xs.map((a) => Math.round((a * 180) / Math.PI)).sort((a, b) => a - b), [-4, 0, 4]);
+  assert.equal(s.shots.length, 1);
+  assert.equal(s.shots[0].vx, 0, 'straight ahead');
   s = quiet();
   update(s, 1 / 120, { focus: true });
-  assert.equal(s.shots.length, 3);
+  assert.equal(s.shots.length, 1);
+  s = quiet();
+  collectPickup(s, { kind: 'mrna', x: 0, z: 0 });
+  update(s, 1 / 120);
+  const xs = s.shots.map((n) => Math.atan2(n.vx, -n.vz));
+  assert.deepEqual(xs.map((a) => +((a * 180) / Math.PI).toFixed(2)).sort((a, b) => a - b), [-4.25, 4.25]);
+  s.shots = [];
+  s.ship.fireCooldown = 0;
+  update(s, 1 / 120, { focus: true });
+  assert.equal(s.shots.length, 2);
   assert.ok(s.shots.every((n) => n.vx === 0));
   const gaps = s.shots.map((n) => n.x).sort((a, b) => a - b);
   assert.ok(Math.abs(gaps[1] - gaps[0] - 0.25) < 1e-9);
@@ -104,18 +113,22 @@ test('power levels: mRNA adds needles and antibody options; options tuck in whil
   collectPickup(s, { kind: 'mrna', x: 0, z: 0 });
   assert.equal(s.ship.power, 2, 'one strand: level 2');
   update(s, 1 / 120);
-  assert.equal(s.shots.length, 3 + 2, 'spray + two antibodies');
+  assert.equal(s.shots.length, 2, 'L2: two needles, no antibodies yet');
   collectPickup(s, { kind: 'mrna', x: 0, z: 0 });
   assert.equal(s.ship.power, 2, 'level 3 needs 3 strands');
   collectPickup(s, { kind: 'mrna', x: 0, z: 0 });
   assert.equal(s.ship.power, 3);
+  s.shots = [];
+  s.ship.fireCooldown = s.ship.antibodyCooldown = 0;
+  update(s, 1 / 120);
+  assert.equal(s.shots.length, 3 + 2, 'L3: three needles + two antibodies');
   collectPickup(s, { kind: 'mrna', x: 0, z: 0 });
   collectPickup(s, { kind: 'mrna', x: 0, z: 0 });
   assert.equal(s.ship.power, 4);
   s.shots = [];
   s.ship.fireCooldown = s.ship.antibodyCooldown = 0;
   update(s, 1 / 120, { focus: true });
-  assert.equal(s.shots.length, 5 + 4);
+  assert.equal(s.shots.length, 4 + 4, 'L4: four focused needles + four antibodies');
   const option = s.shots.filter((n) => Math.abs(n.x - s.ship.x) > 0.55).map((n) => Math.abs(n.x - s.ship.x));
   assert.ok(Math.max(...option) <= 1.0001, 'focused antibodies tuck within 1 u');
 });
@@ -168,7 +181,7 @@ test('death: a vial and a power level are lost (caught back within 4 s), every b
   assert.equal(s.health, 2);
   assert.equal(s.ship.power, 2);
   assert.equal(s.enemyShots.length, 0);
-  assert.equal(s.ship.bombs, 2, 'SOAP stock refills to 2 per vial');
+  assert.equal(s.ship.bombs, 1, 'SOAP stock refills to 1 per vial on Normal (lever 4)');
   const strand = s.pickups.find((p) => p.kind === 'mrna');
   assert.ok(strand && strand.life === RULES.strandTime);
   assert.ok(s.ship.respawn > 0 && s.ship.respawn <= RULES.respawnTime);

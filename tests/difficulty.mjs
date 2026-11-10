@@ -44,6 +44,17 @@ export function summarize(runs) {
       attempts: mean(reach.map((st) => st.attempts)),
       time: mean(reach.filter((st) => st.cleared).map((st) => st.time)),
       forced: reach.reduce((a, st) => a + st.forced, 0),
+      cards: reach.reduce((acc, st) => {
+        for (const [k, c] of Object.entries(st.cards || {})) {
+          const a = (acc[k] ||= { n: 0, cleared: 0, timeSum: 0, frac: 0, dealt: 0, ttk: c.ttk });
+          a.dealt += c.dealt || 0;
+          a.n += c.n;
+          a.cleared += c.cleared;
+          a.timeSum += c.timeSum;
+          a.frac += c.frac;
+        }
+        return acc;
+      }, {}),
       sources: reach.reduce((acc, st) => {
         for (const [k, v] of Object.entries(st.sources)) acc[k] = (acc[k] || 0) + v;
         return acc;
@@ -126,7 +137,10 @@ export function report(summaries) {
     lines.push(`  hits/attempt: ${S.stage.map((x) => `${x.code} ${f(x.hits)}`).join('  ')}`);
     lines.push(`  attempts: ${S.stage.map((x) => `${x.code} ${f(x.attempts)}`).join('  ')}`);
     lines.push(`  clear time (s): ${S.stage.map((x) => `${x.code} ${f(x.time, 0)}`).join('  ')}`);
-    const src = S.stage.map((x) => `${x.code} ${Object.entries(x.sources).sort((a, b) => b[1] - a[1]).slice(0, 2).map(([k, v]) => `${k}:${v}`).join(',')}`);
+    const src = S.stage.map((x) => `${x.code} ${Object.entries(x.sources).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([k, v]) => `${k}:${v}`).join(',')}`);
+    if (process.env.CARDS === '1')
+      for (const x of S.stage)
+        for (const [k, c] of Object.entries(x.cards)) lines.push(`    card ${x.code} ${k.padEnd(16)} n ${c.n} cleared ${f((c.cleared / c.n) * 100, 0)}% time ${f(c.timeSum / c.n, 1)} s${c.ttk ? ` = ${f(c.frac / c.n)} TTK, dealt ${f((c.dealt / c.n) * 100, 0)}%` : ''}`);
     lines.push(`  vials by source: ${src.join('  ')}`);
   }
   if (summaries.easy) lines.push(`EASY first-timer (${summaries.easy.n} runs): full ${f(summaries.easy.full * 100, 0)}% · ≤3 continues ${f(summaries.easy.full3 * 100, 0)}% · continues ${f(summaries.easy.continues)} · hits/attempt from S2 ${f(summaries.easy.hitsS2)}`);

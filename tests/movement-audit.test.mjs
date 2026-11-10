@@ -569,9 +569,12 @@ test('D1: focus is a measurable technique: the NEEDLE stream deals more damage o
     for (let i = 0; i < 600; i++) update(s, 1 / 60, { focus });
     return (1e6 - e.hp) / 10;
   };
-  const gains = [1, 2, 4].map((p) => dps(p, true) / dps(p, false));
-  t.diagnostic(`focus damage on one target, power 1 / 2 / 4: x${gains.map((g) => g.toFixed(2)).join(' / x')}`);
-  assert.ok(gains[0] >= 1 - 1e-9 && gains[1] >= 1.3 && gains[2] >= 1.9);
+  // Revision six: L1 is one straight needle either way, and L2's spray pair
+  // (+/-4.25 deg) still lands on a 0.55 u body 8 u out, so focus pays from
+  // L3 on (and always with STEADY HAND's lock).
+  const gains = [1, 2, 3, 4].map((p) => dps(p, true) / dps(p, false));
+  t.diagnostic(`focus damage on one target, power 1 / 2 / 3 / 4: x${gains.map((g) => g.toFixed(2)).join(' / x')}`);
+  assert.ok(Math.abs(gains[0] - 1) < 0.02 && gains[1] >= 1 - 1e-9 && gains[2] >= 1.3 && gains[3] >= 1.9, gains.join(' '));
 });
 test('D2: a player who holds focus while lined up clears boss samples faster, without needing it', (t) => {
   let base = 0,
@@ -582,12 +585,17 @@ test('D2: a player who holds focus while lined up clears boss samples faster, wi
     for (const skilled of [false, true]) {
       const s = running(seed, stage);
       const p = createReactive({ phase: seed % 5, bombs: true });
-      let f = 0;
+      let f = 0,
+        timed = 0;
       for (; f < 60 * 300 && s.phase === 'playing'; f++) {
         const input = p(s, f);
         if (skilled && !input.axisX && !input.axisZ) input.focus = true;
         update(s, 1 / 60, input);
+        // OMICRON's QUARANTINE and R0 < 1 are timer-only: no technique can
+        // shorten them, so their frames are left out of the comparison.
+        if (s.boss && s.boss.state !== 'defeated' && s.boss.cards[s.boss.card]?.type === 'survival') timed++;
       }
+      f -= timed;
       if (s.phase !== 'lost') cleared++;
       if (skilled) expert += f;
       else base += f;

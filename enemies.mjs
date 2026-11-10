@@ -110,14 +110,15 @@ export function slotPosition(s, e) {
   if (!g) return [e.baseX, e.baseZ];
   const t = s.waveElapsed - g.spawnAt;
   const x = e.baseX + Math.sin(t * g.frequency + e.row * 0.35) * g.sway;
-  return [clamp(x, -8.9, 8.9), e.baseZ + Math.min(g.maxDrop, t * g.descent)];
+  // `march`: 1-1's step toward the player after 4 s without a kill.
+  return [clamp(x, -8.9, 8.9), e.baseZ + Math.min(g.maxDrop, t * g.descent + (g.march || 0))];
 }
 function adoptSlot(s, e) {
   const g = s.groups[e.group];
   if (!g) return;
   const t = s.waveElapsed - g.spawnAt;
   e.baseX = e.x - Math.sin(t * g.frequency + e.row * 0.35) * g.sway;
-  e.baseZ = e.z - Math.min(g.maxDrop, t * g.descent);
+  e.baseZ = e.z - Math.min(g.maxDrop, t * g.descent + (g.march || 0));
 }
 
 const pathLengths = new WeakMap();
@@ -501,6 +502,10 @@ export function updateEnemies(s, level, dt) {
       if (k >= 1) e.mode = 'formation';
     } else if (e.kind === 'droplet' && e.mode !== 'formation') {
       updateDroplet(s, e, level, dt);
+    } else if (e.mode === 'retreat') {
+      // An expired `until` cap: the survivor flies off the back (escaped).
+      e.z -= 7 * dt;
+      if (e.z < RULES.back - 1.5) escape(s, e);
     } else if (e.mode === 'formation') {
       [e.x, e.z] = slotPosition(s, e);
       if (e.kind === 'hijacker') updateHijacker(s, e, dt);

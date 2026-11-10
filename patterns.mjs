@@ -420,6 +420,11 @@ export function startPattern(s, preset, { ownerId = null, x = 0, z = -6, params 
   if (!force && !gateAllows(s, preset)) return null;
   const d = diff(s);
   const p = { ...P.defaults, ...upgradeParams(preset, { ...P.defaults, ...params }, tier) };
+  // The stage's pressure lever (levels.mjs `pressure`, set by the model at
+  // stage start): a bullet-count and an aimed-speed factor that scale by
+  // stage only, never by the player's deck (RESEARCH_DIFFICULTY 3.5).
+  const pr = s.pressure || { count: 1, aimed: 1 };
+  const grammar = grammarOf(preset, p);
   const em = {
     id: nextId(s),
     preset,
@@ -435,9 +440,9 @@ export function startPattern(s, preset, { ownerId = null, x = 0, z = -6, params 
     boss,
     tier,
     p,
-    n: scaleCount(p.n ?? 1, d.count, P.parity),
-    countScale: d.count,
-    speedScale: d.speed,
+    n: scaleCount(p.n ?? 1, d.count * pr.count, P.parity),
+    countScale: d.count * pr.count,
+    speedScale: d.speed * (grammar === 'aimed' ? pr.aimed : 1),
     // Telegraph: the preset minimum (or a longer authored one) plus the Easy
     // allowance; boss card starts add their own 1.5 s on top.
     tele: Math.max(LIMITS[preset].tele, p.tele ?? 0) + d.tele + extraTele,
@@ -445,7 +450,7 @@ export function startPattern(s, preset, { ownerId = null, x = 0, z = -6, params 
     timer: 0,
     t: 0,
     emitted: 0,
-    grammar: grammarOf(preset, p),
+    grammar,
     fan: ['sneeze', 'sniffle'].includes(preset) || ((preset === 'cough' || preset === 'replicate') && (p.n ?? 1) > 1 && (p.spread ?? 0) > 0),
   };
   em.timer = em.tele;

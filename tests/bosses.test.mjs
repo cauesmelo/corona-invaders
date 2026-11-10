@@ -4,6 +4,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { RULES, update, bossStatus, LEVELS, entryPower } from '../model.mjs';
 import { BOSSES, damageBoss, cardHp, bossVulnerable, bossIntangible } from '../bosses.mjs';
+import { bossPower } from '../levels.mjs';
 import { cardArena, toFight, HOME, quiet, running } from './helpers.mjs';
 
 const parts = (s, part) => s.enemies.filter((e) => e.alive && e.kind === 'boss' && (!part || e.part === part));
@@ -23,22 +24,27 @@ test('WHO Greek-letter variants only: ALPHA, BETA & GAMMA, DELTA, OMICRON PRIME 
   assert.deepEqual(LEVELS.filter((l) => l.kind === 'boss').map((l) => [l.code, l.boss]), [['1-3', 'alpha'], ['2-3', 'betagamma'], ['3-3', 'delta'], ['4-3', 'omicron']]);
 });
 
-test('card HP = TTK x the guaranteed DPS there (24 at power 1-2, 30 at 3, 42 at 4; x0.85 Easy); timeouts max(25, round(1.6 x TTK))', () => {
-  assert.deepEqual(RULES.powerDps, [24, 24, 30, 42]);
+test('card HP = TTK x the median DPS at the boss (6 / 12 / 24 / 36 by mRNA level) x the sector uptime; S3-S4 TTK x0.85; x0.85 Easy; timeouts max(25, 1.6 / 1.4 x TTK)', () => {
+  assert.deepEqual(RULES.powerDps, [6, 12, 24, 36]);
   for (const [type, def] of Object.entries(BOSSES)) {
     const s = cardArena(type, 0);
     const b = s.boss;
-    const dps = RULES.powerDps[entryPower(HOME[type]) - 1];
+    const level = LEVELS[HOME[type] - 1];
+    const w = level.world;
+    const dps = RULES.powerDps[bossPower(HOME[type]) - 1];
     assert.equal(s.dpsRef, dps);
     def.cards.forEach((c, i) => {
-      assert.equal(b.cards[i].hp, c.type === 'survival' ? 0 : Math.round(c.ttk * dps * RULES.cardHpScale), `${type} ${c.name}`);
-      assert.equal(b.cards[i].timeout, c.type === 'survival' ? c.duration : Math.max(25, Math.round(1.6 * c.ttk)), `${type} ${c.name} timeout`);
+      const ttk = Math.round(c.ttk * RULES.ttkScale[w - 1] * 10) / 10;
+      assert.equal(b.cards[i].hp, c.type === 'survival' ? 0 : Math.round(ttk * dps * RULES.cardUptime[w - 1]), `${type} ${c.name}`);
+      assert.equal(b.cards[i].timeout, c.type === 'survival' ? c.duration : Math.max(25, Math.round((w >= 3 ? 1.4 : 1.6) * ttk)), `${type} ${c.name} timeout`);
     });
     assert.equal(b.maxHp, b.cards.reduce((n, c) => n + c.hp, 0));
     const e = cardArena(type, 0, { difficulty: 'easy' });
-    assert.equal(e.boss.cards[0].hp, cardHp(def.cards[0], 0.85, dps));
+    assert.equal(e.boss.cards[0].hp, Math.round(b.cards[0].ttk * dps * RULES.cardUptime[w - 1] * 0.85));
   }
   assert.deepEqual(BOSSES.alpha.cards.map((c) => c.ttk), [18, 22, 22, 18]);
+  // BIG SNEEZER comes after the 1-2 VESICLE: it is priced at L2.
+  assert.equal(bossPower(HOME.bigsneezer), 2);
 });
 
 test('every card can end by damage: its HP at 75% of the reference DPS fits in 80% of its timeout', () => {
@@ -58,12 +64,13 @@ test('the VIRAL LOAD pool: notches per card, the displayed phase follows the poo
   const s = cardArena('alpha', 0);
   s.boss.practiceCard = null;
   let hud = bossStatus(s);
-  const card = (ttk) => Math.round(ttk * 24 * 0.7);
+  // ALPHA (1-3) is priced at L2: 12 DPS x u 0.42.
+  const card = (ttk) => Math.round(ttk * 12 * RULES.cardUptime[0]);
   const pool = card(18) + card(22) + card(22) + card(18);
-  assert.equal(hud.hp, pool, 'ALPHA: (18 + 22 + 22 + 18) s x 24 x 0.7');
+  assert.equal(hud.hp, pool, 'ALPHA: (18 + 22 + 22 + 18) s x 12 x u');
   assert.equal(hud.phases, 4);
   assert.deepEqual(hud.notches.map((n) => +n.toFixed(4)), [pool - card(18), card(22) + card(18), card(18)].map((n) => +(n / pool).toFixed(4)));
-  s.boss.hp = 500; // a QA fixture may set the pool directly
+  s.boss.hp = card(22) + card(18) - 10; // a QA fixture may set the pool directly
   hud = bossStatus(s);
   assert.equal(hud.phase, 3);
   assert.equal(hud.attack, 'COUGH COUGH', 'the live card is unchanged until the boss acts');

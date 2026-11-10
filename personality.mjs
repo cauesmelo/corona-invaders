@@ -242,7 +242,7 @@ export const BOSS_SCRIPT = Object.freeze({
   omicron: {
     title: 'THE MUTANT KING',
     line: 'NEVER THE SAME VIRUS TWICE.',
-    cards: ['PICK A SPIKE, ANY SPIKE!', 'GESUNDHEIT!', 'WATCH ME CHANGE!', 'STUCK INSIDE? ME TOO!', 'SO MANY SPIKES!', 'R0 GOES UP, UP, UP!'],
+    cards: ['PICK A SPIKE, ANY SPIKE!', 'GESUNDHEIT!', 'WATCH ME CHANGE!', 'STUCK INSIDE? ME TOO!', 'SO MANY SPIKES!', 'R0 GOES UP, UP, UP!', 'ONE LAST COUGH!'],
     gloat: ['HAHAHA! AGAIN!', 'MUTATE THAT, VACCINE!', 'I CHANGED MY MIND!'],
     defeat: 'R0... BELOW... ONE?!',
   },

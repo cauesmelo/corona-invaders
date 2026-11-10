@@ -331,13 +331,14 @@ export function autopilotAvoids(snap, until) {
  * play time and the sources of lost vials. `upTo` stops after that stage
  * (the fast subset in npm test). `forced` replays every hit with the
  * autopilot from 0.5 s earlier (F1). */
-export function playHumanRun({ proxy = 'casual', seed = 1, difficulty = 'normal', drafts = true, policy = null, upTo = STAGE_COUNT, forced = false, maxContinues = 12, frameBudget = 60 * 60 * 60, bombs = true } = {}) {
-  const profile = PROFILES[proxy];
+export function playHumanRun({ proxy = 'casual', seed = 1, difficulty = 'normal', drafts = true, policy = null, upTo = STAGE_COUNT, forced = false, maxContinues = 12, frameBudget = 60 * 60 * 60, bombs = true, tweak = null } = {}) {
+  // `tweak` overrides profile fields for experiments (never in the bands).
+  const profile = tweak ? { ...PROFILES[proxy], ...tweak } : PROFILES[proxy];
   const s = createState({ seed, difficulty, drafts });
   newRun(s, seed);
   const bot = { rng: (seed * 40503 + 7) >>> 0 || 1 };
   const stages = {};
-  const entry = (st) => (stages[st] ||= { stage: st, code: getLevel(st).code, kind: getLevel(st).kind, attempts: 0, cleared: false, vialsLost: 0, coreHits: 0, deathbombs: 0, time: 0, playTime: 0, sources: {}, forced: 0 });
+  const entry = (st) => (stages[st] ||= { stage: st, code: getLevel(st).code, kind: getLevel(st).kind, attempts: 0, cleared: false, vialsLost: 0, coreHits: 0, deathbombs: 0, time: 0, playTime: 0, sources: {}, forced: 0, cards: {} });
   let attempt = 0,
     continues = 0,
     frame = 0,
@@ -381,6 +382,7 @@ export function playHumanRun({ proxy = 'casual', seed = 1, difficulty = 'normal'
     }
     const input = human(s, frame);
     const wave = s.wave;
+    const bossHp = s.boss && s.boss.state !== 'defeated' ? s.boss.hp : null;
     update(s, 1 / 60, input);
     if (s.phase === 'playing') {
       playFrames++;
@@ -395,7 +397,23 @@ export function playHumanRun({ proxy = 'casual', seed = 1, difficulty = 'normal'
           if (snap && !autopilotAvoids(snap, s.waveElapsed + 0.1)) st.forced++;
         }
       }
-      if (ev.type === 'damage') st.sources[ev.by] = (st.sources[ev.by] || 0) + 1;
+      if (ev.type === 'damage') {
+        // Boss vials are booked per card (Slay the Spire-style reporting).
+        const card = s.boss && s.boss.state !== 'defeated' ? s.boss.cards[s.boss.card]?.name : null;
+        const key = card ? `${ev.by}/${card}` : ev.by;
+        st.sources[key] = (st.sources[key] || 0) + 1;
+      }
+      if (ev.type === 'card-end' && s.boss) {
+        const r = s.boss.results.at(-1);
+        const def = s.boss.cards[ev.index];
+        const c = (st.cards[ev.name] ||= { n: 0, cleared: 0, ttk: def?.ttk ?? 0, timeSum: 0, frac: 0, dealt: 0 });
+        c.n++;
+        // Share of the card's HP dealt (1 when cleared; else from the pool).
+        if (def?.hp) c.dealt += ev.reason === 'cleared' ? 1 : Math.max(0, Math.min(1, (def.floor + def.hp - (bossHp ?? def.floor + def.hp)) / def.hp));
+        if (ev.reason === 'cleared') c.cleared++;
+        c.timeSum += r?.time ?? 0;
+        if (def?.ttk) c.frac += (r?.time ?? 0) / def.ttk;
+      }
       if (ev.type === 'bomb' && ev.rescued) st.deathbombs++;
       if (ev.type === 'wave') {
         st.cleared = true;

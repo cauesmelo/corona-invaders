@@ -59,7 +59,9 @@ export const ARCHETYPES = Object.freeze({
   wild: { label: 'WILD TYPE', hp: 3, radius: 0.6, score: 100, attack: { preset: 'cough', params: { n: 1, speed: 5.5 } }, byWorld: { 2: { n: 2, speed: 6.5 }, 3: { n: 2, speed: 7.5 }, 4: { n: 3, speed: 8 } } },
   // Inhales (the crown bristles for 0.8-1.0 s), then sneezes an odd fan whose
   // centre points at you: tap sideways out of it.
-  sneezer: { label: 'SNEEZER', hp: 10, radius: 0.8, score: 300, attack: { preset: 'sneeze', params: { n: 7, spread: 56, speeds: [4, 5], tele: 1 } }, byWorld: { 2: { speeds: [4, 5.5], tele: 0.8 }, 3: { n: 9, speeds: [4, 5.5] }, 4: { n: 9, speeds: [4, 5.5, 7] } } },
+  // Sector 1's fan tops out at 4.6 u/s: novices (the first-timer proxy never
+  // holds focus) lost most of their 1-2 vials to faster second tiers.
+  sneezer: { label: 'SNEEZER', hp: 10, radius: 0.8, score: 300, attack: { preset: 'sneeze', params: { n: 7, spread: 56, speeds: [4, 4.6], tele: 1 } }, byWorld: { 2: { speeds: [4, 5.5], tele: 0.8 }, 3: { n: 9, speeds: [4, 5.5] }, 4: { n: 9, speeds: [4, 5.5, 7] } } },
   // Retired from the v1.0 run (its virions live on in MOTHER CELL's BUDDING).
   budder: { label: 'BUDDER', hp: 8, radius: 0.62, half: 0.28, score: 250, attack: { preset: 'cough', params: { n: 1, speed: 6.5 } }, byWorld: { 3: { n: 2 }, 4: { n: 3, spread: 20 } } },
   // Weaves across the top leaving an RNA bead trail, then an aimed RNA STRAND
@@ -171,17 +173,24 @@ export const LEVELS = Object.freeze(
       introduces: ['mini', 'wild', 'rain', 'inject'],
       intro: { icon: 'wild', text: 'ONLY THE GLOWING DOSE CAN BE HIT. THE NEEDLE CURES.' },
       protocol: 'READ THE LANES. SIDESTEP THE AIMED COUGHS.',
-      choir: { interval: [1.9, 1.3], size: [1, 1] },
+      // The calm start (RESEARCH_DIFFICULTY 4.3): choir cadence x1.2, the
+      // first aimed coughs at 5.0 u/s, and the grid marches 0.3 u after 4 s
+      // without a kill.
+      choir: { interval: [2.28, 1.56], size: [1, 1] },
+      march: 4,
       maxBullets: 25,
       silence: 3,
       script: [
+        tune({ mini: { speed: 5 }, wild: { speed: 5 } }),
         // Introduce (0-15 s): the original game's 4 x 15 grid of 60 mini
         // coronas, 3 s of silence, then RAIN: straight-down droplets, static
         // lanes 1.18 u apart that the formation's sway slides sideways.
         verse('rain'),
         grid(Array(4).fill('mmmmmmmmmmmmmmm'), { spacing: 1.18, rowGap: 1.3, z: -12.6, sway: 0.5, frequency: 0.55, descent: 0.12 }),
         wait(8),
-        until('thin', 24),
+        // One needle at 6/s sweeps the grid in about 12-16 s; after 25 s
+        // the survivors retreat (a cap, never a wall).
+        { ...until('thin', 24), cap: 25 },
         // Develop (about 17-35 s): WILD TYPEs add aimed single coughs (the aim
         // locks at the telegraph); the rain continues, about half and half.
         verse('alternate'),
@@ -196,9 +205,9 @@ export const LEVELS = Object.freeze(
         hint('inject'),
         verse('rain'),
         grid(['m.m.m.m.m.m.m.m'], { spacing: 1.18, z: -10.5 }),
-        fly('lowL', 'wild', 3, { speed: 3.4, interval: 1, fire: null }),
+        fly('lowL', 'wild', 2, { speed: 3.4, interval: 1, fire: null }),
         wait(6),
-        fly('lowR', 'wild', 3, { speed: 3.4, interval: 1, fire: null }),
+        fly('lowR', 'wild', 2, { speed: 3.4, interval: 1, fire: null }),
         wait(6),
         verse('alternate'),
         ...rest(),
@@ -212,7 +221,6 @@ export const LEVELS = Object.freeze(
         surge(4),
         until('thin', 2),
         fly('arcR', 'wild', 4),
-        grid(['.W.W.W.W.'], { z: -12.8, spacing: 2 }),
         until('clear'),
       ],
     },
@@ -225,7 +233,10 @@ export const LEVELS = Object.freeze(
       intro: { icon: 'sneezer', text: 'THE ODD FAN AIMS ITS CENTRE AT YOU. TAP SIDEWAYS.' },
       protocol: 'HOLD SHIFT TO FOCUS INSIDE A LANE.',
       maxBullets: 42,
-      choir: { interval: [1.8, 1.25], size: [1, 2] },
+      // The first quiz, gentler for novices (RESEARCH_DIFFICULTY 4.2-4.4):
+      // choir cadence x1.2 and bullet counts x0.85.
+      choir: { interval: [2.16, 1.5], size: [1, 2] },
+      pressure: { count: 0.85 },
       script: [
         // Introduce: a lone SNEEZER behind a thin WILD TYPE row (raining, a
         // known idea); one slow tier.
@@ -245,11 +256,12 @@ export const LEVELS = Object.freeze(
         grid(['W.W.W.W'], { z: -12.8 }),
         until('thin', 1),
         ...rest(),
-        // Twist: SNEEZERs over dense mini RAIN; the fan's centre lands
-        // between lanes 1.18 u apart, so you focus inside a lane.
-        grid(['N.....N', 'mmmmmmmmmmmmm'], { spacing: 1.18, rowGap: 1.6 }),
+        // Twist: SNEEZERs over mini RAIN; the fan's centre lands between
+        // lanes, so you focus inside a lane. Lanes 2.36 u apart (was 1.18:
+        // the first-timer proxy, who never holds focus, lost 41 vials here).
+        grid(['N.....N', 'm.m.m.m.m.m.m'], { spacing: 1.18, rowGap: 1.6 }),
         wait(5),
-        surge(5),
+        surge(3),
         grid(['...N...', 'm.m.m.m.m.m.m'], { spacing: 1.18, rowGap: 1.4, z: -12.8 }),
         wait(5),
         verse('alternate'),
@@ -266,6 +278,8 @@ export const LEVELS = Object.freeze(
       kind: 'boss',
       boss: 'alpha',
       introduces: ['alpha'],
+      pressure: { count: 0.85 },
+      heal: false,
       intro: { icon: 'boss', text: 'NAMED CARDS. NEUTRALIZE EACH BEFORE ITS TIMER.' },
       protocol: 'NO HIT AND NO SOAP SEQUENCES A CARD.',
     },
@@ -278,7 +292,10 @@ export const LEVELS = Object.freeze(
       intro: { icon: 'breath', text: 'BULLETS SLOW ON THE INHALE AND RUSH ON THE EXHALE.' },
       protocol: 'COMMIT ON THE INHALE.',
       maxBullets: 52,
-      choir: { interval: [1.5, 1.1], size: [2, 3] },
+      // The LUNGS opener sits between 1-2 and ALPHA: a slower choir and aimed
+      // coughs x0.92 (6.0 u/s before the exhale's x1.3).
+      choir: { interval: [2.0, 1.45], size: [2, 3] },
+      pressure: { aimed: 0.92 },
       script: [
         // Introduce: a known grid, slow aimed coughs and rain, two full breaths.
         tune({ wild: { n: 1, speed: 5.5 } }),
@@ -300,9 +317,7 @@ export const LEVELS = Object.freeze(
         // used sparingly).
         grid(['W.W.W.W', '.W.W.W.']),
         { puffs: [{ x: -11, z: -6.5, vx: 1.1 }, { x: 11, z: -8, vx: -1.1 }] },
-        wait(6),
-        grid(['WWWWWWW'], { z: -12.8 }),
-        wait(6),
+        wait(8),
         ...rest(),
         // Test: puffs, SNEEZERs and a grid, with a surge on one exhale.
         verse('alternate'),
@@ -362,6 +377,8 @@ export const LEVELS = Object.freeze(
       kind: 'boss',
       boss: 'betagamma',
       introduces: ['betagamma'],
+      heal: false,
+      pressure: { every: 0.8 },
       intro: { icon: 'boss', text: 'TWINS SHARE ONE LOAD. ONLY THE GLOWING TWIN TAKES DAMAGE.' },
       protocol: 'HIT THE GLOWING NUCLEUS.',
     },
@@ -374,7 +391,10 @@ export const LEVELS = Object.freeze(
       intro: { icon: 'current', text: 'CURRENT CARRIES EVERY BULLET. IT FLIPS ON A WARNING.' },
       protocol: 'DODGE DOWNSTREAM.',
       maxBullets: 80,
-      choir: { interval: [0.95, 0.7], size: [3, 5] },
+      // The opener sits below B&G and DELTA (RESEARCH_DIFFICULTY 4.2): a
+      // slower choir and aimed stacks at 7.0 (x0.93) while the flow is new.
+      choir: { interval: [1.45, 1.05], size: [3, 5] },
+      pressure: { aimed: 0.93 },
       script: [
         // Introduce: rain under the current; the lanes lean and stay readable.
         verse('rain'),
@@ -403,10 +423,9 @@ export const LEVELS = Object.freeze(
         grid(['N.W.W.N', 'WWWWWWW']),
         { puffs: [{ x: 11, z: -7, vx: -1 }] },
         wait(4),
-        fly('swoopL', 'wild', 5),
+        fly('swoopL', 'wild', 4),
         wait(4),
-        fly('swoopR', 'wild', 5),
-        grid(['W.W.W.W'], { z: -12.8 }),
+        fly('swoopR', 'wild', 4),
         until('clear'),
       ],
     },
@@ -416,6 +435,8 @@ export const LEVELS = Object.freeze(
       name: 'SPLASHDOWN',
       kind: 'sample',
       introduces: ['droplet', 'lambda'],
+      // LAMBDA's quiz cadence x0.8.
+      pressure: { every: 0.8 },
       intro: { icon: 'droplet', text: 'DROPLETS DIVE AND SPLASH INTO A RING. SHOOT FIRST.' },
       protocol: 'A DASHED PATH MEANS A DIVE.',
       maxBullets: 80,
@@ -432,9 +453,6 @@ export const LEVELS = Object.freeze(
         { dive: { telegraph: 0.8 } },
         grid(['D.D.D.D', 'WWWWWWW']),
         until('thin', 3),
-        ...rest(),
-        grid(['.W.W.W.', 'D.....D'], { z: -12.8 }),
-        until('thin', 1),
         ...rest(),
         // Twist: a droplet lands upstream; its splash ring drifts onto you.
         grid(['D.N.N.D', 'WWWWWWW']),
@@ -454,6 +472,8 @@ export const LEVELS = Object.freeze(
       kind: 'boss',
       boss: 'delta',
       introduces: ['delta'],
+      // The BLOODSTREAM exam: boss cadence x0.65 (every pattern 54% more often).
+      pressure: { every: 0.65 },
       intro: { icon: 'boss', text: 'IT SPLITS. LANES GLOW BEFORE THEY FIRE.' },
       protocol: 'READ THE LANE, THEN THE HALVES.',
     },
@@ -466,7 +486,7 @@ export const LEVELS = Object.freeze(
       intro: { icon: 'mutation', text: 'A FLASH MEANS AN UPGRADE. CURE IT FIRST.' },
       protocol: 'A FLASHING WILD TYPE BECOMES A HEAVY CROWN.',
       maxBullets: 95,
-      choir: { interval: [1.05, 0.75], size: [3, 5] },
+      choir: { interval: [0.95, 0.68], size: [3, 5] },
       script: [
         // Introduce: one mutation at a time (1.2 s flash) on a sparse grid;
         // the HEAVY CROWN it produces fires slowly.
@@ -484,9 +504,6 @@ export const LEVELS = Object.freeze(
         grid(['WWWWWWW', 'W.W.W.W']),
         until('thin', 2),
         ...rest(),
-        grid(['.W.W.W.', 'W.W.W.W'], { z: -12.8 }),
-        until('thin', 1),
-        ...rest(),
         // Twist: a SNEEZER mutates into a 9-way, 3-tier fan (misdirection),
         // over rain.
         verse('rain'),
@@ -495,7 +512,7 @@ export const LEVELS = Object.freeze(
         surge(4),
         ...rest(),
         // Test: a dense mixed grid with flights.
-        grid(['N.W.W.N', 'WWWWWWW', 'W.W.W.W']),
+        grid(['N.W.W.N', 'WWWWWWW']),
         wait(5),
         fly('swoopR', 'wild', 5),
         wait(4),
@@ -514,7 +531,10 @@ export const LEVELS = Object.freeze(
       intro: { icon: 'bloom', text: 'BLOOMS OPEN, FIRE A RING, CLOSE. WAIT, OR INJECT.' },
       protocol: 'THE NEEDLE PIERCES A CLOSED BUD.',
       maxBullets: 105,
-      choir: { interval: [0.8, 0.55], size: [4, 6] },
+      // Measured 4-2 above OMICRON for the casual proxy (3.2 vs 0.7 vials):
+      // a slower, smaller choir and aimed stacks at 7.5.
+      choir: { interval: [0.9, 0.62], size: [3, 5] },
+      pressure: { aimed: 0.94 },
       script: [
         // Introduce: one bloom alone, a small slow ring (B2's safe intro).
         tune({ bloom: { n: 10, speed: 3.5 } }),
@@ -528,11 +548,12 @@ export const LEVELS = Object.freeze(
         verse('cough'),
         grid(['N..B..N', 'WWWWWWW']),
         wait(6),
-        grid(['W.W.W.W'], { z: -12.8 }),
         until('thin', 1),
         ...rest(),
-        // Twist: blooms mutate, and their rings upgrade.
-        grid(['B.....B', 'WWWWWWW', 'W.N.N.W']),
+        // Twist: blooms mutate, and their rings upgrade. SNEEZERs keep two
+        // tiers here (4-2 measured above OMICRON for the casual proxy).
+        tune({ sneezer: { speeds: [4, 5.5] } }),
+        grid(['B.....B', 'WWWWWWW', 'W..N..W']),
         wait(5),
         surge(4),
         ...rest(),
@@ -549,6 +570,8 @@ export const LEVELS = Object.freeze(
       kind: 'boss',
       boss: 'omicron',
       introduces: ['omicron'],
+      // The run's exam: boss cadence x0.62.
+      pressure: { every: 0.62 },
       intro: { icon: 'boss', text: 'ITS MUTATIONS ARE ITS PHASES. CHOOSE A NODE.' },
       protocol: 'R0 BELOW 1 CONTAINS THE SPECIMEN.',
     },
@@ -582,15 +605,31 @@ export function entryPower(stage) {
   for (const level of LEVELS.slice(0, stage - 1)) for (const st of level.script || []) if (st.vesicle || st.midboss) n++;
   return powerOf(n);
 }
-/** The HP hook (RESEARCH_V1.md A4 / RESEARCH_CARDS.md 5.3): the expected
- * effective DPS at a stage's entry. Every HP path reads it: popcorn HP, boss
- * and midboss card HP and SOAP / burst damage. With the ADJUVANT draft on
- * (`s.drafts`), it is the guaranteed mRNA power's DPS x the random drafter's
- * median potency at that stage (cards.mjs EXPECTED_POTENCY, measured): the
- * median deck keeps the authored time-to-kill. It never reads the player's
- * own deck, and patterns never scale. */
-export function stageDps(stage, s = null) {
-  return RULES.powerDps[entryPower(stage) - 1] * (s?.drafts ? expectedPotency(stage, STAGE_COUNT) : 1);
+/** Guaranteed power when a stage's boss or midboss arrives: the entry power
+ * plus this stage's own VESICLEs (they all come before its midboss), so BIG
+ * SNEEZER is priced at L2, the level the 1-2 VESICLE hands out. */
+export function bossPower(stage) {
+  const own = (getLevel(stage).script || []).filter((st) => st.vesicle).length;
+  let n = own;
+  for (const level of LEVELS.slice(0, stage - 1)) for (const st of level.script || []) if (st.vesicle || st.midboss) n++;
+  return powerOf(n);
 }
-/** Base HP (or base damage defined against HP) scaled for a stage. */
-export const stageHp = (base, stage, s = null) => (base * stageDps(stage, s)) / RULES.referenceDps;
+/** The median focused DPS a stage's boss cards are priced against
+ * (RESEARCH_DIFFICULTY 3.5): the guaranteed mRNA power's DPS x, with the
+ * ADJUVANT draft on (`s.drafts`), the random drafter's median potency at that
+ * stage (cards.mjs EXPECTED_POTENCY, measured). It never reads the player's
+ * own deck. */
+export function stageDps(stage, s = null) {
+  return RULES.powerDps[bossPower(stage) - 1] * (s?.drafts ? expectedPotency(stage, STAGE_COUNT) : 1);
+}
+/** Boss and midboss card DPS: the median DPS x the sector's card uptime u. */
+export const cardDps = (stage, s = null) => stageDps(stage, s) * RULES.cardUptime[getLevel(stage).world - 1];
+/** Popcorn toughness is authored, never deck-scaled (RESEARCH_DIFFICULTY
+ * 3.5): base HP (or base damage defined against HP: SOAP, cell pops, INJECT
+ * on elites) x the sector factor 1.0 / 1.4 / 1.9 / 2.4. Callers round and
+ * floor at 1. Patterns never scale with the player either. */
+export const stageHp = (base, stage) => base * RULES.popcornHp[getLevel(stage).world - 1];
+/** The campaign as the draft simulation sees it (cards.mjs simulateDraft):
+ * each stage's guaranteed entry power, whether it is a non-final boss, and
+ * its sector. */
+export const draftProfile = () => LEVELS.map((l) => ({ stage: l.id, power: entryPower(l.id), boss: l.kind === 'boss' && l.id !== STAGE_COUNT, world: l.world }));

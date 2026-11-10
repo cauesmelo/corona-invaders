@@ -16,7 +16,7 @@
  */
 import { RULES, clamp, random, pushEvent, requestHitstop, diff } from './core.mjs';
 import { makeEnemy } from './enemies.mjs';
-import { stageDps } from './levels.mjs';
+import { cardDps, getLevel } from './levels.mjs';
 import { startPattern, clearEmitters } from './patterns.mjs';
 import { cancelBullets } from './bullets.mjs';
 import { awardKill, refreshChainFromBoss, chainMultiplier, addScore } from './scoring.mjs';
@@ -34,7 +34,9 @@ export const BOSSES = Object.freeze({
     radius: 2,
     cards: [
       phase('COUGH COUGH', 18, [P('cough', { n: 3, spread: 28, speed: 6.5 }, 1), P('ring', { n: 12, speed: 3.5, family: 'droplet' }, 2.2, { at: 0.9 })], { move: 'sway' }),
-      card('FIRST SNEEZE', 22, [P('sneeze', { n: 9, spread: 60, speeds: [4, 5.5], reps: 2, repGap: 0.55, tele: 1 }, 3.8)], { move: 'sway' }),
+      // A novice's wall in the proxies (66 of 98 first-timer vials at ALPHA):
+      // the fan BIG SNEEZER taught, 7 over 56 degrees, reps 0.6 s apart.
+      card('FIRST SNEEZE', 22, [P('sneeze', { n: 7, spread: 56, speeds: [4, 4.6], reps: 2, repGap: 0.6, tele: 1 }, 4)], { move: 'sway' }),
       card('SPIKE BLOOM', 22, [P('bloom', { n: 7, interval: 0.38, rotate: 11, speed: 3.8, duration: 6 }, 7.2, { alternate: true })], { move: 'still' }),
       card('CORONA', 18, [P('ring', { n: 20, speed: 4, reps: 4, interval: 1.1, family: 'droplet' }, 5), P('cough', { n: 1, speed: 7.5 }, 2.2, { at: 1.6 })], { move: 'sway' }),
     ],
@@ -96,11 +98,20 @@ export const BOSSES = Object.freeze({
         ],
         { move: 'sway', nodes: true },
       ),
-      card('SNEEZE STORM', 25, [P('aerosol', { rate: 8, cone: 110, speed: [2.6, 4.4], duration: 3, lanes: 2 }, 3.2), P('cough', { n: 3, spread: 22, speed: 7 }, 1.5, { at: 1.2 })], { move: 'sway' }),
-      card('MUTATION SPIRAL', 25, [P('bloom', { n: 7, interval: 0.22, rotate: 13, speed: 4.6, duration: 2.4, dir: 1 }, 3.1, { alternate: true }), P('bloom', { n: 7, interval: 0.22, rotate: 13, speed: 4.6, duration: 2.4, dir: -1 }, 3.1, { alternate: true }), P('cough', { n: 3, spread: 20, speed: 7 }, 1.7, { at: 0.8 })], { move: 'still' }),
-      { name: 'QUARANTINE', type: 'survival', ttk: 0, duration: 15, patterns: [P('ring', { n: 20, speed: 3.8, family: 'spike' }, 1.3, { at: 1 }), P('aerosol', { rate: 6, cone: 90, speed: [2.6, 3.6], duration: 1.6 }, 2.2, { at: 1.6 })], move: 'still', quarantine: true },
+      // Under LUNGS' BREATH (6 s cycle, 1 s warning; the exhale's x1.3 keeps
+      // the aimed fan at 9.1 u/s, under the 9.5 effective cap).
+      card('SNEEZE STORM', 22, [P('aerosol', { rate: 8, cone: 110, speed: [2.6, 4.4], duration: 3, lanes: 2 }, 2.8), P('sneeze', { n: 9, spread: 60, speeds: [4.2, 5.6, 7] }, 2.4, { at: 1.2 })], { move: 'sway', twist: { kind: 'breath' } }),
+      card('MUTATION SPIRAL', 22, [P('bloom', { n: 7, interval: 0.22, rotate: 13, speed: 4.6, duration: 2.4, dir: 1 }, 3.1, { alternate: true }), P('bloom', { n: 7, interval: 0.22, rotate: 13, speed: 4.6, duration: 2.4, dir: -1 }, 3.1, { alternate: true }), P('cough', { n: 3, spread: 20, speed: 7 }, 1.7, { at: 0.8 })], { move: 'still' }),
+      // Under BLOODSTREAM's CURRENT: bullets drift 0.6 u/s and the flow
+      // flips once (at 7.5 s, after a 2 s warning).
+      { name: 'QUARANTINE', type: 'survival', ttk: 0, duration: 15, patterns: [P('ring', { n: 20, speed: 3.8, family: 'spike' }, 1.2, { at: 1 }), P('aerosol', { rate: 6, cone: 90, speed: [2.6, 3.6], duration: 1.6 }, 2, { at: 1.6 }), P('cough', { n: 2, speed: 7 }, 2.4, { at: 2 })], move: 'still', quarantine: true, twist: { kind: 'current', speed: 0.6, period: 7.5 } },
       card('CORONA FLARE', 20, [P('ring', { n: 24, speed: 4.6, family: 'spike', gaps: 2 }, 1.4), P('cough', { n: 3, speed: 8.5 }, 1.2, { at: 1 })], { move: 'sway' }),
-      card('R0 > 1', 25, [P('replicate', { n: 5, spread: 70, speed: 3.5, maxGen: 2, splitEvery: 1 }, 1.3), P('cough', { n: 3, spread: 16, speed: 7 }, 1.6, { at: 1 })], { move: 'sway', finale: true }),
+      card('R0 > 1', 22, [P('replicate', { n: 5, spread: 70, speed: 3.5, maxGen: 2, splitEvery: 1 }, 1.3), P('cough', { n: 3, spread: 16, speed: 7 }, 1.6, { at: 1 })], { move: 'sway', finale: true }),
+      // The exam no build can skip (RESEARCH_DIFFICULTY 4.4): R0 > 1's HP
+      // ends the replication, then 12 s of timer-only survival under the
+      // final 3-stacks (one line, three speeds: a single sidestep dodges one)
+      // and a thinning replication.
+      { name: 'R0 < 1', type: 'survival', ttk: 0, duration: 12, patterns: [P('cough', { n: 3, speed: 8 }, 0.9, { at: 0.4 }), P('replicate', { n: 4, spread: 60, speed: 3.3, maxGen: 1, splitEvery: 1.2 }, 2, { at: 1 })], move: 'sway' },
     ],
   },
   // Midbosses (1-3 cards, 20-40 s total TTK).
@@ -110,7 +121,12 @@ export const BOSSES = Object.freeze({
     color: '#12ce5d',
     body: 'sneezer',
     radius: 1.7,
-    cards: [card('ACHOO!', 20, [P('sneeze', { n: 9, spread: 60, speeds: [4, 5], reps: 2, repGap: 0.5, tele: 1 }, 3.8), P('cough', { n: 1, speed: 6.5 }, 2.8, { at: 1.6 })], { move: 'sway' })],
+    // Gentler quiz (RESEARCH_DIFFICULTY 4.4: it caused 70% of a first-timer's
+    // 1-2 hits): 7 over 56 degrees (was 9 over 60), tiers 4.0 / 4.8, reps
+    // 0.6 s apart every 4.2 s, a 5.5 u/s aimed cough every 3.2 s.
+    // Measured: the first-timer proxy still lost 1.8 vials per attempt with
+    // two reps (target <= 1.2), so one fan per volley, a little more often.
+    cards: [card('ACHOO!', 20, [P('sneeze', { n: 7, spread: 56, speeds: [4, 4.8], tele: 1 }, 3.4), P('cough', { n: 1, speed: 5.5 }, 3.2, { at: 1.6 })], { move: 'sway' })],
   },
   aerosolcloud: {
     name: 'AEROSOL CLOUD',
@@ -130,8 +146,9 @@ export const BOSSES = Object.freeze({
     radius: 2,
     cards: [
       phase('BUDDING', 8, [P('ring', { n: 12, speed: 2.8, family: 'virion' }, 2), P('cough', { n: 3, speed: 7.5 }, 1, { at: 0.8 })], { move: 'sway' }),
-      card('LYSIS', 10, [P('replicate', { n: 5, spread: 70, speed: 3.2, maxGen: 2, splitEvery: 1.2 }, 1.5), P('ring', { n: 12, speed: 3.5 }, 2.6, { at: 1 })], { move: 'sway' }),
-      card('CELL BURST', 10, [P('ring', { n: 18, speed: 4, reps: 3, interval: 1, alternate: true, family: 'droplet' }, 4), P('ring', { n: 6, speed: 2.6, family: 'virion' }, 4, { at: 2, share: true }), P('cough', { n: 3, speed: 8 }, 1.1, { at: 1 })], { move: 'still' }),
+      // Shorter cards (TTK 8 / 9 / 9) keep 4-2 below OMICRON (RESEARCH_DIFFICULTY 4.4).
+      card('LYSIS', 9, [P('replicate', { n: 5, spread: 70, speed: 3.2, maxGen: 2, splitEvery: 1.2 }, 1.5), P('ring', { n: 12, speed: 3.5 }, 2.6, { at: 1 })], { move: 'sway' }),
+      card('CELL BURST', 9, [P('ring', { n: 18, speed: 4, reps: 3, interval: 1, alternate: true, family: 'droplet' }, 4), P('ring', { n: 6, speed: 2.6, family: 'virion' }, 4, { at: 2, share: true }), P('cough', { n: 3, speed: 8 }, 1.1, { at: 1 })], { move: 'still' }),
     ],
   },
   lambda: {
@@ -157,12 +174,13 @@ export const INTRO = 1.5;
 // Seated below the reserved top band so the VIRAL LOAD bar never covers a boss.
 const BOSS_Z = -7.2;
 
-/** Card timeouts: max(25, round(1.6 x TTK)) s (RESEARCH_V1.md 3.13), so a
- * stalled card ends sooner and a boss's worst-case length is bounded.
- * Survival cards last their fixed duration. */
-export const timeoutFor = (c) => (c.type === 'survival' ? c.duration : Math.max(25, Math.round(1.6 * c.ttk)));
-/** Card HP: TTK x reference DPS (x0.85 on Easy). */
-export const cardHp = (c, hpScale = 1, dps = RULES.referenceDps) => (c.type === 'survival' ? 0 : Math.round(c.ttk * dps * hpScale * RULES.cardHpScale));
+/** Card timeouts: max(25, round(1.6 x TTK)) s in sectors 1-2 and
+ * max(25, round(1.4 x TTK)) s in 3-4 (RESEARCH_DIFFICULTY 3.5), so a weak
+ * build is never stuck in a long fight. Survival cards last their time. */
+export const timeoutFor = (c, world = 1) => (c.type === 'survival' ? c.duration : Math.max(25, Math.round((world >= 3 ? 1.4 : 1.6) * c.ttk)));
+/** Card HP: TTK x the card DPS (median DPS x the sector's uptime u,
+ * levels.cardDps), x0.85 on Easy. */
+export const cardHp = (c, hpScale = 1, dps = RULES.powerDps[0]) => (c.type === 'survival' ? 0 : Math.round(c.ttk * dps * hpScale));
 
 const living = (s) => s.enemies.filter((e) => e.alive && e.kind === 'boss');
 export function bossPart(s, from, entry) {
@@ -199,9 +217,13 @@ function makePart(s, part, radius, extra = {}) {
 export function createBoss(s, type, { startCard = 0, world = 1 } = {}) {
   const def = BOSSES[type];
   const hpScale = diff(s).hp;
-  // Card HP reads the same hook as popcorn HP (levels.stageDps).
-  const hps = def.cards.map((c) => cardHp(c, hpScale, stageDps(s.wave ?? 1, s)));
-  const cards = def.cards.map((c, i) => ({ ...c, hp: hps[i], floor: hps.slice(i + 1).reduce((a, b) => a + b, 0), timeout: timeoutFor(c) }));
+  // Card HP is priced at the median deck (levels.cardDps), never the player's.
+  // Sectors 3-4 shorten every card's TTK (x0.85, RESEARCH_DIFFICULTY 3.5
+  // item 8: a long stage loses TTK before it gains pressure).
+  const w = getLevel(s.wave ?? 1).world;
+  const scaled = def.cards.map((c) => (c.ttk ? { ...c, ttk: Math.round(c.ttk * RULES.ttkScale[w - 1] * 10) / 10 } : c));
+  const hps = scaled.map((c) => cardHp(c, hpScale, cardDps(s.wave ?? 1, s)));
+  const cards = scaled.map((c, i) => ({ ...c, hp: hps[i], floor: hps.slice(i + 1).reduce((a, b) => a + b, 0), timeout: timeoutFor(c, w) }));
   const maxHp = hps.reduce((a, b) => a + b, 0);
   const b = {
     type,
@@ -358,7 +380,7 @@ function beginCard(s, b, index) {
     b.nucleus = twin?.id ?? null;
     b.swapClock = c.nucleus;
   }
-  s.twistOverride = c.rush ? { kind: 'rush' } : null;
+  s.twistOverride = c.rush ? { kind: 'rush' } : c.twist ? { ...c.twist, from: s.waveElapsed } : null;
   pushEvent(s, 'card-start', { name: c.name, index, cardType: c.type, boss: b.name, count: b.cards.length });
 }
 
@@ -384,7 +406,9 @@ function endCard(s, b, reason) {
     defeat(s, b, null, { practice: true });
     return;
   }
-  if (b.card >= b.cards.length - 1 || b.hp <= 0) defeat(s, b);
+  // An empty pool ends the boss unless a survival card is still to come.
+  const survivalLeft = b.cards.slice(b.card + 1).some((k) => k.type === 'survival');
+  if (b.card >= b.cards.length - 1 || (b.hp <= 0 && !survivalLeft)) defeat(s, b);
   else {
     requestHitstop(s, 0.12);
     pushEvent(s, 'phase-break', { name: b.cards[b.card + 1].name, phase: b.card + 2, boss: b.name });
@@ -411,7 +435,8 @@ function defeat(s, b, part, { practice = false } = {}) {
   }
   requestHitstop(s, 0.2, true);
   if (!b.mid) s.slowmo = 0.8;
-  pushEvent(s, 'boss-defeated', { name: b.name, x, z, mid: b.mid, boss: b.type, contained: b.cards.at(-1)?.finale && b.results.at(-1)?.neutralized });
+  const fin = b.cards.findIndex((k) => k.finale);
+  pushEvent(s, 'boss-defeated', { name: b.name, x, z, mid: b.mid, boss: b.type, contained: fin >= 0 && !!b.results.find((r) => r.name === b.cards[fin].name)?.neutralized });
 }
 
 function isVulnerable(s, b, p) {
@@ -505,7 +530,9 @@ function runPatterns(s, b, dt) {
     const em = startPattern(s, entry.preset, { ownerId: src.id, params, src: b.name, boss: true, label: c.name, spawnRadius: src.radius * (dx || dz ? 0.2 : 0.7), dx, dz });
     if (em) {
       clock.em = em;
-      clock.clock = entry.every;
+      // A stage's `pressure.every` tightens its boss cadence (stage only,
+      // never the deck): DELTA and OMICRON are their sectors' exams.
+      clock.clock = entry.every * (s.pressure?.every ?? 1);
     } else clock.clock = 0.1;
   });
 }
@@ -530,9 +557,10 @@ export function updateBoss(s, level, dt) {
     if ((b.timer -= dt) <= 0) beginCard(s, b, b.card);
     return;
   }
-  // A QA fixture may set the pool directly; catch the cards up to it.
-  if (b.hp <= 0) return defeat(s, b);
   const c = b.cards[b.card];
+  // A QA fixture may set the pool directly; catch the cards up to it (a
+  // survival card runs on an empty pool).
+  if (b.hp <= 0 && c.type !== 'survival' && !b.cards.slice(b.card + 1).some((k) => k.type === 'survival')) return defeat(s, b);
   if (b.state === 'cardIntro') {
     if ((b.timer -= dt) <= 0) {
       b.state = 'fight';
