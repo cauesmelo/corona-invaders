@@ -3,7 +3,7 @@
  * event stream of real human-proxy campaigns. */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createState, newRun, update, restartGame, pickAdjuvant, discardAdjuvants, resampleAdjuvants, startPractice, finalReport, exportRun, resumeRun, entryPower, getLevel, STAGE_COUNT } from '../model.mjs';
+import { createState, newRun, setDifficulty, update, restartGame, pickAdjuvant, discardAdjuvants, resampleAdjuvants, startPractice, finalReport, exportRun, resumeRun, entryPower, getLevel, STAGE_COUNT } from '../model.mjs';
 import { runLogText, summarizeRunLog, newRunLog, reviveRunLog, stampOf, sourceOf } from '../runlog.mjs';
 import { choose } from '../cards.mjs';
 import { createHuman, PROFILES } from './humans.mjs';
@@ -197,4 +197,15 @@ test('sourceOf names the boss card while a boss is up and the virus plus its ver
   assert.equal(sourceOf(s, { by: 'DELTA', pattern: 'REPLICATION' }), 'D CASCADE', 'non-ASCII is mapped for the paste');
   assert.equal(newRunLog().attempts.length, 0);
   assert.equal(getLevel(1).code, '1-1');
+});
+
+test('a run that dipped into Easy cannot end with a Hard stamp', () => {
+  const s = createState({ seed: 4, difficulty: 'easy', drafts: true });
+  newRun(s, 4);
+  setDifficulty(s, 'hard'); // the pause row, mid-run
+  s.runLog.modes.push('hard');
+  assert.equal(finalReport(s, true).stamp, 'EASY CLEAR');
+  const h = createState({ seed: 4, difficulty: 'hard', drafts: true });
+  assert.equal(finalReport(h, true).stamp, '1CC · HARD');
+  assert.match(runLogText(s), /\| EASY>HARD \|/);
 });

@@ -31,7 +31,7 @@ import { sweptHit, bulletGap, needleSegment, pointSegDist2, segSegDist2, beamHit
 // behaviours that need the board. With `drafts: false` (the default for
 // fixtures) s.kit equals the base rules and every hook below is inert.
 import { kitOf, createRun, openDraft, pick, resample, discard, bossCleared, reviveRun, expectedPotency, needleMul, abMul, needlesPerVolley, antibodiesOf, fireRateNow, CARD } from './cards.mjs';
-import { newRunLog, openAttempt, closeAttempt, logHit, logSaves, logDraft, logResample, exportRunLog, reviveRunLog, stampOf } from './runlog.mjs';
+import { newRunLog, openAttempt, closeAttempt, logHit, logSaves, logDraft, logResample, exportRunLog, reviveRunLog, stampOf, easiestMode } from './runlog.mjs';
 import { tickKit, absorbHit, updateJet, splitNeedle, innateShot, dropAliquot, aimUp, roomFor, needleState, antigenNeedles, fcAim } from './syringe-kit.mjs';
 
 /** Enemy collider: a circle, or a capsule along x for elongated bodies
@@ -585,7 +585,7 @@ export function finalReport(s, contained) {
     score: s.score,
     oneCredit: contained && oneCredit(s),
     // What the report prints: a plain 1CC only on Normal at full speed.
-    stamp: stampOf({ contained, oneCredit: contained && oneCredit(s), difficulty: s.difficulty, assisted }),
+    stamp: stampOf({ contained, oneCredit: contained && oneCredit(s), difficulty: easiestMode(s), assisted }),
     creditsUsed: s.creditsUsed,
     credits: diff(s).credits,
     sequenced,

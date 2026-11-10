@@ -137,6 +137,13 @@ export function summarizeRunLog(s) {
   };
 }
 
+/** The easiest mode the run touched: a run that dipped into Easy cannot end
+ * with a Hard stamp (the pause row can change the mode mid-run). */
+export function easiestMode(s) {
+  const seen = new Set([...(s.runLog?.modes ?? []), s.difficulty]);
+  return MODES.find((m) => seen.has(m)) ?? 'normal';
+}
+
 /** The stamp the FINAL REPORT prints (RESEARCH_DIFFICULTY 2.5, D10): a plain
  * 1CC only on Normal at 100% speed; a slowed run says ASSISTED; Easy never
  * stamps a 1CC. Null for a run that was not contained. */
