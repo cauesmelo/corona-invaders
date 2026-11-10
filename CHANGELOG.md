@@ -26,6 +26,7 @@ The first release of Corona Invaders 3D: a 3D bullet hell in the browser, built 
 ### New in 1.0
 
 - **The short syringe:** the whole syringe now sits inside its graze ring, so what you see is what can be hit.
+- **High-contrast bullets:** every bullet now wears a thin dark outline just outside its hitbox, so it stands out over lit viruses and the pale boss bodies as well as over each sector's floor. The coloured part is still exactly what hits you.
 - **Credits** on the title screen and in the attract loop, and **`v1.0`** under the title.
 - **Saves:** progress and settings live in versioned, game-prefixed keys. Progress from earlier builds carries over once. If your browser blocks storage (some itch.io embeds, private windows), the game still plays and keeps your progress for the visit.
 - **A smaller download:** the itch.io build carries only the game, three.js and its licence, this changelog and the README. All sound is synthesized, so there are no audio, image or font files.

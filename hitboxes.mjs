@@ -60,6 +60,16 @@ export const GRAZE_RING = Object.freeze({ outer: RULES.grazeRadius, inner: RULES
  * the solid capsule of radius R_PX px, plus a glow margin. The quad is sized
  * so the solid region is exactly the collider. */
 export const R_PX = 24;
+/** The dark outline drawn OUTSIDE a bullet's solid, in sprite px (9 px is
+ * about 0.9 screen px at the far edge at 960x640). It is light, like the
+ * glow, not matter: the coloured capsule inside it stays exactly the
+ * collider, so a bullet never looks smaller than what hits you. Measured
+ * reason (BALANCE.md "Readability"): pink and violet bodies and the white
+ * core share their luminance with the lit green viruses and boss bodies
+ * (1.1-2.5:1), so without an outline a bullet over an enemy read by hue
+ * alone; with it every sampled backdrop and enemy pixel has a layer at 3:1 or
+ * more. Must stay inside the sprite margin. */
+export const BULLET_OUTLINE_PX = 9;
 export function spriteLayout(family) {
   const c = COLLIDERS[family] || COLLIDERS.droplet;
   const k = R_PX / c.r; // px per u

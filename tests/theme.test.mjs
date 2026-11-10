@@ -102,3 +102,32 @@ test('the loss card always names a cause (never "Hit by undefined shot")', () =>
   assert.equal(causeText({ by: 'SNEEZER', what: 'CONTACT' }), 'Touched a SNEEZER');
   for (const c of [{}, { by: 'X', what: 'DROPLET', pattern: null }, { by: 'BETA & GAMMA', what: 'RNA STRAND', pattern: 'DOUBLE HELIX' }]) assert.ok(!/undefined|null/.test(causeText(c)));
 });
+
+// ---- Readability: high-contrast bullets (BALANCE.md "Readability") ------------------
+import { BULLET_OUTLINE_PX, spriteLayout, drawnSolid, COLLIDERS } from '../hitboxes.mjs';
+const lin = (c) => ((c /= 255) <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+const lum = (h) => {
+  const [r, g, b] = [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
+  return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+};
+const contrast = (a, b) => (Math.max(lum(a), lum(b)) + 0.05) / (Math.min(lum(a), lum(b)) + 0.05);
+
+test('bullets: the outline sits outside the solid, inside the sprite margin; the solid is still the collider', () => {
+  for (const fam of Object.keys(COLLIDERS)) {
+    const L = spriteLayout(fam);
+    assert.ok(BULLET_OUTLINE_PX >= 8 && BULLET_OUTLINE_PX <= L.margin - 4, `${fam}: outline ${BULLET_OUTLINE_PX} px in a ${L.margin} px margin`);
+    const d = drawnSolid(fam);
+    assert.ok(Math.abs(d.r - COLLIDERS[fam].r) < 1e-9 && Math.abs(d.half - (COLLIDERS[fam].half || 0)) < 1e-9, fam);
+  }
+});
+
+test('bullets: over every virus and boss colour the outline is >= 3:1; over the brightest sampled floor the core is >= 3:1', () => {
+  // Body colours of everything a bullet can fly over (shapes.mjs PALETTE).
+  for (const k of ['virus', 'alpha', 'beta', 'gamma', 'delta', 'omicron', 'bossBody', 'vaccine', 'amber']) assert.ok(contrast(PALETTE.dangerRim, PALETTE[k]) >= 3, `outline over ${k}: ${contrast(PALETTE.dangerRim, PALETTE[k]).toFixed(2)}`);
+  // The brightest floor pixel measured in any sector (p95 relative luminance
+  // 0.175, BLOODSTREAM, 960x640) is about #577a76; the board rails are lighter
+  // but sit outside the bullet field.
+  assert.ok(contrast(PALETTE.dangerCore, '#577a76') >= 3);
+  // And the near-black outline still separates from the body it wraps.
+  assert.ok(contrast(PALETTE.dangerRim, PALETTE.danger) >= 3 && contrast(PALETTE.dangerRim, PALETTE.dangerViolet) >= 3);
+});

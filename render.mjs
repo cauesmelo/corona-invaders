@@ -23,7 +23,7 @@ import { cameraLayout, FRAMING_POINTS, pxPerUnit } from './camera.mjs';
 import { RULES, getLevel, chainMultiplier, antibodyOffsets } from './model.mjs';
 import { createKitLayer } from './render-kit.mjs';
 import { SHAPES, SYRINGE, PALETTE, shapeFor } from './shapes.mjs';
-import { COLLIDERS, NEEDLE, MARKER, GRAZE_RING, INJECT, markerQuad, spriteLayout, bulletQuad, enemyScale, bodyRadiusOf, bulletAxis, needleSegment } from './hitboxes.mjs';
+import { COLLIDERS, NEEDLE, MARKER, GRAZE_RING, INJECT, BULLET_OUTLINE_PX, markerQuad, spriteLayout, bulletQuad, enemyScale, bodyRadiusOf, bulletAxis, needleSegment } from './hitboxes.mjs';
 import { characterOf, bodyMotion, bossMenace, marchTempo, bossLine, talkTime, DEFEAT_FINAL, DEFEAT_POPS } from './personality.mjs';
 import { INTRO as BOSS_INTRO } from './bosses.mjs';
 
@@ -185,7 +185,10 @@ function sprite(color, size, opacity = 0.6) {
   return s;
 }
 /** Bullet sprites, drawn flat on the bullet plane, "up" = direction of travel.
- * Value contrast first: white core, pink/violet body, near-black outline. */
+ * Value contrast first: white core, pink/violet body, and a near-black
+ * outline just outside the solid (hitboxes.BULLET_OUTLINE_PX), so one layer
+ * always stands out: the core and body on dark floors, the outline on lit
+ * viruses and the grey-white boss bodies. */
 const DANGER = { pink: PALETTE.danger, violet: PALETTE.dangerViolet, core: PALETTE.dangerCore, rim: PALETTE.dangerRim };
 /** A bullet family's sprite, laid out by hitboxes.spriteLayout: the solid
  * capsule (dark rim included) is exactly the collider; a soft glow outside it
@@ -195,7 +198,7 @@ const FAMILY_STYLE = {
   aerosol: { body: '#ff5fb4', core: true },
   spike: { body: '#ff3fb7', core: true, stripe: true },
   rna: { body: '#b45cff', core: true },
-  virion: { body: '#ff4fa3', crown: true },
+  virion: { body: '#ff4fa3', crown: true, core: true },
   glob: { body: '#c75fd8', core: true, gloss: true },
 };
 function DANGER_PINK() {
@@ -240,12 +243,13 @@ function familyTexture(family) {
         g.fill();
       }
     }
-    // Solid: dark rim, coloured body, white core toward the front.
+    // Outline outside the solid (light, not matter), then the solid: the
+    // coloured body fills the collider exactly, white core toward the front.
     g.fillStyle = DANGER.rim;
-    capsule(R);
+    capsule(R + BULLET_OUTLINE_PX);
     g.fill();
     g.fillStyle = st.body;
-    capsule(R - 4.5);
+    capsule(R);
     g.fill();
     if (st.stripe) {
       g.fillStyle = '#ffd6ef';
@@ -259,9 +263,11 @@ function familyTexture(family) {
       g.stroke();
     }
     if (st.core) {
+      // The virion's core sits inside its green ring; the others lead.
       g.fillStyle = DANGER.core;
       g.beginPath();
-      g.arc(cx, cy - H - R * 0.12, R * 0.42, 0, Math.PI * 2);
+      if (st.crown) g.arc(cx, cy, R * 0.34, 0, Math.PI * 2);
+      else g.arc(cx, cy - H - R * 0.12, R * 0.42, 0, Math.PI * 2);
       g.fill();
     }
     if (st.gloss) {
