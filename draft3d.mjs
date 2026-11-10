@@ -1331,6 +1331,7 @@ export function createDraft3D(THREE, opts) {
       x = 0,
       yaw = 0,
       roll = 0,
+      spinRoll = 0,
       scale = 1,
       tilt = 0;
     // Drop-in from above the frame (ease-out-back, 6% overshoot).
@@ -1338,15 +1339,21 @@ export function createDraft3D(THREE, opts) {
       const top = L.height / 2 + 1.6 + s.i * 0.2;
       if (time < sch.start) y = top + 3;
       else if (sch.legend && time < sch.start + TIMING.legendaryHold) {
-        // The spin-up: hover just above the slot, 1.5 turns, the lamp waking.
+        // The spin-up: it falls to its own row in front of the others,
+        // rolling 1.5 turns about its axis (a centrifuge), the lamp waking.
         const k = (time - sch.start) / TIMING.legendaryHold;
-        y = lerp(top, rowY + 0.55, easeOutCubic(k));
-        yaw = k * Math.PI * 3;
+        y = lerp(top, rowY, easeOutCubic(k));
+        z = rowZ + 0.7;
+        spinRoll = k * Math.PI * 3;
+      } else if (sch.legend) {
+        // ...then settles back into the row with the last half turn, so it
+        // lands label-forward (2 turns in all, no snap).
+        const k = clamp01((time - sch.start - TIMING.legendaryHold) / TIMING.drop);
+        z = lerp(rowZ + 0.7, rowZ, easeOutBack(k));
+        spinRoll = Math.PI * 3 + Math.PI * easeOutCubic(k);
       } else {
-        const t0 = sch.legend ? sch.start + TIMING.legendaryHold : sch.start;
-        const k = clamp01((time - t0) / TIMING.drop);
-        const from = sch.legend ? rowY + 0.55 : top;
-        y = lerp(from, rowY, easeOutBack(k));
+        const k = clamp01((time - sch.start) / TIMING.drop);
+        y = lerp(top, rowY, easeOutBack(k));
         tilt = (1 - easeOutCubic(k)) * 0.35 * (s.i % 2 ? -1 : 1);
       }
       if (time >= sch.land && !s.cued.land) {
@@ -1386,8 +1393,17 @@ export function createDraft3D(THREE, opts) {
         yaw += k * Math.PI;
         y += easeInCubic(k) * 2.5;
         scale *= 1 - 0.3 * k;
+      } else if (s.out.kind === 'fall') {
+        // Not picked: slide out of the frame sideways (alternating), behind
+        // the syringe, never across it.
+        const side = s.i === 0 || (s.i === 1 && S.inject?.slot === 0) ? -1 : 1;
+        x += side * easeInCubic(k) * (L.width + 1.5);
+        z -= k * 1.2;
+        roll = side * k * 0.25;
       } else {
+        // DISCARD: tip over and drop behind the syringe, into the sharps bin.
         y -= easeInCubic(k) * (L.height + 2);
+        z -= k * 2.2;
         roll = k * (s.i - 1) * 0.9 + k * 0.5;
       }
     }
@@ -1395,7 +1411,7 @@ export function createDraft3D(THREE, opts) {
     g.position.set(x, y, z);
     g.rotation.set(0, 0, roll + tilt);
     g.scale.setScalar(scale);
-    s.spin.rotation.set(0, yaw, 0);
+    s.spin.rotation.set(spinRoll, yaw, 0);
     // Dimming: scale the slot's own material colours.
     const look = TIER_LOOK[s.tier];
     const d = s.dim;
