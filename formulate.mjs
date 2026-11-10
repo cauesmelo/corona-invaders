@@ -38,7 +38,7 @@ export function slideHTML(id, slot, deck, ctx, { selected = false } = {}) {
   <span class="slide-glass" aria-hidden="true"></span>
   <span class="band"><span class="tier-word">${TIER_LABEL[c.tier]}</span><span class="pips" aria-hidden="true">${pips}</span><span class="key" aria-hidden="true">${slot + 1}</span></span>
   <span class="title">${glyph(c.line)}<strong>${esc(c.name)}</strong></span>
-  <span class="tags">${esc(c.line)} · ${c.tags.map(esc).join(' · ')}</span>
+  <span class="tags">${[c.line, ...c.tags.filter((t) => t.toUpperCase() !== c.line)].map(esc).join(' · ')}</span>
   <span class="effect">${numbers(cardText(id, have + 1))}</span>
   ${cost ? `<span class="cost">${numbers(cost)}</span>` : ''}
   <span class="after">${preview.lines.map((l) => `<span>${esc(l)}</span>`).join('')}</span>
@@ -119,6 +119,9 @@ export function createDraftGate() {
       held.delete(code);
     },
     locked: (now) => now - openedAt < DRAFT_LOCK_MS,
+    get openedAt() {
+      return openedAt;
+    },
     accept(code, now, repeat) {
       if (repeat || now - openedAt < DRAFT_LOCK_MS) return false;
       if (held.has(code)) return false;

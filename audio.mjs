@@ -743,6 +743,97 @@ export function createAudio({ context = null, clock = null, random = Math.random
       });
       duckBed(24, final + (mid ? 1 : 2.2), t);
     },
+    // ---- FORMULATE (the adjuvant draft) and the adjuvants in play ------------
+    // Glass and fluid: the lab's own materials. Reveals escalate by tier
+    // (common ~-24, rare ~-18, epic ~-12 dBFS, the legendary <= -6 dBFS, under
+    // the boss defeat at -3.8), louder than auto-fire, quieter than a boss
+    // death (README "Sound"). The screen never needs them to be understood.
+    draft() {
+      // A soft glass tray slides out.
+      const t = now() + 0.005,
+        dest = out(0, 0.3);
+      noise(dest, { t, a: 0.09, d: 0.32, peak: 0.045, type: 'bandpass', f: 700, f1: 2600, q: 1.4 });
+      osc(dest, { type: 'sine', f: 1568, t: t + 0.32, a: 0.002, d: 0.22, peak: 0.022 });
+    },
+    reveal(ev) {
+      const t = now() + 0.004,
+        pan = ((ev.slot ?? 1) - 1) * 0.35;
+      if (ev.tier === 'legendary') {
+        // A low boom, then the NEUTRALIZED family's major fanfare with a
+        // long room tail; the bed ducks under it.
+        claim(1.6, 4);
+        const dest = out(pan, 0.45);
+        osc(dest, { type: 'sine', f: 78, f1: 30, t, a: 0.004, d: 0.9, peak: 0.3, glide: 0.6 });
+        noise(dest, { t, a: 0.002, d: 0.45, peak: 0.08, type: 'lowpass', f: 2200, f1: 160 });
+        [0, 4, 7, 12, 16].forEach((n, i) => {
+          const f = 523 * 2 ** (n / 12);
+          osc(out(pan, 0.5), { type: 'triangle', f, t: t + 0.08 + i * 0.07, a: 0.004, d: 0.7, peak: 0.055 });
+          osc(out(pan, 0.5), { type: 'sine', f: f * 2, t: t + 0.08 + i * 0.07, a: 0.002, d: 0.35, peak: 0.018 });
+        });
+        noise(out(0, 0.4), { t: t + 0.3, a: 0.01, d: 0.6, peak: 0.02, type: 'highpass', f: 7000 });
+        duckBed(12, 1.2, t);
+      } else if (ev.tier === 'epic') {
+        // A rising triad over a soft whoosh.
+        const dest = out(pan, 0.35);
+        noise(dest, { t, a: 0.12, d: 0.2, peak: 0.05, type: 'bandpass', f: 500, f1: 3500, q: 1.1 });
+        [0, 4, 7].forEach((n, i) => osc(dest, { type: 'triangle', f: 659 * 2 ** (n / 12), t: t + 0.06 + i * 0.06, a: 0.003, d: 0.34, peak: 0.11 }));
+      } else if (ev.tier === 'rare') {
+        // A two-note glass chime, a fifth apart.
+        const dest = out(pan, 0.3);
+        osc(dest, { type: 'sine', f: 1319, t, a: 0.002, d: 0.3, peak: 0.06 });
+        osc(dest, { type: 'sine', f: 1976, t: t + 0.07, a: 0.002, d: 0.36, peak: 0.06 });
+        osc(dest, { type: 'sine', f: 3952, t: t + 0.07, a: 0.001, d: 0.12, peak: 0.012 });
+      } else {
+        // A dry glass tick.
+        const dest = out(pan, 0.1);
+        osc(dest, { type: 'triangle', f: 2093 * vary(30), t, a: 0.001, d: 0.045, peak: 0.04 });
+        noise(dest, { t, a: 0.0005, d: 0.015, peak: 0.015, type: 'highpass', f: 6000 });
+      }
+    },
+    'legendary-riser'() {
+      // The centrifuge spins up for 0.5 s before a legendary slide flips.
+      const t = now() + 0.004,
+        dest = out(0, 0.3);
+      osc(dest, { type: 'sawtooth', f: 70, f1: 620, t, a: 0.45, d: 0.08, peak: 0.035, glide: 0.95, filter: { f: 300, f1: 2600, glide: 0.95 } });
+      noise(dest, { t, a: 0.45, d: 0.06, peak: 0.03, type: 'bandpass', f: 400, f1: 3000, q: 2, glide: 0.95 });
+    },
+    resample() {
+      // The slides tumble back into the tray: a cascade of glass clinks.
+      const t = now() + 0.004;
+      [2637, 2349, 3136, 1976, 2794, 2093].forEach((f, i) => osc(out(-0.5 + i * 0.2, 0.25), { type: 'sine', f: f * vary(40), t: t + i * 0.045, a: 0.001, d: 0.09, peak: 0.032 }));
+    },
+    adjuvant() {
+      // INJECT: a pneumatic hiss and a liquid gloop.
+      const t = now() + 0.004,
+        dest = out(0, 0.3);
+      noise(dest, { t, a: 0.006, d: 0.22, peak: 0.07, type: 'highpass', f: 3200, f1: 1800 });
+      osc(dest, { type: 'sine', f: 320, f1: 120, t: t + 0.12, a: 0.004, d: 0.14, peak: 0.1 });
+      osc(dest, { type: 'sine', f: 180, f1: 460, t: t + 0.2, a: 0.004, d: 0.1, peak: 0.06 });
+    },
+    discard() {
+      const t = now() + 0.004,
+        dest = out(0, 0.2);
+      noise(dest, { t, a: 0.02, d: 0.26, peak: 0.04, type: 'bandpass', f: 1400, f1: 380, q: 1.2 });
+      osc(dest, { type: 'sine', f: 660, f1: 520, t: t + 0.2, a: 0.002, d: 0.12, peak: 0.03 });
+    },
+    absorb(ev) {
+      // The coating cracks: glassy and bright, distinct from the core-hit
+      // crunch (no low thump, no distortion), so "saved" reads at once.
+      claim(0.4, 3);
+      const t = now() + 0.002,
+        dest = out(panOf(ev.x), 0.35);
+      noise(dest, { t, a: 0.0008, d: 0.07, peak: 0.12, type: 'highpass', f: 4200, f1: 2500 });
+      osc(dest, { type: 'sine', f: 2637, f1: 1760, t, a: 0.001, d: 0.16, peak: 0.07 });
+      osc(dest, { type: 'triangle', f: 1245, t: t + 0.01, a: 0.002, d: 0.28, peak: 0.05, filter: { type: 'bandpass', f: 1245, q: 6 } });
+    },
+    'coat-reform'() {
+      const t = now() + 0.004;
+      osc(out(0, 0.3), { type: 'sine', f: 880, f1: 1760, t, a: 0.05, d: 0.25, peak: 0.028 });
+    },
+    epipen(ev) {
+      // The pen's click just before its SOAP.
+      osc(out(panOf(ev.x), 0.1), { type: 'square', f: 1800, f1: 900, t: now() + 0.002, a: 0.0008, d: 0.03, peak: 0.03, filter: { f: 3000 } });
+    },
     wave() {
       const t = now() + 0.005,
         dest = out(0, 0.35);
@@ -903,6 +994,19 @@ export const SFX_CATALOG = Object.freeze([
   { id: 'boss-defeated', group: 'Bosses', label: 'Boss defeated (payoff)', ev: { type: 'boss-defeated', boss: 'alpha', mid: false, x: 0 }, s: boss('alpha') },
   { id: 'midboss-defeated', group: 'Bosses', label: 'Midboss defeated', ev: { type: 'boss-defeated', boss: 'mother', mid: true, x: 0 }, s: boss('mother') },
   { id: 'won', group: 'Bosses', label: 'Campaign won', ev: { type: 'won' } },
+  { id: 'draft', group: 'Adjuvants', label: 'FORMULATE opens (glass tray)', ev: { type: 'draft' } },
+  { id: 'reveal-common', group: 'Adjuvants', label: 'Reveal: common', ev: { type: 'reveal', tier: 'common', slot: 0 } },
+  { id: 'reveal-rare', group: 'Adjuvants', label: 'Reveal: rare', ev: { type: 'reveal', tier: 'rare', slot: 1 } },
+  { id: 'reveal-epic', group: 'Adjuvants', label: 'Reveal: epic', ev: { type: 'reveal', tier: 'epic', slot: 2 } },
+  { id: 'legendary-riser', group: 'Adjuvants', label: 'Legendary spin-up', ev: { type: 'legendary-riser' } },
+  { id: 'reveal-legendary', group: 'Adjuvants', label: 'Reveal: legendary', ev: { type: 'reveal', tier: 'legendary', slot: 1 } },
+  { id: 'draft-reveal', group: 'Adjuvants', label: 'A whole draft (common, rare, legendary)', seq: seq([[0, { type: 'draft' }], [0.3, { type: 'reveal', tier: 'common', slot: 0 }], [0.42, { type: 'reveal', tier: 'rare', slot: 1 }], [0.5, { type: 'legendary-riser' }], [1.0, { type: 'reveal', tier: 'legendary', slot: 2 }]]) },
+  { id: 'resample', group: 'Adjuvants', label: 'RESAMPLE', ev: { type: 'resample' } },
+  { id: 'adjuvant', group: 'Adjuvants', label: 'INJECT (pick)', ev: { type: 'adjuvant', tier: 'rare' } },
+  { id: 'discard', group: 'Adjuvants', label: 'DISCARD (+1 SOAP)', ev: { type: 'discard' } },
+  { id: 'absorb', group: 'Adjuvants', label: 'Coating absorbs a hit', ev: { type: 'absorb', x: 0 } },
+  { id: 'coat-reform', group: 'Adjuvants', label: 'Coating re-forms', ev: { type: 'coat-reform' } },
+  { id: 'epipen', group: 'Adjuvants', label: 'EPIPEN fires', ev: { type: 'epipen', x: 0 } },
 ]);
 
 /** Play one catalogue entry on an audio engine (soundboard and measurement).

@@ -37,7 +37,16 @@ import {
   chainMultiplier,
   useBomb,
   playBounds,
+  pickAdjuvant,
+  resampleAdjuvants,
+  discardAdjuvants,
+  exportRun,
+  resumeRun,
+  refreshKit,
+  entryPower,
 } from './model.mjs';
+import { formulateHTML, offerSummary, rackHTML, formulationList, createDraftGate } from './formulate.mjs';
+import { CARD, limitOf, legendariesIn } from './cards.mjs';
 import { clamp } from './core.mjs';
 import { normalizeBullet } from './bullets.mjs';
 import { STEP, createClock, advanceClock, capturePositions, interpolatedView } from './clock.mjs';
@@ -58,6 +67,9 @@ const KEYS = {
   practice: 'corona-invaders-v5-practice',
   sound: 'corona-invaders-v5-sound',
   difficulty: 'corona-invaders-v5-difficulty',
+  // v6: the run in progress (build, credits, RNG, the open offer). The v5
+  // keys (unlocks, medals, scores, cards seen) stay valid.
+  run: 'corona-invaders-v6-run',
 };
 // Storage can be disabled (private mode, sandboxed iframes): play never depends on it.
 function load(key, fallback) {
@@ -96,7 +108,7 @@ const store = {
 };
 const settings = { effects: () => store.effects === 'full' && !reducedMotionQuery.matches };
 
-const state = createState({ seed: freshSeed(), difficulty: store.difficulty });
+const state = createState({ seed: freshSeed(), difficulty: store.difficulty, adjuvants: true });
 state.unlockedStage = store.unlocked;
 const cabinet = $('.cabinet'),
   stage = $('#stage'),
@@ -146,7 +158,14 @@ const ui = {
   crackedUntil: 0,
   timers: {},
   layout: '',
+  // FORMULATE: the focused slide, the two-step DISCARD, and the reveal.
+  fSel: 0,
+  fConfirm: false,
+  fKey: '',
+  fRevealed: true,
+  fRevealTimers: [],
 };
+const draftGate = createDraftGate();
 
 // ---- Small DOM helpers ---------------------------------------------------------
 function setText(el, text) {
@@ -248,6 +267,27 @@ function persistUnlock() {
   }
   state.unlockedStage = Math.max(state.unlockedStage, store.unlocked);
 }
+/** The run in progress, guarded and versioned (model.exportRun): written at
+ * every stage entry and whenever the draft changes, so a reload can neither
+ * reroll an offer nor refund a token. A missing or corrupt save hides
+ * RESUME; with storage blocked the run still plays, it just can't resume. */
+function saveRun() {
+  const data = exportRun(state);
+  if (data) save(KEYS.run, data);
+}
+function clearRun() {
+  try {
+    localStorage.removeItem(KEYS.run);
+  } catch {
+    /* Nothing stored. */
+  }
+}
+function savedRun() {
+  const data = load(KEYS.run, null);
+  if (!data) return null;
+  // Validate on a scratch state: a corrupt save hides RESUME and never throws.
+  return resumeRun(createState({ adjuvants: true }), data) ? data : null;
+}
 function noteCard(s, ev) {
   if (!s.boss) return;
   const key = `${s.boss.type}:${ev.index}`;
@@ -268,7 +308,16 @@ function handleEvents(list, s, live) {
       recordSector(ev);
       persistUnlock();
       if (!ev.worldEnd && ev.stage !== STAGE_COUNT) showTally(ev);
-    } else if (ev.type === 'wave-start') showIntro();
+    } else if (ev.type === 'wave-start') {
+      saveRun();
+      showIntro();
+    } else if (ev.type === 'draft') {
+      saveRun();
+      openFormulate();
+    } else if (ev.type === 'resample') {
+      saveRun();
+      openFormulate({ resampled: true });
+    } else if (ev.type === 'won') clearRun();
     else if (ev.type === 'card-start') {
       noteCard(s, ev);
       flashElement('#callout', 1450, (el) => {
@@ -409,18 +458,19 @@ function currentScreen() {
   if (p === 'title') return ui.controlsOpen ? 'controls' : ui.attract === 'title' ? 'title' : ui.attract;
   if (p === 'paused') return ui.controlsOpen ? 'controls' : 'pause';
   if (p === 'lost') return 'lost';
+  if (p === 'draft') return 'formulate';
   const shown = !(performance.now() < (ui.reportAt || 0));
   if (p === 'won') return shown ? (state.practice ? 'practice' : 'won') : '';
   if (p === 'transition' && state.transitionHold) return shown ? 'report' : '';
   return '';
 }
-const ROWS = ['play-button', 'assist-button', 'easy-button', 'retry-button', 'menu-button', 'difficulty-button', 'sound-button', 'effects-button', 'controls-button', 'back-button'];
+const ROWS = ['play-button', 'resume-button', 'assist-button', 'easy-button', 'retry-button', 'menu-button', 'difficulty-button', 'sound-button', 'effects-button', 'controls-button', 'back-button'];
 const ATTRACT = ['title', 'demo', 'scores', 'attract-controls'];
 function configure(screen) {
   const assist = assistAvailable(state);
   const visible =
     {
-      title: ['play-button'],
+      title: ['play-button', ...(savedRun() ? ['resume-button'] : [])],
       demo: ['play-button'],
       scores: ['play-button'],
       'attract-controls': ['play-button'],
@@ -469,6 +519,8 @@ function configure(screen) {
   } else if (screen === 'pause') {
     heading.innerHTML = matrix('ON HOLD');
     tag.textContent = `SPECIMEN ${level.code}${state.practice ? ' · PRACTICE' : ''}`;
+    // The whole formulation, with text (RESEARCH_CARDS §6.2).
+    body.innerHTML = state.run ? formulationList(state.run.deck) : state.kit?.scale > 1 ? `<p class="formulation empty">STANDARD ISSUE ×${state.kit.scale.toFixed(2)} (PRACTICE: NO ADJUVANTS)</p>` : '';
     playButton.textContent = 'RESUME';
     $('#retry-button').innerHTML = `RETRY SAMPLE <span class="hint">R</span>`;
     $('#menu-button').innerHTML = `SPECIMEN TRAY <span class="hint">MAP</span>`;
@@ -498,9 +550,13 @@ function configure(screen) {
     tag.textContent = 'R0 < 1 · CAMPAIGN COMPLETE';
     const counts = { gold: 0, silver: 0, bronze: 0 };
     for (const r of Object.values(state.medals)) counts[r.medal]++;
+    // FINAL REPORT: the build in line order, and PLACEBO GROUP for a run
+    // that discarded every draft.
+    const run = state.run;
+    const placebo = run && run.drafts > 0 && run.discards === run.drafts;
     body.innerHTML = `<div class="report">${Object.entries(counts)
       .map(([m, n]) => `<div>${medalRing(m)}<span>${m.toUpperCase()}</span><b>${n}</b><span></span></div>`)
-      .join('')}<div class="total"><span>SCORE</span>${segments(String(state.score).padStart(7, '0'))}</div></div>`;
+      .join('')}<div class="total"><span>SCORE</span>${segments(String(state.score).padStart(7, '0'))}</div></div>${run ? `${placebo ? '<p class="badge">PLACEBO GROUP · NO ADJUVANTS TAKEN</p>' : ''}${formulationList(run.deck)}` : ''}`;
     playButton.textContent = 'NEW CAMPAIGN';
     $('#menu-button').innerHTML = `SPECIMEN TRAY <span class="hint">MAP</span>`;
   } else if (screen === 'practice') {
@@ -647,6 +703,21 @@ function syncHUD(s) {
   setHTML('soap', $('#soap'), soapBubbles(s.ship.bombs, (s.ship.grazeProgress || 0) / RULES.grazePerBomb));
   setAttr('soapAria', $('#soap'), 'aria-label', `${s.ship.bombs} soap bursts`);
   setHTML('power', $('#power'), `${helix(s.ship.power)}<span>L${s.ship.power}</span>`);
+  // The owned formulation: chips by line, legendaries on top, potency vs the
+  // titer limit; portrait shows only the legendary chips.
+  const deck = s.run?.deck ?? [];
+  const rackKey = `${ui.layout}|${deck.map((d) => d.id).join(',')}|${s.kit?.potency?.toFixed(2)}|${s.run?.titer}|${s.kit?.scale}`;
+  if (ui.cache.rackKey !== rackKey) {
+    ui.cache.rackKey = rackKey;
+    const rack = $('#rack');
+    rack.innerHTML = s.run
+      ? rackHTML(deck, { limit: limitOf(s.run.titer), potency: s.kit.potency, compact: ui.layout === 'strip' })
+      : s.kit?.scale > 1
+        ? `<span class="potency">STANDARD ISSUE <b>×${s.kit.scale.toFixed(2)}</b></span>`
+        : '';
+    rack.setAttribute('aria-label', s.run ? `Adjuvants: ${deck.length}, ${legendariesIn(deck)} legendary` : 'No adjuvants');
+  }
+  setClass('coatOn', $('#lives'), 'coated', (s.ship.coat || 0) > 0);
   setAttr('powerAria', $('#power'), 'aria-label', `Power ${s.ship.power} of 4`);
   const level = getLevel(s.wave);
   setText($('#sector-code'), s.practice ? `${level.code} P` : level.code);
@@ -723,13 +794,17 @@ function syncLayout() {
 function syncUI() {
   persistUnlock();
   const screen = currentScreen();
-  overlay.hidden = !screen;
+  overlay.hidden = !screen || screen === 'formulate';
+  const fEl = $('#formulate');
+  if (fEl.hidden !== (screen !== 'formulate')) fEl.hidden = screen !== 'formulate';
+  if (screen === 'formulate' && ui.fKey !== offerKey()) openFormulate();
   if (screen !== ui.screen) {
     // The report appears after the defeat payoff: a key still held from the
     // fight must be released before it can release the report.
     if (screen === 'report' && ui.reportAt) lockHeld();
     ui.screen = screen;
-    if (screen) configure(screen);
+    if (screen && screen !== 'formulate') configure(screen);
+    if (screen === 'formulate') $('#formulate-panel').querySelector(`.slide[data-slot="${ui.fSel}"]`)?.focus({ preventScroll: true });
   }
   syncHUD(ui.screen === 'demo' && ui.demo ? ui.demo : state);
 }
@@ -778,7 +853,19 @@ function freshCampaign() {
   if (load(KEYS.difficulty, null) === null) save(KEYS.difficulty, store.difficulty);
   runId++;
   state.difficulty = store.difficulty;
+  // A new run starts empty: the stored build is replaced at its first entry.
+  clearRun();
   newRun(state, freshSeed());
+}
+function resumeSaved() {
+  const data = savedRun();
+  if (!data) return false;
+  runId++;
+  beginPlay(() => {
+    resumeRun(state, data);
+    persistUnlock();
+  });
+  return true;
 }
 function primaryAction() {
   if (!inputEnabled) return;
@@ -836,6 +923,7 @@ function toggleDifficulty() {
 }
 
 playButton.addEventListener('click', primaryAction);
+$('#resume-button').addEventListener('click', resumeSaved);
 $('#retry-button').addEventListener('click', retrySector);
 $('#assist-button').addEventListener('click', () => beginPlay(() => restartGame(state, { assist: true })));
 $('#easy-button').addEventListener('click', () => {
@@ -901,6 +989,215 @@ $('#pause-button').addEventListener('click', () => {
   if (!state.paused) focusGame();
 });
 
+// ---- FORMULATE: the adjuvant draft between stages --------------------------------
+// Nothing simulates while it is open (the model's 'draft' phase). One input
+// scheme per device, as in play: keys (arrows / A-D / 1-3, Enter or Space to
+// INJECT, R resample, S twice to discard), mouse (hover or click a slide, then
+// INJECT or double-click) and touch (tap a slide, tap INJECT). Every press
+// waits 0.5 s after the screen opens and must be fresh (formulate.mjs gate).
+const fPanel = $('#formulate-panel');
+const offerKey = () => (state.run?.offer ? `${state.wave}:${state.run.drafts}:${state.run.resamples}:${state.run.offer.ids.join(',')}` : '');
+function draftKitCtx() {
+  return { power: entryPower(Math.min(STAGE_COUNT, state.wave + 1)), difficulty: state.difficulty, titer: state.run.titer, stage: state.wave + 1 };
+}
+function openFormulate({ resampled = false } = {}) {
+  const run = state.run;
+  if (!run?.offer) return;
+  for (const t of ui.fRevealTimers) clearTimeout(t);
+  ui.fRevealTimers = [];
+  ui.fKey = offerKey();
+  ui.fSel = Math.min(ui.fSel, run.offer.ids.length - 1);
+  if (!resampled) ui.fSel = 0;
+  ui.fConfirm = false;
+  const now = performance.now();
+  draftGate.open(now, [...held].filter((k) => ['Space', 'KeyX', 'Enter', 'KeyR', 'KeyS'].includes(k)));
+  renderFormulate();
+  const offer = run.offer;
+  const motion = settings.effects();
+  fPanel.dataset.motion = motion ? 'full' : 'reduced';
+  $('#formulate-live').textContent = offerSummary(run);
+  if (!resampled) audio.event({ type: 'draft' }, state);
+  // The reveal: slides rise 90 ms apart, then flip left to right; a
+  // legendary glows 0.5 s before its flip (the centrifuge spin-up). Any press
+  // after 0.4 s completes it. Reduced motion: instant, one sound per tier.
+  ui.fRevealed = !motion;
+  const flips = [];
+  let t = 260;
+  offer.tiers.forEach((tier, i) => {
+    if (tier === 'legendary') t += 500;
+    flips.push(t);
+    t += 120;
+  });
+  const slides = [...fPanel.querySelectorAll('.slide')];
+  offer.tiers.forEach((tier, i) => {
+    const el = slides[i];
+    if (!motion) {
+      el.classList.add('shown', 'revealed');
+      return;
+    }
+    el.classList.add('rising');
+    ui.fRevealTimers.push(setTimeout(() => el.classList.add('shown'), i * 90));
+    if (tier === 'legendary') {
+      ui.fRevealTimers.push(
+        setTimeout(() => {
+          el.classList.add('charging');
+          audio.event({ type: 'legendary-riser' }, state);
+        }, flips[i] - 500),
+      );
+    }
+    ui.fRevealTimers.push(
+      setTimeout(() => {
+        el.classList.add('revealed');
+        el.classList.remove('charging');
+        audio.event({ type: 'reveal', tier, slot: i }, state);
+        if (tier === 'legendary') view?.flash?.('legendary');
+      }, flips[i]),
+    );
+  });
+  if (motion) ui.fRevealTimers.push(setTimeout(() => (ui.fRevealed = true), flips.at(-1) + 200));
+  else for (const tier of [...new Set(offer.tiers)]) audio.event({ type: 'reveal', tier, slot: 1 }, state);
+}
+function skipReveal() {
+  if (ui.fRevealed) return false;
+  for (const tm of ui.fRevealTimers) clearTimeout(tm);
+  ui.fRevealTimers = [];
+  for (const el of fPanel.querySelectorAll('.slide')) {
+    el.classList.add('shown', 'revealed');
+    el.classList.remove('charging', 'rising');
+  }
+  ui.fRevealed = true;
+  return true;
+}
+function renderFormulate() {
+  const run = state.run;
+  const level = getLevel(state.wave);
+  const boss = level.kind === 'boss' && run.offer.boosted;
+  const def = boss ? BOSSES[level.boss] : null;
+  const capturable = def ? def.cards.filter((c) => c.type !== 'phase').length : 0;
+  const sequenced = boss ? `${Math.round((run.lastShare ?? 0) * capturable)}/${capturable}` : '';
+  fPanel.innerHTML = formulateHTML({
+    run,
+    stageCode: level.code,
+    boss,
+    bossName: def?.name,
+    sequenced,
+    cards: { potency: state.kit.potency },
+    ctx: draftKitCtx(),
+    selected: ui.fSel,
+    touch: touchQuery.matches,
+    confirmDiscard: ui.fConfirm,
+  });
+}
+function selectSlide(i, { focus = true } = {}) {
+  const n = state.run?.offer?.ids.length ?? 0;
+  if (!n) return;
+  ui.fSel = Math.max(0, Math.min(n - 1, i));
+  for (const el of fPanel.querySelectorAll('.slide')) el.classList.toggle('selected', Number(el.dataset.slot) === ui.fSel);
+  const inject = fPanel.querySelector('[data-act="inject"]');
+  if (inject) inject.disabled = false;
+  if (focus) fPanel.querySelector(`.slide[data-slot="${ui.fSel}"]`)?.focus({ preventScroll: true });
+}
+function setConfirm(on) {
+  ui.fConfirm = on;
+  const b = fPanel.querySelector('[data-act="discard"]');
+  if (!b) return;
+  b.classList.toggle('confirm', on);
+  b.innerHTML = `${touchQuery.matches ? '' : '<kbd>S</kbd> '}${on ? 'CONFIRM DISCARD' : 'DISCARD'} <b>+1 SOAP</b>`;
+}
+/** After a pick or a discard: the model began the next stage; its events
+ * (adjuvant / discard, wave-start) are handled here, outside update(). */
+function leaveFormulate() {
+  for (const t of ui.fRevealTimers) clearTimeout(t);
+  ui.fRevealTimers = [];
+  ui.fKey = '';
+  handleEvents(state.events, state, true);
+  state.events = [];
+  lockHeld();
+  syncUI();
+  focusGame();
+}
+function doPick(i = ui.fSel) {
+  if (!pickAdjuvant(state, i)) return false;
+  leaveFormulate();
+  return true;
+}
+function doResample() {
+  if (!resampleAdjuvants(state)) return false;
+  audio.event({ type: 'resample' }, state);
+  const ev = state.events.find((e) => e.type === 'resample');
+  state.events = [];
+  if (ev) handleEvents([ev], state, false);
+  saveRun();
+  openFormulate({ resampled: true });
+  return true;
+}
+function doDiscard() {
+  if (!ui.fConfirm) return setConfirm(true);
+  if (discardAdjuvants(state)) leaveFormulate();
+}
+function formulateKey(event) {
+  const code = event.code;
+  if ([...MOVE_KEYS, 'Space', 'Enter', 'KeyX', 'KeyR', 'KeyP', 'Escape', 'Digit1', 'Digit2', 'Digit3', 'ShiftLeft', 'ShiftRight'].includes(code)) event.preventDefault();
+  if (code === 'Escape' || code === 'KeyP') {
+    if (event.repeat) return;
+    togglePause(state);
+    syncUI();
+    return;
+  }
+  const now = performance.now();
+  if (!draftGate.accept(code, now, event.repeat)) return;
+  // The reveal can be skipped after 0.4 s (the gate already waits 0.5 s);
+  // the skipping press does nothing else.
+  if (!ui.fRevealed && now - draftGate.openedAt >= 400 && skipReveal()) return;
+  const n = state.run?.offer?.ids.length ?? 0;
+  if (code === 'ArrowLeft' || code === 'KeyA') return selectSlide(ui.fSel - 1);
+  if (code === 'ArrowRight' || code === 'KeyD') return selectSlide(ui.fSel + 1);
+  if (['Digit1', 'Digit2', 'Digit3', 'Numpad1', 'Numpad2', 'Numpad3'].includes(code)) {
+    const i = Number(code.at(-1)) - 1;
+    if (i < n) selectSlide(i);
+    return;
+  }
+  if (code === 'KeyR') return doResample();
+  if (code === 'KeyS') return doDiscard();
+  if (code === 'Enter' || code === 'Space') {
+    if (ui.fConfirm) return doDiscard();
+    return doPick(ui.fSel);
+  }
+  if (ui.fConfirm) setConfirm(false);
+}
+/** Mouse and touch: a click or tap selects a slide; INJECT (on the selected
+ * slide or in the footer) or a double-click picks it. Presses obey the same
+ * 0.5 s gate as keys. */
+fPanel.addEventListener('pointerover', (event) => {
+  if (event.pointerType !== 'mouse') return;
+  const slide = event.target.closest('.slide');
+  if (slide) selectSlide(Number(slide.dataset.slot), { focus: false });
+});
+fPanel.addEventListener('click', (event) => {
+  const now = performance.now();
+  if (draftGate.locked(now)) return;
+  if (!ui.fRevealed && skipReveal()) return;
+  const act = event.target.closest('[data-act]')?.dataset.act;
+  if (act === 'inject') return doPick(ui.fSel);
+  if (act === 'resample') return doResample();
+  if (act === 'discard') return doDiscard();
+  const slide = event.target.closest('.slide');
+  if (!slide) return;
+  const i = Number(slide.dataset.slot);
+  if (ui.fConfirm) setConfirm(false);
+  // The INJECT label shows on the selected slide; a click on it picks.
+  if (i === ui.fSel && event.target.closest('.inject-cta') && slide.classList.contains('selected')) return doPick(i);
+  // Keyboard activation of a focused slide (Enter/Space on the button) is
+  // handled by the keydown gate; a pointer click only selects.
+  if (event.detail === 0) return;
+  selectSlide(i);
+});
+fPanel.addEventListener('dblclick', (event) => {
+  if (draftGate.locked(performance.now())) return;
+  const slide = event.target.closest('.slide');
+  if (slide) doPick(Number(slide.dataset.slot));
+});
+
 // ---- Keyboard --------------------------------------------------------------------
 const MOVE_KEYS = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'KeyA', 'KeyD', 'KeyW', 'KeyS'];
 function moveFocus(delta) {
@@ -927,6 +1224,7 @@ window.addEventListener('keydown', (event) => {
     return;
   }
   ui.idle = 0;
+  if (screen === 'formulate') return formulateKey(event);
   if (screen && screen !== 'report') {
     if (code === 'Escape') {
       if (screen === 'map') closeMap();
@@ -976,10 +1274,11 @@ window.addEventListener('keydown', (event) => {
 window.addEventListener('keyup', (event) => {
   held.delete(event.code);
   locked.delete(event.code);
+  draftGate.release(event.code);
 });
 window.addEventListener('blur', () => {
   releaseAll();
-  if (['playing', 'transition'].includes(state.phase) && !state.paused) {
+  if (['playing', 'transition', 'draft'].includes(state.phase) && !state.paused) {
     state.paused = true;
     // A hidden or blurred tab may stop requestAnimationFrame first, so the
     // audio is suspended here directly as well as by the frame loop.
@@ -1202,6 +1501,21 @@ window.__game = {
     return result;
   },
   bomb: () => useBomb(state),
+  /** The run's draft state (QA): deck, pity, tokens, titer and the offer. */
+  run: () => (state.run ? structuredClone({ ...state.run, kit: { potency: state.kit.potency, limit: state.kit.limit, atLimit: state.kit.atLimit } }) : null),
+  /** FORMULATE actions, exactly as the screen calls them. */
+  draft: { pick: (i) => doPick(i), resample: () => doResample(), discard: () => (doDiscard(), doDiscard()), skip: () => skipReveal(), screen: () => ({ selected: ui.fSel, revealed: ui.fRevealed, confirm: ui.fConfirm, key: ui.fKey }) },
+  /** QA fixture only: hand the run a deck (normal play never calls this). */
+  setDeck: (ids) => {
+    if (!state.run) return false;
+    state.run.deck = ids.filter((id) => CARD[id]).map((id) => ({ id, at: state.wave }));
+    refreshKit(state);
+    state.ship.coat = state.kit.coatMax;
+    syncUI();
+    view?.render(state, 0);
+    return true;
+  },
+  saved: () => load(KEYS.run, null),
   /** Dev-only collider overlay (also ?hitboxes=1). Never shown to players by default. */
   hitboxes: (on = true) => {
     view?.setHitboxes(on);
@@ -1231,7 +1545,7 @@ window.__game = {
     return snapshot(state);
   },
   setState: (patch) => {
-    for (const key of ['phase', 'paused', 'health', 'lives', 'score', 'wave', 'enemies', 'shots', 'enemyShots', 'ship', 'waveElapsed', 'transition', 'transitionHold', 'pickups', 'dropCooldown', 'rngState', 'unlockedStage', 'boss', 'chain', 'telegraphs', 'beams', 'failures', 'emitters', 'difficulty'])
+    for (const key of ['phase', 'paused', 'health', 'lives', 'score', 'wave', 'enemies', 'shots', 'enemyShots', 'ship', 'waveElapsed', 'transition', 'transitionHold', 'pickups', 'dropCooldown', 'rngState', 'unlockedStage', 'boss', 'chain', 'telegraphs', 'beams', 'failures', 'emitters', 'difficulty', 'run'])
       if (key in patch) {
         if (key === 'ship') Object.assign(state.ship, patch.ship);
         else if (key === 'boss' && state.boss && patch.boss) Object.assign(state.boss, structuredClone(patch.boss));
@@ -1320,8 +1634,27 @@ async function boot() {
       }
     }
     const drawn = clock.smooth && prevOf === shown ? interpolatedView(shown, prevPositions, clock.alpha) : shown;
-    const flash = view.render(drawn, dt);
-    $('#damage-flash').style.opacity = String(flash);
+    // FORMULATE: nothing simulates, so the board is drawn once, copied into
+    // the screen's backdrop and the WebGL canvas is hidden until the pick.
+    // Redrawing a static scene under the glass slides every frame cost
+    // SwiftShader 5-13 fps (vs 61 held), and merely skipping renders left a
+    // non-preserved drawing buffer that captures showed as garbage.
+    const hold = !demo && state.phase === 'draft' && !state.paused ? `${ui.fKey}|${stage.clientWidth}x${stage.clientHeight}` : '';
+    if (!hold || hold !== ui.heldFrame) {
+      const flash = view.render(drawn, dt);
+      $('#damage-flash').style.opacity = String(flash);
+      if (hold) {
+        try {
+          // Read in the same task as the render, before the buffer is presented.
+          $('#formulate').style.setProperty('--board', `url(${canvas.toDataURL('image/jpeg', 0.85)})`);
+          canvas.style.visibility = 'hidden';
+        } catch {
+          ui.heldFrame = '';
+        }
+      }
+    }
+    if (!hold && canvas.style.visibility) canvas.style.visibility = '';
+    if (hold !== ui.heldFrame && !(hold && canvas.style.visibility !== 'hidden')) ui.heldFrame = hold;
     syncUI();
     requestAnimationFrame(frame);
   }

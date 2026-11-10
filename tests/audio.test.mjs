@@ -253,3 +253,41 @@ test('boss lines are vocalised as a low growl, in the right twin voice, never as
   const gamma = CHARACTERS.gamma.voice.pitch;
   assert.ok(voices.every((o) => o.frequency.events[0][1] < gamma * 0.75), 'pitched down: menace, not speech');
 });
+
+test('15 adjuvant sounds: tiers escalate and stay distinct; the legendary stays under the boss defeat', () => {
+  const play = (ev, st = fixtureState()) => {
+    const { ctx, audio, mark } = engine(5);
+    const m = mark();
+    audio.event(ev, st);
+    return since(ctx, m);
+  };
+  const tiers = ['common', 'rare', 'epic', 'legendary'];
+  const shape = (nodes) => {
+    const oscs = nodes.filter((n) => n.kind === 'osc' || n.kind === 'source');
+    const end = Math.max(...oscs.map((n) => n.stopped)) - Math.min(...oscs.map((n) => n.started));
+    // Spectral centroid proxy: oscillator start frequencies weighted by
+    // their own envelope peaks.
+    const pairs = nodes.filter((n) => n.kind === 'osc').map((o) => {
+      const g = nodes.find((n) => n.kind === 'gain' && o.outputs.some((x) => x === n || x.outputs?.includes?.(n)));
+      const peak = g ? Math.max(0, ...g.gain.events.filter((e) => e[0] === 'lin').map((e) => e[1])) : 0;
+      return [o.frequency.events[0][1], peak];
+    });
+    const w = pairs.reduce((a, [, p]) => a + p, 0) || 1;
+    return { peak: peakOf(nodes), length: end, centroid: pairs.reduce((a, [f, p]) => a + f * p, 0) / w };
+  };
+  const shapes = tiers.map((tier) => shape(play({ type: 'reveal', tier, slot: 1 })));
+  for (let i = 1; i < 4; i++) {
+    assert.ok(shapes[i].peak > shapes[i - 1].peak, `${tiers[i]} reveal is louder than ${tiers[i - 1]}`);
+    assert.ok(shapes[i].length > shapes[i - 1].length, `${tiers[i]} reveal is longer`);
+  }
+  assert.equal(new Set(shapes.map((x) => Math.round(x.centroid / 50))).size, 4, `distinct centroids ${shapes.map((x) => x.centroid.toFixed(0))}`);
+  // The legendary peak sits under the boss defeat's (the loudest payoff, -3.8 dBFS).
+  const defeat = peakOf(play({ type: 'boss-defeated', boss: 'alpha', mid: false, x: 0 }, fixtureState({ boss: { type: 'alpha', state: 'fight' }, enemies: [] })));
+  assert.ok(shapes[3].peak < defeat, `legendary ${shapes[3].peak} < defeat ${defeat}`);
+  assert.ok(shapes[0].peak > LEVELS.shot, 'every reveal is louder than auto-fire');
+  // The absorb crack is not the core-hit sound.
+  const absorb = shape(play({ type: 'absorb', x: 0 })),
+    hit = shape(play({ type: 'damage', x: 0 }, fixtureState({ enemies: [] })));
+  assert.ok(Math.abs(absorb.centroid - hit.centroid) > 300, `absorb ${absorb.centroid.toFixed(0)} Hz vs vial lost ${hit.centroid.toFixed(0)} Hz`);
+  for (const id of ['draft', 'reveal-common', 'reveal-rare', 'reveal-epic', 'legendary-riser', 'reveal-legendary', 'resample', 'adjuvant', 'discard', 'absorb', 'coat-reform', 'epipen']) assert.ok(SFX_CATALOG.some((e) => e.id === id), `${id} is catalogued`);
+});
