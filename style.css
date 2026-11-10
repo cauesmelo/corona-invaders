@@ -64,6 +64,13 @@ canvas:focus-visible {
     0 0 0 1px #0b1a1a,
     0 24px 70px #0006;
 }
+/* Portrait phones: use the whole screen height (the 640 px cap left ~200 px
+ * unused at 390x844). */
+@media (max-aspect-ratio: 4/5) {
+  .cabinet {
+    height: 100%;
+  }
+}
 .stage {
   position: relative;
   flex: 1;
@@ -378,7 +385,7 @@ canvas {
   top: 14px;
   bottom: 14px;
   padding: 14px 14px;
-  background: linear-gradient(180deg, rgba(8, 17, 20, 0.92), rgba(5, 10, 12, 0.92));
+  background: rgba(6, 13, 16, 0.92);
   border: 1px solid var(--line);
   border-radius: 4px;
 }
@@ -502,7 +509,12 @@ canvas {
 }
 
 /* ---- VIRAL LOAD bar and the mutation card tape ---------------------------- */
+#boss-status.off {
+  opacity: 0;
+  visibility: visible;
+}
 #boss-status {
+  will-change: opacity;
   position: absolute;
   z-index: 3;
   top: 4px;
@@ -561,14 +573,20 @@ canvas {
   display: block;
 }
 /* The viral load is virus green (it is the virus's health), never pink. */
+/* No width transitions: animating width re-ran layout and paint every frame
+ * (a measured boss-start stall on software rasterizers). The fill jumps; the
+ * damage trail eases with a compositor-only transform. */
 #boss-health {
   background: linear-gradient(90deg, #0c8f43, var(--virus) 60%, #7dffb0);
-  transition: width 0.08s linear;
 }
-#boss-lag {
+#boss-track #boss-lag {
+  width: 100%;
   background: #f4f7ff;
   opacity: 0.85;
-  transition: width 0.55s ease 0.22s;
+  transform-origin: 0 50%;
+  transform: scaleX(var(--lag, 1));
+  transition: transform 0.55s ease 0.22s;
+  will-change: transform;
 }
 #boss-track.exposed #boss-health {
   background: repeating-linear-gradient(110deg, #7dffb0 0 8px, #0c8f43 8px 16px);
@@ -858,6 +876,60 @@ canvas {
   color: #d08a4e;
 }
 
+/* One-line first-time hints (R0, CHAIN, focus): low on the board, brief. */
+#hint {
+  position: absolute;
+  z-index: 3;
+  left: 50%;
+  bottom: 18%;
+  transform: translateX(-50%);
+  max-width: min(440px, calc(100% - 24px));
+  padding: 6px 12px;
+  border-left: 3px solid var(--cyan);
+  background: rgba(4, 11, 13, 0.9);
+  color: var(--ink);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-align: center;
+  pointer-events: none;
+}
+.easy-start {
+  display: block;
+  margin: 10px auto 0;
+  min-height: 40px;
+  padding: 0 14px;
+  border: 1px solid #24433f;
+  border-radius: 3px;
+  background: rgba(8, 18, 20, 0.85);
+  color: var(--muted);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+}
+.easy-start b {
+  color: var(--cyan);
+}
+.easy-start:hover,
+.easy-start:focus-visible {
+  border-color: var(--cyan);
+}
+/* A retry key is ignored for 1 s after a loss: the bar fills as it unlocks. */
+.row.primary.locked {
+  background: linear-gradient(90deg, var(--cyan) 0 0, #1a3a40 0) no-repeat;
+  color: var(--muted);
+  animation: unlock 1s linear forwards;
+}
+@keyframes unlock {
+  from {
+    background-size: 0% 100%;
+    background-image: linear-gradient(var(--cyan), var(--cyan));
+  }
+  to {
+    background-size: 100% 100%;
+    background-image: linear-gradient(var(--cyan), var(--cyan));
+    color: #031419;
+  }
+}
+
 /* ---- Overlay screens ------------------------------------------------------ */
 .overlay {
   position: absolute;
@@ -994,7 +1066,6 @@ canvas {
 .logo-virus {
   width: 56px;
   height: 56px;
-  filter: drop-shadow(0 0 6px #12ce5d88);
   animation: spin 9s linear infinite;
 }
 .logo .dm + .dm,
@@ -1545,9 +1616,21 @@ kbd {
 #touch-bomb {
   display: none;
 }
+/* The itch fullscreen control sits left of pause in the strip, never on it. */
+.cabinet[data-layout='strip'] .hud {
+  padding-right: 96px;
+}
+.cabinet[data-layout='strip'] .itch-fullscreen {
+  right: 50px !important;
+  top: 6px !important;
+}
 @media (pointer: coarse) {
   .cabinet[data-layout='strip'] .hud {
-    padding-right: 58px;
+    padding-right: 108px;
+  }
+  .cabinet[data-layout='strip'] .itch-fullscreen {
+    right: 58px !important;
+    top: 3px !important;
   }
   .cabinet .hud-button {
     width: 44px;
@@ -1693,7 +1776,7 @@ kbd {
 @keyframes shatter {
   25% {
     transform: translateX(3px);
-    filter: brightness(2);
+    opacity: 0.7;
   }
   50% {
     transform: translateX(-3px);

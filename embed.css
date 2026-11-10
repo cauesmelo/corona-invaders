@@ -202,6 +202,12 @@ body {
     height: min(640px, calc(100dvh - 16px));
   }
 }
+/* Portrait phones: fill the screen height (the 640 px cap wasted ~200 px). */
+@media (max-aspect-ratio: 4/5) {
+  .game-only:not(.itch-embed) body > main {
+    height: calc(100dvh - 16px);
+  }
+}
 @media (max-height: 500px) {
   .journey .game-top,
   .journey .game-bottom {

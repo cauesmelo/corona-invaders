@@ -143,6 +143,37 @@ function setHTML(key, el, html) {
   ui.cache[key] = html;
   el.innerHTML = html;
 }
+// The HUD runs every frame: write to the DOM only when a value changes (an
+// unconditional style or attribute write repainted the boss bar each frame).
+function setStyle(key, el, prop, value) {
+  if (ui.cache[key] === value) return;
+  ui.cache[key] = value;
+  el.style[prop] = value;
+}
+function setAttr(key, el, name, value) {
+  if (ui.cache[key] === value) return;
+  ui.cache[key] = value;
+  el.setAttribute(name, value);
+}
+function setClass(key, el, cls, on) {
+  on = !!on;
+  if (ui.cache[key] === on) return;
+  ui.cache[key] = on;
+  el.classList.toggle(cls, on);
+}
+function setHidden(key, el, hidden) {
+  hidden = !!hidden;
+  if (ui.cache[key] === hidden) return;
+  ui.cache[key] = hidden;
+  el.hidden = hidden;
+}
+/** One-line hints, each shown once per player (R0, CHAIN, focus). */
+function hintOnce(key, text) {
+  if (store.seen.has(key)) return;
+  store.seen.add(key);
+  save(KEYS.seen, [...store.seen]);
+  flashElement('#hint', 3600, (el) => (el.textContent = text));
+}
 function flashElement(id, ms, apply) {
   const el = $(id);
   clearTimeout(ui.timers[id]);
@@ -245,7 +276,11 @@ function handleEvents(list, s, live) {
       track.classList.remove('shatter');
       void track.offsetWidth;
       track.classList.add('shatter');
-    } else if (ev.type === 'chain-tier') {
+    } else if (ev.type === 'escape') hintOnce('hint-r0', 'R0: THE SHARE OF VIRUSES THAT GOT AWAY. KEEP IT UNDER 1.');
+    else if (ev.type === 'surge') flashElement('#callout', 1300, (el) => ((el.innerHTML = '<small>THE CHOIR SPEEDS UP</small>OUTBREAK SURGE'), el.classList.remove('is-card', 'long')));
+    else if (ev.type === 'boss-enter' && !ev.mid) hintOnce('hint-focus', 'HOLD SHIFT: SLOWER MOVES, A STRONGER NEEDLE STREAM.');
+    else if (ev.type === 'chain-tier') {
+      if (ev.tier === 2) hintOnce('hint-chain', 'CHAIN: CURE AGAIN WITHIN 2 S TO MULTIPLY POINTS.');
       const chip = $('#chain');
       chip.classList.remove('bump');
       void chip.offsetWidth;
@@ -347,6 +382,9 @@ function configure(screen) {
   const press = touch ? 'TAP' : 'SPACE';
   if (ATTRACT.includes(screen)) {
     playButton.textContent = touch ? 'TAP TO START' : 'PRESS SPACE';
+    // First visit: offer Easy beside the start (never blocking it).
+    const firstVisit = load(KEYS.difficulty, null) === null;
+    $('#easy-start').hidden = !(firstVisit && screen === 'title');
     $('#title-controls').innerHTML = controlsLine(touch);
     if (screen === 'title' || screen === 'demo')
       heading.innerHTML = `<span class="logo-row">${pixelSprite('corona', { cls: 'logo-virus' })}${matrix('CORONA')}${pixelSprite('corona', { cls: 'logo-virus' })}</span>${matrix('INVADERS')}<span class="logo-sub">${pixelSprite('syringe', { color: '#7fe8ff', cls: 'logo-syringe' })}<em>A VACCINE BULLET HELL</em></span>`;
@@ -381,6 +419,14 @@ function configure(screen) {
     $('#easy-button').innerHTML = `SWITCH TO EASY <span class="hint">5 VIALS · AUTO-SOAP</span>`;
     $('#menu-button').innerHTML = `SPECIMEN TRAY <span class="hint">↓</span>`;
     ui.lostTime = 0;
+    // Keys wait 1 s and a fresh press (a held SOAP key must not retry), and
+    // after three losses on Normal, Easy becomes the default choice.
+    ui.lockUntil = performance.now() + 1000;
+    const easyFirst = assist && state.difficulty === 'normal';
+    $('#easy-button').classList.toggle('primary', easyFirst);
+    playButton.classList.toggle('primary', !easyFirst);
+    playButton.classList.add('locked');
+    setTimeout(() => playButton.classList.remove('locked'), 1000);
   } else if (screen === 'won') {
     heading.innerHTML = matrix('CONTAINED');
     tag.textContent = 'R0 < 1 · CAMPAIGN COMPLETE';
@@ -418,7 +464,11 @@ function configure(screen) {
 }
 function focusPrimary(screen) {
   if (!screen || screen === 'demo') return;
-  const target =
+  if (screen !== 'lost') {
+    playButton.classList.add('primary');
+    $('#easy-button').classList.remove('primary');
+  }
+  const target = screen === 'lost' && $('#easy-button').classList.contains('primary') ? $('#easy-button') :
     screen === 'map'
       ? $(`#tray-rows [data-stage="${Math.min(state.wave, state.unlockedStage)}"]`) || $('#tray-rows button:not(:disabled)') || $('#map-back')
       : screen === 'controls'
@@ -506,54 +556,59 @@ const TWIST_TEXT = {
   rush: { warn: 'BLOOD RUSH FLIPS', flow: 'BLOOD RUSH' },
 };
 function syncHUD(s) {
-  cabinet.dataset.phase = ui.screen === 'demo' ? 'demo' : s.paused ? 'paused' : s.phase;
-  stage.classList.toggle('held', !!s.paused || (s.phase === 'transition' && s.transitionHold));
+  const phaseAttr = ui.screen === 'demo' ? 'demo' : s.paused ? 'paused' : s.phase;
+  if (ui.cache.phaseAttr !== phaseAttr) cabinet.dataset.phase = ui.cache.phaseAttr = phaseAttr;
+  setClass('held', stage, 'held', !!s.paused || (s.phase === 'transition' && s.transitionHold));
   setHTML('score', $('#score'), segments(String(s.score).padStart(7, '0')));
-  $('#score').setAttribute('aria-label', `Score ${s.score}`);
+  setAttr('scoreAria', $('#score'), 'aria-label', `Score ${s.score}`);
   const hi = Math.max(store.scores[0]?.score || 0, s.score);
   setHTML('hi', $('#hud-hi'), `HI ${segments(String(hi).padStart(7, '0'))}`);
   setHTML('graze', $('#graze'), segments(String(s.grazes).padStart(4, '0')));
-  $('#graze').setAttribute('aria-label', `Graze ${s.grazes}`);
+  setAttr('grazeAria', $('#graze'), 'aria-label', `Graze ${s.grazes}`);
   const r0 = s.r0 || 0;
   setHTML('r0', $('#r0'), r0Dial(r0));
   setText($('#r0-value'), r0.toFixed(2));
-  $('#r0-value').classList.toggle('over', r0 >= 1);
+  setClass('r0over', $('#r0-value'), 'over', r0 >= 1);
   const mult = chainMultiplier(s.chain.count);
   const chip = $('#chain');
-  chip.hidden = mult < 2 || !['playing', 'transition'].includes(s.phase);
+  setHidden('chip', chip, mult < 2 || !['playing', 'transition'].includes(s.phase));
   setText(chip, `CHAIN ×${mult}`);
   const slots = Math.max(3, s.health);
   const cracked = performance.now() < ui.crackedUntil;
   const vials = Array.from({ length: slots }, (_, i) => vial(i < s.health ? 'full' : cracked && i === s.health ? 'cracked' : 'empty')).join('');
   setHTML('vials', $('#lives'), vials);
-  $('#lives').setAttribute('aria-label', `${s.health} doses`);
+  setAttr('livesAria', $('#lives'), 'aria-label', `${s.health} doses`);
   setHTML('soap', $('#soap'), soapBubbles(s.ship.bombs, (s.ship.grazeProgress || 0) / RULES.grazePerBomb));
-  $('#soap').setAttribute('aria-label', `${s.ship.bombs} soap bursts`);
+  setAttr('soapAria', $('#soap'), 'aria-label', `${s.ship.bombs} soap bursts`);
   setHTML('power', $('#power'), `${helix(s.ship.power)}<span>L${s.ship.power}</span>`);
-  $('#power').setAttribute('aria-label', `Power ${s.ship.power} of 4`);
+  setAttr('powerAria', $('#power'), 'aria-label', `Power ${s.ship.power} of 4`);
   const level = getLevel(s.wave);
   setText($('#sector-code'), s.practice ? `${level.code} P` : level.code);
   setText($('#sector-world'), getWorld(s.wave).name);
-  $('#pause-button').setAttribute('aria-label', s.paused ? 'Resume game' : 'Pause game');
+  setAttr('pauseAria', $('#pause-button'), 'aria-label', s.paused ? 'Resume game' : 'Pause game');
   setText($('#touch-bomb-count'), String(s.ship.bombs));
-  $('#touch-bomb').classList.toggle('empty', s.ship.bombs <= 0);
+  setClass('bombEmpty', $('#touch-bomb'), 'empty', s.ship.bombs <= 0);
   // Twist indicator: BREATH / CURRENT with its 1-2 s warning.
   const tw = s.twist || {};
   const tt = TWIST_TEXT[tw.kind]?.[tw.stage];
   const twistTag = $('#twist-tag');
-  twistTag.hidden = !tt || s.phase !== 'playing';
+  setHidden('twist', twistTag, !tt || s.phase !== 'playing');
   if (tt) {
     setText(twistTag, (tw.kind === 'current' || tw.kind === 'rush' ? (tw.dir > 0 ? '→ ' : '← ') : '') + tt);
-    twistTag.classList.toggle('warn', !!tw.warn);
+    setClass('twistWarn', twistTag, 'warn', !!tw.warn);
   }
 
   const boss = bossStatus(s),
     panel = $('#boss-status');
-  panel.hidden = !boss || s.phase !== 'playing';
+  // Toggled by opacity, not display: the bar stays rasterized, so showing it
+  // never costs a first paint mid-play (a measured stall at boss starts).
+  const bossOff = !boss || s.phase !== 'playing';
+  setClass('bossPanel', panel, 'off', bossOff);
+  setAttr('bossAria', panel, 'aria-hidden', String(bossOff));
   if (boss) {
     const percent = (boss.hp / boss.maxHp) * 100;
-    $('#boss-health').style.width = `${percent}%`;
-    $('#boss-lag').style.width = `${percent}%`;
+    setStyle('bossW', $('#boss-health'), 'width', `${percent}%`);
+    setStyle('bossLag', $('#boss-lag'), 'transform', `scaleX(${(percent / 100).toFixed(4)})`);
     setText($('#boss-label'), boss.name);
     setText($('.boss-tag'), boss.mid ? 'MIDBOSS LOAD' : `${level.code} VIRAL LOAD`);
     setText($('#boss-numeric'), `${boss.hp} / ${boss.maxHp}`);
@@ -564,19 +619,19 @@ function syncHUD(s) {
     setText($('#card-kind'), kind);
     setText($('#card-name'), boss.attack + (boss.capture || boss.cardType === 'phase' ? '' : ' · NO BONUS'));
     setHTML('timer', $('#card-timer'), segments(String(Math.ceil(boss.timeLeft)).padStart(2, '0')));
-    $('#card-tape').classList.toggle('is-card', boss.cardType !== 'phase');
+    setClass('tapeCard', $('#card-tape'), 'is-card', boss.cardType !== 'phase');
     setHTML('notches', $('#boss-notches'), boss.notches.map((f) => `<i style="left:calc(${(f * 100).toFixed(2)}% - 1px)"></i>`).join(''));
     setHTML('parts', $('#boss-parts'), boss.parts.map((p) => `<span class="${p.alive ? '' : 'dead'}" title="${p.label}"><em>${p.label.toUpperCase()}</em><i style="width:${((p.hp / p.maxHp) * 100).toFixed(1)}%"></i></span>`).join(''));
     const track = $('#boss-track');
-    track.classList.toggle('exposed', boss.state === 'cardIntro');
-    track.setAttribute('aria-valuenow', String(boss.hp));
-    track.setAttribute('aria-valuemax', String(boss.maxHp));
-    track.setAttribute('aria-label', `${boss.name} viral load`);
-    track.setAttribute('aria-valuetext', `${boss.hp} of ${boss.maxHp}, card ${boss.phase} of ${boss.phases}: ${boss.attack}`);
+    setClass('trackExposed', track, 'exposed', boss.state === 'cardIntro');
+    setAttr('trackNow', track, 'aria-valuenow', String(boss.hp));
+    setAttr('trackMax', track, 'aria-valuemax', String(boss.maxHp));
+    setAttr('trackLabel', track, 'aria-label', `${boss.name} viral load`);
+    setAttr('trackText', track, 'aria-valuetext', `${boss.hp} of ${boss.maxHp}, card ${boss.phase} of ${boss.phases}: ${boss.attack}`);
   }
   const effects = Object.entries(s.ship.powerups).filter(([, t]) => t > 0);
   const powerups = $('#powerups');
-  powerups.hidden = effects.length === 0;
+  setHidden('powerups', powerups, effects.length === 0);
   setHTML('powerups', powerups, effects.map(([kind, t]) => `<span>${pickupIcon(kind)}${PICKUP[kind]?.[0] || kind.toUpperCase()} <b>${Math.ceil(t)}</b></span>`).join(''));
 }
 
@@ -638,6 +693,7 @@ function beginPlay(action) {
   focusGame();
 }
 function freshCampaign() {
+  if (load(KEYS.difficulty, null) === null) save(KEYS.difficulty, store.difficulty);
   runId++;
   state.difficulty = store.difficulty;
   newRun(state, freshSeed());
@@ -725,6 +781,12 @@ $('#back-button').addEventListener('click', () => {
   ui.controlsOpen = false;
   syncUI();
 });
+$('#easy-start').addEventListener('click', () => {
+  store.difficulty = 'easy';
+  save(KEYS.difficulty, 'easy');
+  syncDifficultyButtons();
+  beginPlay(freshCampaign);
+});
 $('#tray-tabs').addEventListener('click', (event) => {
   const tab = event.target.closest('[data-mode]');
   if (!tab) return;
@@ -769,6 +831,10 @@ window.addEventListener('keydown', (event) => {
   const code = event.code;
   const onButton = event.target instanceof HTMLButtonElement;
   const screen = ui.screen;
+  if (screen === 'lost' && (code === 'Space' || code === 'Enter') && (event.repeat || performance.now() < (ui.lockUntil || 0))) {
+    event.preventDefault(); // also blocks a focused button's native activation
+    return;
+  }
   const nativeActivate = onButton && (code === 'Space' || code === 'Enter');
   if (!nativeActivate && [...MOVE_KEYS, 'Space', 'KeyX', 'KeyP', 'KeyR', 'Escape', 'ShiftLeft', 'ShiftRight'].includes(code)) event.preventDefault();
   if (ui.attract !== 'title' && state.phase === 'title' && !['Space', 'Enter'].includes(code)) {
@@ -794,6 +860,8 @@ window.addEventListener('keydown', (event) => {
     if (code === 'ArrowUp' || code === 'ArrowDown') return moveFocus(code === 'ArrowUp' ? -1 : 1);
     if (screen === 'map' && (code === 'ArrowLeft' || code === 'ArrowRight')) return moveFocus(code === 'ArrowLeft' ? -1 : 1);
     if (onButton && (code === 'Space' || code === 'Enter')) return;
+    if (screen === 'lost' && (event.repeat || performance.now() < (ui.lockUntil || 0))) return;
+    if (screen === 'lost' && (code === 'Space' || code === 'Enter') && $('#easy-button').classList.contains('primary')) return $('#easy-button').click();
     if ((code === 'Space' || code === 'Enter') && !['map', 'controls', 'pause'].includes(screen)) return primaryAction();
     if (code === 'KeyP' && screen === 'pause') {
       togglePause(state);
@@ -846,24 +914,36 @@ document.addEventListener('visibilitychange', () => {
 // ---- Pointer: the mouse leads the syringe; touch drags it relatively -----------
 const boardPoint = (event) => view?.pick(event.clientX, event.clientY);
 canvas.addEventListener('contextmenu', (event) => event.preventDefault());
+// The mouse steers only while the left button is held, and only from points on
+// the board (never from the side panels): moving the mouse while playing on
+// the keyboard must never hijack the syringe (playtest).
+const onBoard = (p) => p && Math.abs(p.x) <= RULES.halfWidth && p.z >= RULES.back && p.z <= RULES.front;
 canvas.addEventListener('pointermove', (event) => {
   if (!inputEnabled || event.pointerType !== 'mouse') return;
   ui.idle = 0;
+  if (!mouseFocus) return;
   const p = boardPoint(event);
-  if (p) pointer = p;
+  if (onBoard(p)) pointer = p;
 });
 canvas.addEventListener('pointerdown', (event) => {
   focusGame();
   wake();
   if (event.pointerType !== 'mouse') return padDown(event, canvas);
-  const p = boardPoint(event);
-  if (p) pointer = p;
-  if (event.button === 0) mouseFocus = true;
+  if (event.button === 0) {
+    const p = boardPoint(event);
+    if (onBoard(p)) {
+      pointer = p;
+      mouseFocus = true; // here: "steering"
+    }
+  }
   if (event.button === 2) mouseBomb = true;
 });
 window.addEventListener('pointerup', (event) => {
   if (event.pointerType !== 'mouse') return;
-  if (event.button === 0) mouseFocus = false;
+  if (event.button === 0) {
+    mouseFocus = false;
+    pointer = null;
+  }
   if (event.button === 2) mouseBomb = false;
 });
 const pad = $('#touch-fire');
@@ -920,7 +1000,7 @@ function currentInput() {
   const input = {
     axisX,
     axisZ,
-    focus: keys.has('ShiftLeft') || keys.has('ShiftRight') || mouseFocus,
+    focus: keys.has('ShiftLeft') || keys.has('ShiftRight'),
     bomb: keys.has('Space') || keys.has('KeyX') || mouseBomb || bombPulse > 0,
   };
   if (!axisX && !axisZ) {

@@ -1199,6 +1199,7 @@ export function createRenderer({ canvas, stage, settings }) {
   // ---- Telegraph meshes ----------------------------------------------------------
   const teleMeshes = new Map();
   const ringGeo = new THREE.RingGeometry(1.15, 1.42, 36);
+  const pinkRingGeo = new THREE.RingGeometry(1.22, 1.36, 36);
   const dangerMat = (opacity = 0.8) => new THREE.MeshBasicMaterial({ color: PALETTE.danger, transparent: true, opacity, depthWrite: false, side: THREE.DoubleSide, toneMapped: false });
   /** Flat dashes on the glass. WebGL lines are 1 px; quads stay legible. */
   function dashed(points, color, dash = 0.45, width = 0.2, solid = false, y = FLOOR_Y + 0.06) {
@@ -1231,7 +1232,7 @@ export function createRenderer({ canvas, stage, settings }) {
   const disposeObj = (m) => {
     scene.remove(m);
     m.traverse((c) => {
-      if (c.geometry && !c.geometry.userData.shared && c.geometry !== shared && c.geometry !== flat && c.geometry !== ringGeo) c.geometry.dispose();
+      if (c.geometry && !c.geometry.userData.shared && c.geometry !== shared && c.geometry !== flat && c.geometry !== ringGeo && c.geometry !== pinkRingGeo) c.geometry.dispose();
       if (c.material && c.material.map !== glow()) c.material.dispose?.();
     });
   };
@@ -1250,7 +1251,7 @@ export function createRenderer({ canvas, stage, settings }) {
     const warning = new THREE.Group();
     const o = new THREE.Mesh(ringGeo, dangerMat(0.8));
     o.material.color.set(PALETTE.dangerRim);
-    const pinkRing = new THREE.Mesh(new THREE.RingGeometry(1.22, 1.36, 36), dangerMat(1));
+    const pinkRing = new THREE.Mesh(pinkRingGeo, dangerMat(1));
     pinkRing.position.z = 0.02;
     warning.add(o, pinkRing);
     warning.rotation.x = -Math.PI / 2;
@@ -1940,6 +1941,22 @@ export function createRenderer({ canvas, stage, settings }) {
     } catch {
       /* Compilation is an optimisation only. */
     }
+    // Every virus and boss shape: geometry is built (and cached per spec)
+    // and uploaded by one hidden draw under the table, so a stage or boss
+    // start never builds meshes mid-play (playtest: 100-300 ms hitches).
+    const zoo = new THREE.Group();
+    for (const spec of Object.values(SHAPES)) zoo.add(buildShape(spec).body);
+    zoo.position.y = -6;
+    zoo.traverse((o) => (o.frustumCulled = false));
+    scene.add(zoo);
+    try {
+      renderer.compile(scene, camera);
+      renderer.render(scene, camera);
+    } catch {
+      /* Warm-up only. */
+    }
+    scene.remove(zoo);
+    zoo.traverse((o) => o.material?.dispose?.());
     for (const o of hidden) o.visible = false;
     for (const m of [...Object.values(bullets), needles, antigenPool, strands]) m.count = 0;
     scene.remove(warm);

@@ -41,7 +41,7 @@
         ></canvas>
         <div id="damage-flash" aria-hidden="true"></div>
         <div id="twist-tag" hidden aria-live="polite"></div>
-        <div id="boss-status" hidden aria-label="Boss encounter">
+        <div id="boss-status" class="off" aria-hidden="true" aria-label="Boss encounter">
           <div class="boss-heading">
             <span class="boss-tag">VIRAL LOAD</span><strong id="boss-label">VARIANT</strong><span id="boss-pips" aria-hidden="true"></span
             ><span id="boss-numeric">0 / 0</span>
@@ -57,6 +57,7 @@
         <div id="callout" aria-live="assertive" hidden></div>
         <div id="intro-card" hidden><b id="intro-code"></b><span id="intro-name"></span><em id="intro-new" hidden></em></div>
         <div id="tally" aria-live="polite" hidden></div>
+        <div id="hint" aria-live="polite" hidden></div>
         <div id="touch-fire" class="touch-pad" aria-label="Touch pad: drag anywhere to move the syringe" role="application" tabindex="-1">
           <span class="pad-hint" id="pad-hint">DRAG ANYWHERE · AUTO-FIRE</span>
         </div>
@@ -79,6 +80,7 @@
               <button id="controls-button" class="row" type="button" hidden>CONTROLS</button>
               <button id="back-button" class="row" type="button" hidden>BACK</button>
             </div>
+            <button id="easy-start" class="easy-start" type="button" hidden>NEW TO BULLET HELLS? <b>START ON EASY</b> · 5 VIALS, AUTO-SOAP</button>
             <p class="title-controls" id="title-controls"></p>
             <div class="title-icons" id="title-icons">
               <button id="map-button" class="icon-button" type="button" aria-label="Specimen tray">
