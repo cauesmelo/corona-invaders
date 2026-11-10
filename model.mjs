@@ -8,7 +8,7 @@
  * graze ring, auto-fire, the SOAP burst (bomb) with a 0.18 s deathbomb window,
  * mRNA power levels 1-4 with antibody options, in-place respawn.
  */
-import { RULES as CORE_RULES, DIFFICULTY, diff, clamp, random, nextId, pushEvent, requestHitstop, aimAngle } from './core.mjs';
+import { RULES as CORE_RULES, DIFFICULTY, diff, flowAt, clamp, random, nextId, pushEvent, requestHitstop, aimAngle } from './core.mjs';
 import { LEVELS, WORLDS, ARCHETYPES, STAGE_COUNT, getLevel, getWorld, POWER_STEPS, powerOf, entryPower, stageDps, stageHp, PROLOGUE, ELITES } from './levels.mjs';
 import { FAMILIES, spawnBullet, updateBullets, cancelBullets, normalizeBullet } from './bullets.mjs';
 import { updateEmitters, clearEmitters, PRESETS, LIMITS } from './patterns.mjs';
@@ -17,6 +17,7 @@ import {
   updateEnemies,
   scheduleChoir,
   scheduleDives,
+  scheduleDivers,
   scheduleMutation,
   spawnFlight,
   spawnWorm,
@@ -169,6 +170,8 @@ function setupSector(s, stage, { card = null } = {}) {
     tune: null,
     mutation: null,
     dive: null,
+    divers: null,
+    diverClock: 3,
     choir: null,
     injections: 0,
     absorbs: 0,
@@ -967,7 +970,7 @@ function inject(s, e) {
       if (e.hp <= 0) killEnemy(s, e, 'inject');
     }
   }
-  pushEvent(s, 'inject', { x, z, kind, id: e.id, elite, cured: !e.alive, cancelled });
+  pushEvent(s, 'inject', { x, z, kind, id: e.id, elite, cured: !e.alive, cancelled, peel: e.mode === 'peel' });
 }
 
 /** A cure's adjuvant effects (the INJECT line, RESEARCH_DIFFICULTY §7.3). */
@@ -1242,14 +1245,13 @@ function updateTwist(s, level) {
     tw.warn = c < 1;
     tw.scale = tw.stage === 'inhale' ? 0.6 : tw.stage === 'exhale' ? 1.3 : 1;
   } else if (kind === 'current' || kind === 'rush') {
-    const period = over?.period ?? (kind === 'rush' ? 6 : 30),
-      speed = over?.speed ?? (kind === 'rush' ? 1.6 : 0.8);
-    const n = Math.floor(t / period),
-      c = t - n * period;
-    tw.dir = n % 2 ? -1 : 1;
-    tw.warn = c > period - 2;
+    // `dir0` starts a card's flow the other way round (DELTA's cards each flip
+    // it, announced by the card intro, so no bullet is ever in flight).
+    const flow = flowAt(kind, t, over ?? {});
+    tw.dir = flow.dir;
+    tw.warn = flow.warn;
     tw.stage = tw.warn ? 'warn' : 'flow';
-    tw.drift = speed * tw.dir;
+    tw.drift = flow.drift;
   } else tw.stage = 'calm';
   if (tw.stage !== prev) pushEvent(s, 'twist', { kind, stage: tw.stage, dir: tw.dir });
 }
@@ -1341,6 +1343,7 @@ function runScript(s, level, dt) {
     else if (st.tune) sec.tune = Object.keys(st.tune).length ? st.tune : null;
     else if (st.mutation) sec.mutation = st.mutation;
     else if (st.dive) sec.dive = st.dive;
+    else if (st.divers) sec.divers = st.divers;
     else if (st.choir) sec.choir = st.choir;
     else if (st.hint) pushEvent(s, 'hint', { id: st.hint });
     else if (st.surge) {
@@ -1704,6 +1707,7 @@ function substep(s, dt, input) {
   if (level.kind !== 'bonus') {
     scheduleChoir(s, level, dt);
     scheduleDives(s, level, dt);
+    scheduleDivers(s, level, dt);
     scheduleMutation(s, level, dt);
   }
   updateEmitters(s, dt);

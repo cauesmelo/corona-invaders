@@ -123,7 +123,9 @@ test('fans and rings keep >= 0.5 u clear between neighbours 10 u from the source
 test('MUCUS WALL keeps a gap >= 2.0 u (2.8 u on Easy) and is solid elsewhere', () => {
   for (const [difficulty, need] of [['normal', 2], ['easy', 2.8]])
     for (let seed = 0; seed < 6; seed++) {
-      const s = quiet(9, { difficulty, seed: 100 + seed });
+      // Sector 1 has no CURRENT, so the wall flies straight (tests/skill-patterns.test.mjs
+      // covers a wall under a flow, whose gap is launched to arrive on the board).
+      const s = quiet(1, { difficulty, seed: 100 + seed });
       s.ship.z = 11.8;
       const em = startPattern(s, 'wall', { x: 0, z: -11, params: { gaps: seed % 2 ? 2 : 1, gapWidth: 2.4, speed: 3.2 }, force: true });
       update(s, em.tele + 0.02);

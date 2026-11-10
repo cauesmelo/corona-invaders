@@ -234,9 +234,12 @@ export function scheduleChoir(s, level, dt) {
 export function scheduleDives(s, level, dt) {
   s.diveClock -= dt;
   if (s.diveClock > 0) return;
-  s.diveClock = 3.5 + random(s) * 1.5;
+  // `dive.every` / `dive.max` (a script step) let a late stage keep two dives
+  // in the air; the default is one at a time every 3.5-5 s.
+  const [lo, hi] = s.sector?.dive?.every ?? [3.5, 5];
+  s.diveClock = lo + random(s) * (hi - lo);
   const droplets = s.enemies.filter((e) => e.alive && e.kind === 'droplet' && !e.harmless);
-  if (droplets.some((e) => e.mode === 'aim' || e.mode === 'dive' || e.mode === 'puddle')) return;
+  if (droplets.filter((e) => e.mode === 'aim' || e.mode === 'dive' || e.mode === 'puddle').length >= (s.sector?.dive?.max ?? 1)) return;
   const ready = droplets.filter(isFormation);
   if (!ready.length) return;
   const e = ready[Math.floor(random(s) * ready.length)];
@@ -249,6 +252,47 @@ export function scheduleDives(s, level, dt) {
   s.sector.spawned++;
   addTelegraph(s, { kind: 'path', ownerId: e.id, x: e.target[0], z: e.target[1], danger: true, timer: Infinity });
   pushEvent(s, 'dive-telegraph', { x: e.x, z: e.z, target: e.target });
+}
+
+/** PEEL: the Galaga / Space Invaders dive. A grid member leaves its slot on a
+ * straight line through the column the syringe stands in NOW, extended to the
+ * bottom edge, after a dashed-path telegraph (default 1.2 s, while it
+ * bristles in place). The path never bends, so one sidestep of about 1.1 u
+ * (its radius plus the core's) clears it; the body is the hazard (contact),
+ * not a bullet, and a diver that gets through counts as escaped for R0.
+ * That is the opening stages' threat: a formation that attacks with a
+ * readable, simple pattern instead of a block of passive targets. */
+export function scheduleDivers(s, level, dt) {
+  const d = s.sector?.divers;
+  if (!d || d.off) return;
+  s.sector.diverClock -= dt;
+  if (s.sector.diverClock > 0) return;
+  const [lo, hi] = d.every ?? [5, 7];
+  s.sector.diverClock = lo + random(s) * (hi - lo);
+  if (s.enemies.filter((e) => e.alive && e.mode === 'peel').length >= (d.max ?? 1)) return;
+  // Only the front-most member of a column leaves (the grid keeps its shape).
+  const front = new Map();
+  for (const e of s.enemies) {
+    if (!isFormation(e) || e.harmless || e.mutating > 0 || !(e.kind === 'mini' || e.kind === 'wild')) continue;
+    const key = `${e.group}:${Math.round(e.baseX * 2)}`,
+      other = front.get(key);
+    if (!other || e.z > other.z) front.set(key, e);
+  }
+  const pool = [...front.values()];
+  if (!pool.length) return;
+  const e = pool[Math.floor(random(s) * pool.length)];
+  const dx = s.ship.x - e.x,
+    dz = Math.max(4, s.ship.z - e.z),
+    k = (RULES.moveMaxZ + 1.4 - e.z) / dz;
+  e.mode = 'peel';
+  e.modeTime = 0;
+  e.peelTele = d.tele ?? 1.2;
+  e.peelSpeed = d.speed ?? 5.5;
+  e.target = [clamp(e.x + dx * k, -RULES.moveMaxX, RULES.moveMaxX), RULES.moveMaxZ + 1.4];
+  e.escapable = true;
+  s.sector.spawned++;
+  addTelegraph(s, { kind: 'path', ownerId: e.id, x: e.target[0], z: e.target[1], danger: true, timer: Infinity });
+  pushEvent(s, 'peel-telegraph', { x: e.x, z: e.z, target: e.target, id: e.id });
 }
 
 const removeOwned = (s, id) => {
@@ -500,6 +544,13 @@ export function updateEnemies(s, level, dt) {
       e.x = x;
       e.z = z - (1 - ease) * 8;
       if (k >= 1) e.mode = 'formation';
+    } else if (e.mode === 'peel') {
+      e.modeTime += dt;
+      if (e.modeTime < e.peelTele) [e.x, e.z] = slotPosition(s, e);
+      else if (moveToward(e, e.target[0], e.target[1], e.peelSpeed, dt)) {
+        removeOwned(s, e.id);
+        escape(s, e);
+      }
     } else if (e.kind === 'droplet' && e.mode !== 'formation') {
       updateDroplet(s, e, level, dt);
     } else if (e.mode === 'retreat') {

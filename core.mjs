@@ -144,6 +144,19 @@ export const DIFFICULTY = Object.freeze({
 });
 export const diff = (s) => DIFFICULTY[s.difficulty] || DIFFICULTY.normal;
 
+/** The CURRENT's flow at stage time `t` (kinds 'current' and 'rush'): the
+ * direction, the sideways drift in u/s and whether the 2 s flip warning is
+ * on. Pure, so the model's twist, the wall emitter's forecast and the tests
+ * read one schedule. `dir0` starts a card's flow the other way round. */
+export function flowAt(kind, t, { period, speed, dir0 = 0 } = {}) {
+  period ??= kind === 'rush' ? 6 : 30;
+  speed ??= kind === 'rush' ? 1.6 : 0.8;
+  const n = Math.floor(t / period),
+    c = t - n * period,
+    dir = (n + (dir0 ? 1 : 0)) % 2 ? -1 : 1;
+  return { dir, drift: speed * dir, warn: c > period - 2, period, speed };
+}
+
 export const clamp = (n, a, b) => Math.max(a, Math.min(b, n));
 
 /** xorshift32 stored in state so checkpoint retries replay identical streams. */

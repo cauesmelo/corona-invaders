@@ -16,7 +16,7 @@
  *     never two aimed families together (gateAllows);
  *   - no bullet spawns within 2.5 u of the core (bullets.mjs).
  */
-import { RULES, clamp, random, nextId, pushEvent, aimAngle, diff } from './core.mjs';
+import { RULES, clamp, random, nextId, pushEvent, aimAngle, diff, flowAt } from './core.mjs';
 import { spawnBullet, FAMILIES } from './bullets.mjs';
 
 const DEG = Math.PI / 180;
@@ -295,7 +295,20 @@ export const PRESETS = Object.freeze({
         }
       }
       if (!centres.length) centres.push(0);
-      em.gapList = centres.map((c) => ({ x: c, width }));
+      // Under a CURRENT the wall (and its gap) drifts for the whole flight:
+      // 6 s at 1.6 u/s can carry a gap off the board, where the wall would be
+      // solid across it (a forced hit, found by the F1 replay in BLOOD RUSH).
+      // The gap is launched where the known flow schedule will bring it to
+      // the chosen centre (the flips are announced and deterministic).
+      const flowKind = s.twist?.kind;
+      let drift = 0;
+      if (flowKind === 'current' || flowKind === 'rush') {
+        const over = s.twistOverride,
+          t0 = over?.from !== undefined ? s.waveElapsed - over.from : s.waveElapsed,
+          flight = (RULES.shipZ - em.p.z) / Math.max(0.5, em.p.speed * em.speedScale);
+        for (let tau = 0; tau < flight; tau += 0.1) drift += flowAt(flowKind, t0 + tau, over ?? {}).drift * 0.1;
+      }
+      em.gapList = centres.map((c) => ({ x: clamp(c - drift, -7.5, 7.5), width }));
       em.x = em.p.x ?? 0;
       em.z = em.p.z;
     },

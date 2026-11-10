@@ -58,7 +58,7 @@ function perceive(s) {
     lanes: (s.emitters || []).filter((em) => em.preset === 'jet' && em.state === 'tele').flatMap((em) => (em.lanes || []).map((l) => ({ x: l.x, w: l.width, fromZ: l.fromZ }))),
     beams: s.beams.map((b) => ({ x: b.x, w: b.width, fromZ: b.fromZ })),
     walls: s.enemyShots.filter((b) => b.gaps && b.z < s.ship.z).map((b) => ({ z: b.z, gaps: b.gaps })),
-    enemies: s.enemies.filter((e) => e.alive && !e.harmless).map((e) => ({ x: e.x, z: e.z, r: e.radius + (e.half || 0), kind: e.kind, part: e.part, id: e.id, open: e.bud ? e.bud.state === 'open' : true })),
+    enemies: s.enemies.filter((e) => e.alive && !e.harmless).map((e) => ({ x: e.x, z: e.z, vx: e.mode === 'peel' ? e.vx || 0 : 0, vz: e.mode === 'peel' ? e.vz || 0 : 0, r: e.radius + (e.half || 0), kind: e.kind, part: e.part, id: e.id, open: e.bud ? e.bud.state === 'open' : true })),
     fliers: s.enemies.filter((e) => e.alive && e.harmless).map((e) => ({ x: e.x, z: e.z, open: e.bud ? e.bud.state === 'open' : true })),
     pickups: s.pickups.map((p) => ({ x: p.x, z: p.z })),
     boss: s.boss && s.boss.state !== 'defeated' ? { nodes: !!s.boss.cards[s.boss.card]?.nodes, nucleus: s.boss.cards[s.boss.card]?.nucleus ? s.boss.nucleus : null } : null,
@@ -122,7 +122,8 @@ export function createReactive({ sampleEvery = 6, lagFrames = 9, phase = 0, bomb
               } else if (g < 0.35) risk += (0.35 - g) * 4;
             }
             for (const l of [...v.lanes, ...v.beams]) if (Math.abs(px - l.x) < l.w / 2 + 0.4 && pz > l.fromZ) risk += 30;
-            for (const e of v.enemies) if (Math.hypot(e.x - px, e.z - pz) < e.r + CORE + 0.4) risk += 20;
+            // A diver (PEEL) is judged where its announced straight line takes it.
+            for (const e of v.enemies) if (Math.hypot(e.x + (e.vx || 0) * (t + lag) - px, e.z + (e.vz || 0) * (t + lag) - pz) < e.r + CORE + 0.4) risk += 20;
           }
           // A person sidesteps out of a bullet's line instead of backing away
           // along it: ending this move inside any bullet's future path (the

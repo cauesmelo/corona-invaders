@@ -100,8 +100,11 @@ export function attackFor(kind, world = 1, tune = null) {
   if (!a?.attack) return null;
   let params = { ...a.attack.params };
   for (let w = 2; w <= world; w++) if (a.byWorld?.[w]) params = { ...params, ...a.byWorld[w] };
-  if (tune?.[kind]) params = { ...params, ...tune[kind] };
-  return { preset: a.attack.preset, params };
+  // A beat may swap the archetype's preset for its params (`preset` inside the
+  // override): WILD TYPEs singing RNA snakes instead of coughs, for example.
+  const { preset = a.attack.preset, ...over } = tune?.[kind] ?? {};
+  params = { ...params, ...over };
+  return { preset, params };
 }
 export const CODE_KIND = Object.freeze({ m: 'mini', W: 'wild', N: 'sneezer', U: 'budder', D: 'droplet', H: 'hijacker', C: 'cell', K: 'heavy', B: 'bloom' });
 
@@ -147,6 +150,16 @@ const surge = (seconds) => ({ surge: seconds });
 const wait = (seconds) => ({ wait: seconds });
 const verse = (kind) => ({ verse: kind });
 const tune = (o) => ({ tune: o });
+const choir = (o) => ({ choir: o });
+// PEEL (enemies.mjs scheduleDivers): grid members dive down a announced line.
+const divers = (o) => ({ divers: o });
+// RNA SNAKE: WILD TYPEs singing a curved, aimed bead stream instead of a
+// cough. Its lateral acceleration (amplitude 0.7 u, wavelength 5 u at 4.4 u/s:
+// about 20 u/s^2) is where reaction time and tracking matter: a straight
+// aimed shot is dodged by anyone who steps aside, a snake is judged late by a
+// slow reader (measured: casual vials from RNA strands run 3-6x the expert's,
+// against 1-2x for lanes and jets; BALANCE.md "Where skill shows").
+const SNAKE = { preset: 'strand', n: 7, speed: 4.4, amp: 0.7, wavelength: 5, interval: 0.12, aimShip: true };
 const hint = (id) => ({ hint: id });
 // A rest between beats: the board empties, the last bullets leave, then
 // 2.5 s with at most 3 alive (RESEARCH_V1.md 2.2: rests of 2-3 s).
@@ -188,12 +201,16 @@ export const LEVELS = Object.freeze(
         // lanes 1.18 u apart that the formation's sway slides sideways.
         verse('rain'),
         grid(Array(4).fill('mmmmmmmmmmmmmmm'), { spacing: 1.18, rowGap: 1.3, z: -12.6, sway: 0.5, frequency: 0.55, descent: 0.12 }),
+        // The grid attacks, not only sings: a mini peels off every 5-7 s on a
+        // dashed line through where you stand, and dives.
+        divers({ every: [5, 7], max: 1, tele: 1.2, speed: 5.5 }),
         wait(8),
         // One needle at 6/s sweeps the grid in about 12-16 s; after 25 s
         // the survivors retreat (a cap, never a wall).
         { ...until('thin', 24), cap: 25 },
         // Develop (about 17-35 s): WILD TYPEs add aimed single coughs (the aim
         // locks at the telegraph); the rain continues, about half and half.
+        divers({ every: [6, 8], max: 1, tele: 1.2, speed: 5.5 }),
         verse('alternate'),
         grid(['W.W.W.W'], { z: -7.4 }),
         wait(5),
@@ -242,6 +259,7 @@ export const LEVELS = Object.freeze(
         // Introduce: a lone SNEEZER behind a thin WILD TYPE row (raining, a
         // known idea); one slow tier.
         tune({ sneezer: { speeds: [4] } }),
+        divers({ every: [6, 8], max: 1, tele: 1.2, speed: 5.5 }),
         verse('rain'),
         grid(['...N...', 'W.W.W.W'], { spacing: 2.3 }),
         wait(6),
@@ -250,6 +268,7 @@ export const LEVELS = Object.freeze(
         wait(2),
         // Develop: two SNEEZERs alternate, tiers 4.0 / 5.0, over the WILD
         // TYPEs' rain; the first VESICLE.
+        divers({ off: true }),
         tune({}),
         grid(['.N...N.', 'WWWWWWW']),
         { vesicle: { dir: 1 } },
@@ -279,7 +298,6 @@ export const LEVELS = Object.freeze(
       kind: 'boss',
       boss: 'alpha',
       introduces: ['alpha'],
-      pressure: { count: 0.85 },
       heal: false,
       intro: { icon: 'boss', text: 'NAMED CARDS. NEUTRALIZE EACH BEFORE ITS TIMER.' },
       protocol: 'NO HIT AND NO SOAP SEQUENCES A CARD.',
@@ -392,6 +410,7 @@ export const LEVELS = Object.freeze(
       intro: { icon: 'current', text: 'CURRENT CARRIES EVERY BULLET. IT FLIPS ON A WARNING.' },
       protocol: 'DODGE DOWNSTREAM.',
       maxBullets: 95,
+      pressure: { count: 1.1 },
       // The opener sits below B&G and DELTA (RESEARCH_DIFFICULTY 4.2): a
       // slightly slower choir than the rest of the sector while the flow is new.
       choir: { interval: [1.0, 0.75], size: [3, 5] },
@@ -408,14 +427,21 @@ export const LEVELS = Object.freeze(
         grid(['W.N.N.W', 'WWWWWWW']),
         { vesicle: { dir: -1 } },
         wait(7),
+        // Snakes: one or two singers per volley, the rest of the beat unchanged.
+        tune({ wild: SNAKE }),
+        choir({ interval: [1.5, 1.1], size: [1, 2] }),
+        verse('cough'),
         grid(['.W.W.W.W.', 'W.W.W.W.W'], { z: -12.8, spacing: 2 }),
         until('thin', 2),
+        tune({}),
+        choir({ interval: [1.0, 0.75], size: [3, 5] }),
+        verse('alternate'),
         ...rest(),
-        // Twist: the flow flips mid-surge (at 30 s), and a worm streams across it.
+        // Twist: the flow flips mid-surge (at 30 s), and two worms stream across it.
         grid(['.N.N.N.', 'WWWWWWW']),
         wait(4),
         surge(6),
-        { worms: { count: 1, z: -9, dir: 1 } },
+        { worms: { count: 2, z: -9, dir: 1 } },
         wait(4),
         grid(['W.W.W.W'], { z: -12.8 }),
         ...rest(),
@@ -436,7 +462,7 @@ export const LEVELS = Object.freeze(
       kind: 'sample',
       introduces: ['droplet', 'lambda'],
       // LAMBDA's quiz cadence x0.7.
-      pressure: { every: 0.7 },
+      pressure: { every: 0.7, count: 1.1 },
       intro: { icon: 'droplet', text: 'DROPLETS DIVE AND SPLASH INTO A RING. SHOOT FIRST.' },
       protocol: 'A DASHED PATH MEANS A DIVE.',
       maxBullets: 95,
@@ -449,15 +475,23 @@ export const LEVELS = Object.freeze(
         grid(['W.W.W.W'], { z: -12.8 }),
         until('clear'),
         wait(2),
-        // Develop: droplet dives under choir coughs.
-        { dive: { telegraph: 0.8 } },
+        // Develop: droplet dives under choir coughs, two in the air at once.
+        { dive: { telegraph: 0.8, every: [2.6, 3.6], max: 2 } },
         grid(['D.D.D.D', 'WWWWWWW']),
         until('thin', 3),
         ...rest(),
-        // Twist: a droplet lands upstream; its splash ring drifts onto you.
+        // Twist: a droplet lands upstream; its splash ring drifts onto you,
+        // and the WILD TYPEs sing snakes while the dives are in the air.
+        tune({ wild: SNAKE }),
+        choir({ interval: [1.1, 0.8], size: [1, 2] }),
+        verse('cough'),
         grid(['D.N.N.D', 'WWWWWWW']),
+        { worms: { count: 1, z: -9, dir: 1 } },
         wait(4),
         surge(5),
+        tune({}),
+        choir({ interval: [0.75, 0.52], size: [4, 6] }),
+        verse('alternate'),
         ...rest(),
         // Test: the midboss LAMBDA, moved before DELTA (a safe preview of
         // DELTA's LANE SNEEZE).
@@ -474,7 +508,8 @@ export const LEVELS = Object.freeze(
       introduces: ['delta'],
       // The BLOODSTREAM exam: boss cadence x0.85; the lane jets and BLOOD
       // RUSH's walls keep their authored cadence. x0.55-0.65 measured forced
-      // hits (F1) on the casual and expert proxies.
+      // hits (F1) on the casual and expert proxies. Each card runs the CURRENT
+      // and flips it (bosses.mjs), so walls and strands drift with the flow.
       pressure: { every: 0.85 },
       intro: { icon: 'boss', text: 'IT SPLITS. LANES GLOW BEFORE THEY FIRE.' },
       protocol: 'READ THE LANE, THEN THE HALVES.',
@@ -488,6 +523,7 @@ export const LEVELS = Object.freeze(
       intro: { icon: 'mutation', text: 'A FLASH MEANS AN UPGRADE. CURE IT FIRST.' },
       protocol: 'A FLASHING WILD TYPE BECOMES A HEAVY CROWN.',
       maxBullets: 115,
+      pressure: { count: 1.1 },
       choir: { interval: [0.85, 0.6], size: [4, 6] },
       script: [
         // Introduce: one mutation at a time (1.2 s flash) on a sparse grid;
@@ -506,13 +542,19 @@ export const LEVELS = Object.freeze(
         grid(['WWWWWWW', 'W.W.W.W']),
         until('thin', 2),
         ...rest(),
+        tune({ wild: SNAKE }),
+        choir({ interval: [1.3, 0.9], size: [1, 2] }),
+        verse('cough'),
         grid(['.W.W.W.', 'W.W.W.W'], { z: -12.8 }),
         until('thin', 1),
+        tune({}),
+        choir({ interval: [0.85, 0.6], size: [4, 6] }),
         ...rest(),
         // Twist: a SNEEZER mutates into a 9-way, 3-tier fan (misdirection),
-        // over rain.
+        // over rain, with two worms laying strands across the top.
         verse('rain'),
         grid(['N.....N', 'WWWWWWW']),
+        { worms: { count: 2, z: -9, dir: -1 } },
         wait(5),
         surge(4),
         ...rest(),
@@ -536,9 +578,9 @@ export const LEVELS = Object.freeze(
       intro: { icon: 'bloom', text: 'BLOOMS OPEN, FIRE A RING, CLOSE. WAIT, OR INJECT.' },
       protocol: 'THE NEEDLE PIERCES A CLOSED BUD.',
       maxBullets: 125,
-      choir: { interval: [0.8, 0.55], size: [4, 6] },
-      // MOTHER CELL's quiz cadence x0.9.
-      pressure: { every: 0.9 },
+      choir: { interval: [0.72, 0.5], size: [4, 6] },
+      // MOTHER CELL's quiz cadence x0.8.
+      pressure: { every: 0.8, count: 1.1 },
       script: [
         // Introduce: one bloom alone, a small slow ring (B2's safe intro).
         tune({ bloom: { n: 10, speed: 3.5 } }),
@@ -554,10 +596,16 @@ export const LEVELS = Object.freeze(
         wait(6),
         until('thin', 1),
         ...rest(),
-        // Twist: blooms mutate, and their rings upgrade.
+        // Twist: blooms mutate, their rings upgrade, and the choir sings snakes
+        // across the rings' gaps.
+        tune({ wild: SNAKE }),
+        choir({ interval: [1.2, 0.85], size: [1, 2] }),
+        verse('cough'),
         grid(['B.....B', 'WWWWWWW', 'W.N.N.W']),
         wait(5),
         surge(4),
+        tune({}),
+        choir({ interval: [0.72, 0.5], size: [4, 6] }),
         ...rest(),
         // Test: the midboss MOTHER CELL: BUDDING, LYSIS, CELL BURST.
         verse('alternate'),

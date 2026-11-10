@@ -112,8 +112,16 @@ export function updateBullets(s, dt) {
   const { scale, drift } = bulletFlow(s);
   const step = dt * scale;
   const born = [];
+  // A wall's gap list (shared by every bullet of the wall; the floor marker,
+  // the bots and the proxies read it) follows the CURRENT with the bullets,
+  // so it always names where the gap really is.
+  const gapLists = new Set();
   for (const b of s.enemyShots) {
     if (b.dead) continue;
+    if (b.gaps && drift && !gapLists.has(b.gaps)) {
+      gapLists.add(b.gaps);
+      for (const g of b.gaps) g.x += drift * step;
+    }
     // Previous position: collisions are swept over the substep.
     b.px = b.x;
     b.pz = b.z;

@@ -144,7 +144,7 @@ export function auditStage(stage, seed, { maxSeconds = 300, forced = true, phase
           const snap = [...snaps].reverse().find((x) => x.waveElapsed <= t - 0.5);
           if (snap && !autopilotAvoids(snap, t + 0.1)) forcedHits++;
         }
-      } else if (ev.type === 'inject') inject++;
+      } else if (ev.type === 'inject' && !ev.peel) inject++; // a diver cured by the tip is the tip doing its job
     }
     let spawned = false;
     for (const b of s.enemyShots) {

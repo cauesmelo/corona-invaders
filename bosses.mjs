@@ -33,7 +33,7 @@ export const BOSSES = Object.freeze({
     body: 'crown',
     radius: 2,
     cards: [
-      phase('COUGH COUGH', 18, [P('cough', { n: 3, spread: 28, speed: 6.5 }, 1), P('ring', { n: 12, speed: 3.5, family: 'droplet' }, 2.2, { at: 0.9 })], { move: 'sway' }),
+      phase('COUGH COUGH', 18, [P('cough', { n: 3, spread: 28, speed: 6.8 }, 0.9), P('ring', { n: 12, speed: 3.5, family: 'droplet' }, 2.2, { at: 0.9 })], { move: 'sway' }),
       // A novice's wall in the proxies (66 of 98 first-timer vials at ALPHA):
       // the fan BIG SNEEZER taught, 7 over 56 degrees, reps 0.6 s apart.
       card('FIRST SNEEZE', 22, [P('sneeze', { n: 7, spread: 56, speeds: [4, 4.6], reps: 2, repGap: 0.6, tele: 1 }, 4)], { move: 'sway' }),
@@ -66,15 +66,17 @@ export const BOSSES = Object.freeze({
     body: 'delta',
     radius: 2,
     cards: [
-      phase('TRIANGULATE', 18, [P('sniffle', { n: 6, spread: 40, speed: 5.5 }, 0.75, { from: 'vertex' }), P('ring', { n: 16, speed: 3.6 }, 2.4, { at: 1.2 })], { move: 'sway' }),
-      card('LANE SNEEZE', 22, [P('jet', { width: 2, at: 'owner' }, 2.8, { fixed: true }), P('sneeze', { n: 9, spread: 56, speeds: [4.5, 6] }, 2, { at: 1.6 })], { move: 'track' }),
+      phase('TRIANGULATE', 18, [P('sniffle', { n: 6, spread: 40, speed: 5.5 }, 0.75, { from: 'vertex' }), P('ring', { n: 16, speed: 3.6 }, 2.4, { at: 1.2 }), P('strand', { n: 7, speed: 4.4, amp: 0.7, wavelength: 5, interval: 0.12, aimShip: true }, 3.8, { at: 2 })], { move: 'sway', twist: { kind: 'current', speed: 0.8, period: 12 } }),
+      card('LANE SNEEZE', 22, [P('jet', { width: 2, at: 'owner' }, 2.8, { fixed: true }), P('sneeze', { n: 9, spread: 56, speeds: [4.5, 6] }, 2, { at: 1.6 })], { move: 'track', twist: { kind: 'current', speed: 0.8, period: 12, dir0: 1 } }),
       // v1.0 retune upward (peak 33 -> about 100): denser HALVES rings, walls
       // every 3 s, four CASCADE seeds.
-      card('HALVES', 24, [P('ring', { n: 24, speed: 4 }, 0.8, { from: 'alt' }), P('cough', { n: 2, speed: 7 }, 1.3, { from: 'near', at: 0.8 })], { move: 'halves', split: true }),
+      // A snake from the near half joins the rings: the curved stream is where
+      // a slower reader drops a vial (casual 6x the expert on RNA strands).
+      card('HALVES', 24, [P('ring', { n: 24, speed: 4 }, 0.8, { from: 'alt' }), P('cough', { n: 2, speed: 7 }, 1.3, { from: 'near', at: 0.8 }), P('strand', { n: 7, speed: 4.4, amp: 0.7, wavelength: 5, interval: 0.12, aimShip: true }, 3.4, { from: 'near', at: 1.6 })], { move: 'halves', split: true }),
       // 3.5 s walls (were 4): every 3 s left the reactive referee no time to
       // aim between gaps, and the card timed out (1.6 x TTK).
       card('BLOOD RUSH', 9, [P('wall', { gaps: 1, gapWidth: 2.4, speed: 3.2 }, 3.5, { fixed: true }), P('cough', { n: 2, speed: 7.5 }, 1.8, { from: 'near', at: 1.3 })], { move: 'halves', rush: true }),
-      card('Δ CASCADE', 20, [P('replicate', { n: 4, spread: 48, speed: 3.4, maxGen: 2, splitEvery: 1.1 }, 1.5, { from: 'alt' }), P('cough', { n: 2, speed: 7.5 }, 2.2, { from: 'near', at: 1 })], { move: 'halves' }),
+      card('Δ CASCADE', 20, [P('replicate', { n: 3, spread: 40, speed: 3.4, maxGen: 2, splitEvery: 1.1 }, 1.6, { from: 'alt' }), P('cough', { n: 2, speed: 7.5 }, 2.2, { from: 'near', at: 1 }), P('strand', { n: 7, speed: 4.4, amp: 0.7, wavelength: 5, interval: 0.12, aimShip: true }, 3.6, { from: 'alt', at: 1.8 })], { move: 'halves', twist: { kind: 'current', speed: 0.8, period: 10, dir0: 1 } }),
     ],
   },
   // W4 finale. Its "mutations" are its phases. Aimed fans stay <= 7 u/s;
@@ -100,13 +102,13 @@ export const BOSSES = Object.freeze({
       ),
       // Under LUNGS' BREATH (6 s cycle, 1 s warning; the exhale's x1.3 keeps
       // the aimed fan at 9.1 u/s, under the 9.5 effective cap).
-      card('SNEEZE STORM', 22, [P('aerosol', { rate: 8, cone: 110, speed: [2.6, 4.4], duration: 3, lanes: 2 }, 2.8), P('sneeze', { n: 9, spread: 60, speeds: [4.2, 5.6, 7] }, 2.4, { at: 1.2 })], { move: 'sway', twist: { kind: 'breath' } }),
+      card('SNEEZE STORM', 22, [P('aerosol', { rate: 6, cone: 110, speed: [2.6, 4.4], duration: 3, lanes: 2 }, 2.8), P('sneeze', { n: 9, spread: 60, speeds: [4.2, 5.6, 7] }, 2.4, { at: 1.2 }), P('strand', { n: 8, speed: 4.6, amp: 0.8, wavelength: 5, interval: 0.12, aimShip: true }, 3.6, { at: 2 })], { move: 'sway', twist: { kind: 'breath' } }),
       card('MUTATION SPIRAL', 22, [P('bloom', { n: 7, interval: 0.22, rotate: 13, speed: 4.6, duration: 2.4, dir: 1 }, 3.1, { alternate: true }), P('bloom', { n: 7, interval: 0.22, rotate: 13, speed: 4.6, duration: 2.4, dir: -1 }, 3.1, { alternate: true }), P('cough', { n: 3, spread: 20, speed: 7 }, 1.7, { at: 0.8 })], { move: 'still' }),
       // Under BLOODSTREAM's CURRENT: bullets drift 0.6 u/s and the flow
       // flips once (at 7.5 s, after a 2 s warning).
       { name: 'QUARANTINE', type: 'survival', ttk: 0, duration: 15, patterns: [P('ring', { n: 20, speed: 3.8, family: 'spike' }, 1.2, { at: 1 }), P('aerosol', { rate: 6, cone: 90, speed: [2.6, 3.6], duration: 1.6 }, 2, { at: 1.6 }), P('cough', { n: 2, speed: 7 }, 2.4, { at: 2 })], move: 'still', quarantine: true, twist: { kind: 'current', speed: 0.6, period: 7.5 } },
       card('CORONA FLARE', 20, [P('ring', { n: 24, speed: 4.6, family: 'spike', gaps: 2 }, 1.4), P('cough', { n: 3, speed: 8.5 }, 1.2, { at: 1 })], { move: 'sway' }),
-      card('R0 > 1', 22, [P('replicate', { n: 5, spread: 70, speed: 3.5, maxGen: 2, splitEvery: 1 }, 1.3), P('cough', { n: 3, spread: 16, speed: 7 }, 1.6, { at: 1 })], { move: 'sway', finale: true }),
+      card('R0 > 1', 22, [P('replicate', { n: 4, spread: 60, speed: 3.5, maxGen: 2, splitEvery: 1 }, 1.5), P('cough', { n: 3, spread: 16, speed: 7 }, 1.6, { at: 1 }), P('strand', { n: 8, speed: 4.6, amp: 0.8, wavelength: 5, interval: 0.12, aimShip: true }, 3.4, { at: 1.4 })], { move: 'sway', finale: true }),
       // The exam no build can skip (RESEARCH_DIFFICULTY 4.4): R0 > 1's HP
       // ends the replication, then 12 s of timer-only survival under the
       // final 3-stacks (one line, three speeds: a single sidestep dodges one)
@@ -126,7 +128,7 @@ export const BOSSES = Object.freeze({
     // 0.6 s apart every 4.2 s, a 5.5 u/s aimed cough every 3.2 s.
     // Measured: the first-timer proxy still lost 1.8 vials per attempt with
     // two reps (target <= 1.2), so one fan per volley, a little more often.
-    cards: [card('ACHOO!', 20, [P('sneeze', { n: 7, spread: 56, speeds: [4, 4.8], tele: 1 }, 3.4), P('cough', { n: 1, speed: 5.5 }, 3.2, { at: 1.6 })], { move: 'sway' })],
+    cards: [card('ACHOO!', 20, [P('sneeze', { n: 7, spread: 56, speeds: [4, 4.8], tele: 1 }, 3.0), P('cough', { n: 1, speed: 5.5 }, 3.2, { at: 1.6 })], { move: 'sway' })],
   },
   aerosolcloud: {
     name: 'AEROSOL CLOUD',
@@ -145,7 +147,7 @@ export const BOSSES = Object.freeze({
     body: 'mother',
     radius: 2,
     cards: [
-      phase('BUDDING', 8, [P('ring', { n: 12, speed: 2.8, family: 'virion' }, 2), P('cough', { n: 3, speed: 7.5 }, 1, { at: 0.8 })], { move: 'sway' }),
+      phase('BUDDING', 8, [P('ring', { n: 12, speed: 2.8, family: 'virion' }, 2), P('cough', { n: 3, speed: 7.5 }, 1, { at: 0.8 }), P('strand', { n: 7, speed: 4.4, amp: 0.7, wavelength: 5, interval: 0.12, aimShip: true }, 3, { at: 1.2 })], { move: 'sway' }),
       // Shorter cards (TTK 8 / 9 / 9) keep 4-2 below OMICRON (RESEARCH_DIFFICULTY 4.4).
       card('LYSIS', 9, [P('replicate', { n: 5, spread: 70, speed: 3.2, maxGen: 2, splitEvery: 1.2 }, 1.5), P('ring', { n: 12, speed: 3.5 }, 2.6, { at: 1 })], { move: 'sway' }),
       card('CELL BURST', 9, [P('ring', { n: 18, speed: 4, reps: 3, interval: 1, alternate: true, family: 'droplet' }, 4), P('ring', { n: 6, speed: 2.6, family: 'virion' }, 4, { at: 2, share: true }), P('cough', { n: 3, speed: 8 }, 1.1, { at: 1 })], { move: 'still' }),

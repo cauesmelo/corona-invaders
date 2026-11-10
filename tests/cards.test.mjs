@@ -211,7 +211,9 @@ test('3 legacy: adjuvants off hashes identically to the pre-adjuvant build; the 
   // 2d83790fa00308d6, a4d78426dd201bf8), so play is unchanged.
   // Re-recorded for revision six (RESEARCH_DIFFICULTY: the 1-needle start,
   // the authored HP ladder, the until caps and the retuned stages).
-  const BEFORE = { 42: 'a46cb2b14445fac9', 1: '6a822da2322f8068', 7: '8fe3f773fe39b735' };
+  // Re-recorded for revision seven (RNA snake beats, PEEL divers in sector 1,
+  // the CURRENT forecast for walls, DELTA's per-card flows).
+  const BEFORE = { 42: '466bb3cd1ad2715c', 1: '7dad4dc762bb7e5e', 7: '70df7582feb0348d' };
   for (const seed of [42, 1, 7]) {
     const { s, frame } = campaign(seed);
     const pick = { frame, phase: s.phase, wave: s.wave, score: s.score, kills: s.kills, hits: s.hits, shotsFired: s.shotsFired, projectilesFired: s.projectilesFired, rngState: s.rngState, grazes: s.grazes, damageTaken: s.damageTaken, bombsUsed: s.bombsUsed, medals: s.medals, x: s.ship.x, z: s.ship.z };
