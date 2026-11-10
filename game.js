@@ -1586,6 +1586,8 @@ window.__game = {
     return true;
   },
   saved: () => load(KEYS.run, null),
+  /** QA: the drawn JET INJECTOR stream's width (u), to compare with its collider. */
+  jetWidth: () => view?.jetWidth?.() ?? null,
   /** Dev-only collider overlay (also ?hitboxes=1). Never shown to players by default. */
   hitboxes: (on = true) => {
     view?.setHitboxes(on);

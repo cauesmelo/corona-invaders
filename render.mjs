@@ -21,6 +21,7 @@
 import * as THREE from './vendor/three.module.js';
 import { cameraLayout, FRAMING_POINTS, pxPerUnit } from './camera.mjs';
 import { RULES, getLevel, chainMultiplier, antibodyOffsets } from './model.mjs';
+import { createKitLayer } from './render-kit.mjs';
 import { SHAPES, SYRINGE, PALETTE, shapeFor } from './shapes.mjs';
 import { COLLIDERS, NEEDLE, MARKER, GRAZE_RING, INJECT, markerQuad, spriteLayout, bulletQuad, enemyScale, bodyRadiusOf, bulletAxis, needleSegment } from './hitboxes.mjs';
 import { characterOf, bodyMotion, bossMenace, marchTempo, bossLine, talkTime, DEFEAT_FINAL, DEFEAT_POPS } from './personality.mjs';
@@ -1162,6 +1163,8 @@ export function createRenderer({ canvas, stage, settings }) {
   }
   syringe.add(plunger);
   void barrel;
+  // Adjuvant accessories, the jet and the foam (render-kit.mjs).
+  const kitLayer = createKitLayer(THREE, { scene, syringe, steel, bulletY: BULLET_Y });
   let ghost = 1,
     coreHot = false,
     exposureLevel = 0;
@@ -2184,7 +2187,7 @@ export function createRenderer({ canvas, stage, settings }) {
     if (tipGlint) tipGlint.material.opacity = reload > 0 ? 0.15 : 0.85 + (motion ? 0.15 * Math.sin(visualTime * 9) : 0);
     // EXPOSURE: the vaccine level is the graze progress toward the next SOAP
     // (RESEARCH_V1.md 3.7), filling from the needle end; the stopper rides it.
-    const fill = Math.max(0, Math.min(1, (sh.grazeProgress || 0) / RULES.grazePerBomb));
+    const fill = Math.max(0, Math.min(1, (sh.grazeProgress || 0) / (s.kit?.grazePerBomb ?? RULES.grazePerBomb)));
     const front = fluidPart.z0,
       level = front + 0.02 + (fluidPart.z1 - front - 0.02) * fill;
     exposureLevel = fill;
@@ -2235,7 +2238,9 @@ export function createRenderer({ canvas, stage, settings }) {
     if (sh.focus) grazeRing.material.opacity = 0.38;
     else grazeRing.material.opacity += (0 - grazeRing.material.opacity) * ease(dt, 14);
     grazeRing.visible = s.phase !== 'title';
-    const offs = antibodyOffsets(sh.power, sh.focus);
+    // CLONAL EXPANSION brings the options one mRNA level early (kit.abPower).
+    const offs = antibodyOffsets(s.kit?.abPower ?? sh.power, sh.focus);
+    kitLayer.sync(s, dt, { time: visualTime, motion, ghost });
     options.forEach((o, i) => {
       const off = offs[i];
       o.visible = !!off && s.phase !== 'title' && ship.visible;
@@ -2559,6 +2564,8 @@ export function createRenderer({ canvas, stage, settings }) {
       renderer.render(scene, camera);
       return settings.effects() ? fx.flash : 0;
     },
+    /** QA: the drawn jet's width (u); it must equal hitboxes.JET.width. */
+    jetWidth: () => kitLayer.jetWidth(),
     info(s) {
       const saved = camera.position.clone();
       camera.position.set(...layout.position);
