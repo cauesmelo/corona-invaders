@@ -607,15 +607,16 @@ function drawGlyph(g, svg, x, y, w, h, color) {
   }
   g.restore();
 }
-const LABEL_W = 1024;
+export const LABEL_W = 1024;
 export const LABEL_H = Math.round((LABEL_W * (CARTRIDGE.label.a1 - CARTRIDGE.label.a0) * (CARTRIDGE.radius + CARTRIDGE.label.lift)) / (CARTRIDGE.label.x1 - CARTRIDGE.label.x0));
 const INK = '#0b1c22',
   INK_STAT = '#0f4652',
   INK_PINK = '#c4165c';
 const TIER_STRIPE = { common: null, rare: ['#1fb5d6'], epic: ['#3a5bff', '#3a5bff'], legendary: ['#c9952c', '#c9952c'] };
 /** Paper label: NAME, [glyph] STAT, then COST (pink) and the tier word with
- * pips. Bands: rare one cyan stripe, epic two cobalt, legendary two gold. */
-function paintLabel(g, label) {
+ * pips. Bands: rare one cyan stripe, epic two cobalt, legendary two gold.
+ * Exported for the browser check that rasterises every card's label. */
+export function paintLabel(g, label) {
   const W = LABEL_W,
     H = LABEL_H,
     lay = labelLayout(label);
@@ -1830,6 +1831,8 @@ export function createDraft3D(THREE, opts) {
             rect: s.group.visible ? rectOf(s.spin) : null,
             nameCapPx: l ? capPx(s, [l.name.a0, l.name.a1]) : 0,
             statCapPx: l ? capPx(s, [l.stat.a0, l.stat.a1]) : 0,
+            // The trade-off's pink COST line (0 when the card has none).
+            costCapPx: l?.foot ? capPx(s, [l.foot.a0, l.foot.a1]) : 0,
             nameFits: l ? l.name.width <= l.len : false,
             selected: S.selected === s.i,
             glassInUse: S.lite ? 'lite' : 'full',

@@ -36,6 +36,8 @@ const flag = (name) => {
   return i >= 0 ? args[i + 1] : null;
 };
 const SHOTS = flag('--shots');
+// --only SUBSTRING runs just the checks whose name contains it (iterating).
+const ONLY = flag('--only');
 const JSON_OUT = flag('--json');
 if (SHOTS) fs.mkdirSync(SHOTS, { recursive: true });
 const MAX_LOAD = 4;
@@ -43,6 +45,7 @@ const MAX_LOAD = 4;
 const results = [];
 const load = () => os.loadavg().map((v) => Math.round(v * 100) / 100);
 async function check(name, fn) {
+  if (ONLY && !name.includes(ONLY)) return;
   const t0 = Date.now();
   try {
     const detail = await fn();
@@ -70,7 +73,7 @@ async function page({ width = 960, height = 640, touch = false, reducedMotion = 
   await p.waitForFunction(() => window.__game && window.__game.renderer().webgl, null, { timeout: 60000 });
   await p.evaluate(async () => {
     const m = await import('./cards.mjs');
-    window.__cards = Object.fromEntries(m.ALL_CARDS.map((c) => [c.id, { name: c.name, tier: c.tier, line: c.line, stat: c.stat || null }]));
+    window.__cards = Object.fromEntries(m.ALL_CARDS.map((c) => [c.id, { name: c.name, label: c.label || c.name, tier: c.tier, line: c.line, stat: c.stat || null, costLabel: c.costLabel || null, tradeoff: !!c.tradeoff, sector: c.sector || 0 }]));
   });
   return { ctx, p, errors };
 }
@@ -188,10 +191,11 @@ for (const [w, h, minName] of [[960, 640, 14], [390, 844, 11], [320, 568, 11]]) 
   await check(`D7 labels legible at ${w}x${h}: name cap >= ${minName} px, stat cap >= ${minName - 3} px, every cartridge fully on screen`, async () => {
     const touch = w < 700;
     const { ctx, p } = await page({ width: w, height: h, touch });
-    // The longest names in the set (and the old set's 19-character one).
+    // The longest lines the cartridges print: the 16-character labels
+    // (MASS VACCINATION, CLONAL EXPANSION, ENTERIC COATING ...).
     const ids = await p.evaluate(() =>
       Object.entries(window.__cards)
-        .sort((a, b) => b[1].name.length - a[1].name.length)
+        .sort((a, b) => b[1].label.length - a[1].label.length || b[1].stat?.length - a[1].stat?.length)
         .slice(0, 3)
         .map(([id]) => id),
     );
@@ -263,6 +267,279 @@ await check('D7 tier materials are distinct: clear, frosted (roughness >= 0.45, 
 function window_tier(id, byTier) {
   return Object.entries(byTier).find(([, ids]) => ids.includes(id))?.[0] || 'x';
 }
+
+// ---- D7: all 30 cards, one by one -----------------------------------------------------------
+const OFFER_SIZE = 3;
+/** Await a wait; if it times out, say where the run was. */
+async function stuck(p, where, promise) {
+  try {
+    return await promise;
+  } catch (e) {
+    const s = await p.evaluate(() => {
+      const g = window.__game.getState();
+      return { phase: g.phase, wave: g.wave, hold: g.transitionHold, tr: g.transition, boss: g.boss ? g.boss.state : null, paused: g.paused };
+    });
+    throw new Error(`stuck at ${where}: ${JSON.stringify(s)}`);
+  }
+}
+async function setOffer(p, list) {
+  await p.evaluate((ids) => {
+    const run = window.__game.run();
+    run.offer = { ...run.offer, ids, tiers: ids.map((id) => window.__cards[id].tier) };
+    delete run.kit;
+    window.__game.setState({ run });
+  }, list);
+  await p.waitForFunction((want) => window.__game.draft.scene().cartridges.map((c) => c.id).join() === want, list.join(), { timeout: 10000 });
+  await revealed(p);
+  await p.waitForTimeout(150);
+}
+/** Every card in the set, forced into the offer (ten offers of three), each
+ * one selected with a real key press: its cartridge text is label + stat,
+ * the cost line is on the trade-offs, the caps meet the brief, the rects are
+ * on screen, the caption is whole, and every glyph rasterises. With
+ * --shots DIR it writes the contact sheets (3D crops and label textures). */
+for (const [W, H, minName, minStat] of [[960, 640, 14, 11], [390, 844, 11, 8], [320, 568, 11, 8]]) {
+await check(`D7 all 30 cards at ${W}x${H}: label + stat on the cartridge, cap heights (name >= ${minName} px, stat >= ${minStat} px), rects, whole captions, every glyph rasterised, sector cards read as such`, async () => {
+  const { ctx, p, errors } = await page({ width: W, height: H, touch: W < 700 });
+  const cards = await p.evaluate(() => window.__cards);
+  const ids = Object.keys(cards);
+  assert(ids.length === 30, `30 cards, got ${ids.length}`);
+  // Mix tiers and lines in each offer so the sheets show variety.
+  const order = [...ids].sort((a, b) => cards[a].tier.localeCompare(cards[b].tier) || a.localeCompare(b));
+  const offers = [];
+  for (let i = 0; i < OFFER_SIZE * 10; i++) offers[i % 10] = [...(offers[i % 10] || []), order[i]];
+  await openDraft(p, { fresh: true });
+  await revealed(p);
+  const rows = [];
+  const shots = [];
+  const overlaps = [];
+  const costCaps = [];
+  for (const offer of offers) {
+    await setOffer(p, offer);
+    // Shading: the cartridges are lit 3D objects at full quality.
+    await p.evaluate(() => window.__game.draft.lite(false));
+    for (let slot = 0; slot < offer.length; slot++) {
+      await p.keyboard.press(`Digit${slot + 1}`);
+      await p.waitForTimeout(260);
+      const sc = await sceneOf(p);
+      const c = sc.cartridges[slot],
+        card = cards[offer[slot]];
+      assert(sc.selected === slot, `${offer[slot]}: Digit${slot + 1} selects slot ${slot}`);
+      assert(c.id === offer[slot], `${offer[slot]}: the cartridge shows the forced card (${c.id})`);
+      const want = `${card.label.toUpperCase()} ${(card.stat || '').toUpperCase()}`.trim();
+      assert(c.text === want, `${offer[slot]}: label text "${c.text}" != "${want}"`);
+      assert(card.label.length <= 16 && (card.stat || '').length <= 18, `${offer[slot]}: label/stat lengths`);
+      if (card.tradeoff) assert(c.label.cost && /^COST /.test(c.label.cost) && c.label.cost.includes((card.costLabel || '').toUpperCase()), `${offer[slot]}: the COST line "${c.label.cost}"`);
+      else assert(c.label.cost === '', `${offer[slot]}: no COST line`);
+      assert(c.nameCapPx >= minName && c.statCapPx >= minStat, `${offer[slot]}: caps ${c.nameCapPx.toFixed(1)} / ${c.statCapPx.toFixed(1)} px at ${W}x${H}`);
+      assert(c.nameFits, `${offer[slot]}: the name fits its plate`);
+      // The pink COST line is the smallest print on the cartridge (the foot band is
+      // half the name's): it must stay readable, and the caption repeats it in full.
+      if (card.tradeoff) {
+        costCaps.push(Math.round(c.costCapPx * 10) / 10);
+        assert(c.costCapPx >= minName * 0.45, `${offer[slot]}: the COST line is ${c.costCapPx.toFixed(1)} px tall`);
+        assert(sc.caption.some((r) => r.startsWith('COST')), `${offer[slot]}: the caption states the cost in full`);
+      }
+      assert(c.rect && c.rect.x >= 0 && c.rect.y >= 0 && c.rect.x + c.rect.w <= W && c.rect.y + c.rect.h <= H, `${offer[slot]}: on screen ${JSON.stringify(c.rect)}`);
+      assert(c.tier === card.tier, `${offer[slot]}: tier ${c.tier}`);
+      // The selected caption: one to three rows, at most 44 characters, never cut.
+      assert(sc.caption.length >= 1 && sc.caption.length <= 3 && sc.caption.every((r) => r.length > 0 && r.length <= 44 && !r.endsWith('…')), `${offer[slot]}: caption ${JSON.stringify(sc.caption)}`);
+      const caption = sc.caption.join(' ');
+      if (card.sector) {
+        const word = { 2: 'BREATH', 3: 'CURRENT', 4: 'MUTATION' }[card.sector];
+        assert(caption.includes(word) || c.label.stat.length > 0, `${offer[slot]} reads as the ${word} card`);
+        assert(caption.toUpperCase().includes(word), `${offer[slot]}: its caption names ${word} ("${caption}")`);
+      }
+      // Rects of the three cartridges, with the selected one lifted.
+      const rects = sc.cartridges.map((x) => x.rect);
+      for (let i = 0; i < rects.length; i++)
+        for (let j = i + 1; j < rects.length; j++)
+          if (overlap(rects[i], rects[j])) {
+            // Depth of the bounding boxes' overlap (the tilted, lifted
+            // cartridge's box, not its pixels).
+            const depth = Math.min(rects[i].y + rects[i].h, rects[j].y + rects[j].h) - Math.max(rects[i].y, rects[j].y);
+            overlaps.push({ at: `${offer.join('+')} sel ${slot}: ${i}/${j}`, depth: Math.round(depth * 10) / 10 });
+          }
+      rows.push({ id: offer[slot], tier: card.tier, text: c.text, cost: c.label.cost, caps: [Math.round(c.nameCapPx * 10) / 10, Math.round(c.statCapPx * 10) / 10], caption });
+      if (SHOTS) {
+        const st = await p.evaluate(() => document.querySelector('#stage').getBoundingClientRect().toJSON());
+        const file = path.join(SHOTS, `card-${W}x${H}-${String(rows.length).padStart(2, '0')}-${offer[slot]}.png`);
+        await p.screenshot({ path: file, clip: { x: st.x + sc.safe.x, y: st.y + sc.safe.y + 10, width: sc.safe.w, height: Math.min(sc.safe.h, 400) } });
+        shots.push(file);
+      }
+    }
+    const pr = await p.evaluate(() => window.__game.draft.probe());
+    for (const x of pr) assert(x.bright - x.dark >= 60, `${offer.join('+')}: shading probe ${x.tier} ${(x.bright - x.dark).toFixed(0)} < 60`);
+  }
+  // A selected cartridge lifts toward the camera; where it grazes a neighbour is a finding, not a failure.
+  assert(rows.length === 30 && new Set(rows.map((r) => r.id)).size === 30, 'all 30 shown once');
+  // Rasterise every label texture: each character of each line draws lit dots.
+  const raster = await p.evaluate(async () => {
+    const D = await import('./draft3d.mjs');
+    const out = { blanks: [], rightEdge: [], sheet: null };
+    const W = D.LABEL_W,
+      H = D.LABEL_H,
+      ids = Object.keys(window.__cards);
+    const cols = 3,
+      scale = 0.5,
+      sheet = document.createElement('canvas');
+    sheet.width = Math.ceil(cols * W * scale);
+    sheet.height = Math.ceil((ids.length / cols) * (H * scale + 6));
+    const sg = sheet.getContext('2d');
+    sg.fillStyle = '#10181b';
+    sg.fillRect(0, 0, sheet.width, sheet.height);
+    ids.forEach((id, k) => {
+      const label = D.labelOf(id);
+      const cv = document.createElement('canvas');
+      cv.width = W;
+      cv.height = H;
+      const g = cv.getContext('2d', { willReadFrequently: true });
+      D.paintLabel(g, label);
+      const lay = D.labelLayout(label);
+      const sx = W / lay.len,
+        A1 = D.CARTRIDGE.label.a1,
+        span = D.CARTRIDGE.label.a1 - D.CARTRIDGE.label.a0;
+      const vy = (a) => ((A1 - a) / span) * H;
+      const px = g.getImageData(0, 0, W, H).data;
+      const lit = (x0, x1, y0, y1) => {
+        let n = 0;
+        for (let y = Math.max(0, Math.floor(y0)); y < Math.min(H, Math.ceil(y1)); y++)
+          for (let x = Math.max(0, Math.floor(x0)); x < Math.min(W, Math.ceil(x1)); x++) {
+            const i = (y * W + x) * 4;
+            if (px[i] + px[i + 1] + px[i + 2] < 330) n++; // ink on paper (paper is ~700)
+          }
+        return n;
+      };
+      for (const ln of [lay.name, lay.stat, lay.foot, lay.tier]) {
+        if (!ln || !ln.text) continue;
+        [...ln.text].forEach((ch, i) => {
+          if (ch === ' ') return;
+          const x0 = (ln.x0 + i * 6 * ln.pitchX) * sx;
+          if (lit(x0, x0 + 5 * ln.pitchX * sx, vy(ln.a1), vy(ln.a0)) === 0) out.blanks.push(`${id}: "${ch}" in "${ln.text}"`);
+        });
+        // Ink must stop before the plate's right edge (no overflow into the shoulder band).
+        // (the trade-offs' pink shoulder band takes the last 22 px).
+        const endX = (ln.x0 + ln.width) * sx;
+        if (endX > W - (label.tradeoff ? 24 : 8)) out.rightEdge.push(`${id}: ${ln.kind} ends at ${endX.toFixed(0)} of ${W}`);
+      }
+      const cx = (k % cols) * W * scale,
+        cy = Math.floor(k / cols) * (H * scale + 6);
+      sg.drawImage(cv, cx, cy, W * scale, H * scale);
+    });
+    out.sheet = sheet.toDataURL('image/png');
+    return out;
+  });
+  assert(raster.blanks.length === 0, `blank glyphs: ${raster.blanks.slice(0, 6).join('; ')}`);
+  assert(raster.rightEdge.length === 0, `text past the plate: ${raster.rightEdge.slice(0, 6).join('; ')}`);
+  if (SHOTS) {
+    fs.writeFileSync(path.join(SHOTS, `labels-sheet.png`), Buffer.from(raster.sheet.split(',')[1], 'base64'));
+    // Contact sheet of the 30 3D crops, 5 columns.
+    const sheet = await ctx.newPage();
+    // about:blank cannot load file: URLs, so the crops go in as data URIs.
+    const imgs = shots.map((f) => `<img src="data:image/png;base64,${fs.readFileSync(f).toString('base64')}" style="width:360px;margin:2px">`).join('');
+    await sheet.setViewportSize({ width: 5 * 366, height: 6 * 322 });
+    await sheet.setContent(`<body style="margin:0;background:#0a1114">${imgs}</body>`);
+    await sheet.waitForTimeout(500);
+    await sheet.screenshot({ path: path.join(SHOTS, `cards-sheet-${W}x${H}.png`), fullPage: true });
+  }
+  assert(errors.length === 0, `console errors: ${errors.join('; ')}`);
+  await ctx.close();
+  // The lifted selection may graze its neighbour's box, never bury it: the
+  // hover test takes the nearest cartridge, so a deep overlap would steal clicks.
+  const deepest = Math.max(0, ...overlaps.map((o) => o.depth));
+  assert(deepest <= 16, `a selected cartridge's box buries its neighbour's by ${deepest} px`);
+  return { size: `${W}x${H}`, cards: rows.length, overlappingWhenSelected: overlaps.length, deepestOverlapPx: deepest, costCapPx: costCaps, minCaps: [Math.min(...rows.map((r) => r.caps[0])), Math.min(...rows.map((r) => r.caps[1]))] };
+});
+}
+
+// ---- D7: the whole run's drafts with real keys --------------------------------------------
+/** A run from 1-1 to the end with real key presses on every draft: the draft
+ * opens after stages 1-11 (boosted after each sector boss, whose clear goes
+ * through the model's own finishSector and report), each pick adds its card
+ * to the deck, the header names what was cleared, and clearing OMICRON ends
+ * the run without a draft. Stages are cleared by fixture (a sample's
+ * transition, a boss set defeated); every outcome after that is the game's. */
+await check('D7 a whole run of drafts with real keys: 11 drafts (3 boosted), headers, picks by 1-3 + Enter / Space, no draft after OMICRON', async () => {
+  const { ctx, p, errors } = await page();
+  await p.evaluate(() => window.__game.newRun(4321));
+  await p.waitForTimeout(400);
+  const seen = [];
+  for (let stage = 1; stage <= 12; stage++) {
+    await stuck(p, `stage ${stage} start`, p.waitForFunction((st) => window.__game.getState().phase === 'playing' && window.__game.getState().wave === st, stage, { timeout: 15000 }));
+    await p.waitForTimeout(200);
+    const boss = await p.evaluate(() => !!window.__game.getState().boss);
+    if (boss) {
+      // The real clear: the boss is defeated, the model reports and holds.
+      await p.evaluate(() => {
+        window.__game.setState({ enemies: [], enemyShots: [], boss: { state: 'defeated' } });
+        window.__game.step(0.05);
+      });
+      // OMICRON goes straight to the end (no LAB REPORT, no draft).
+      if (stage < 12) await stuck(p, `stage ${stage} report`, p.waitForFunction(() => window.__game.getState().phase === 'transition' && window.__game.getState().transitionHold, null, { timeout: 5000 }));
+      // The LAB REPORT takes a deliberate press once it is shown: press
+      // Enter as a player would until it lets go.
+      for (let i = 0; i < 20 && (await p.evaluate(() => window.__game.getState().transitionHold)); i++) {
+        await p.waitForTimeout(350);
+        await p.keyboard.press('Enter');
+      }
+    } else {
+      await p.evaluate(() => {
+        window.__game.setState({ phase: 'transition', transition: 0.02, transitionHold: false, enemies: [], enemyShots: [] });
+        window.__game.step(0.05);
+      });
+    }
+    if (stage === 12) {
+      // OMICRON: the run ends, a draft never opens.
+      const phases = new Set();
+      for (let i = 0; i < 40; i++) {
+        phases.add(await p.evaluate(() => window.__game.getState().phase));
+        if (phases.has('won')) break;
+        await p.waitForTimeout(250);
+      }
+      assert(!phases.has('draft'), `a draft opened after OMICRON (${[...phases]})`);
+      assert(phases.has('won'), `the run did not end (${[...phases]})`);
+      break;
+    }
+    await stuck(p, `stage ${stage} draft`, p.waitForFunction(() => window.__game.getState().phase === 'draft' && window.__game.draft.scene()?.open, null, { timeout: 15000 }));
+    await revealed(p);
+    const sc = await sceneOf(p);
+    const run = await runOf(p);
+    assert(JSON.stringify(sc.cartridges.map((c) => c.id)) === JSON.stringify(run.offer.ids), `stage ${stage}: cartridges = run.offer`);
+    assert(run.offer.boosted === [3, 6, 9].includes(stage), `stage ${stage}: boosted ${run.offer.boosted}`);
+    const code = ['1-1', '1-2', '1-3', '2-1', '2-2', '2-3', '3-1', '3-2', '3-3', '4-1', '4-2'][stage - 1];
+    const names = { 3: 'ALPHA', 6: 'BETA & GAMMA', 9: 'DELTA' };
+    assert(boss ? sc.header.left.startsWith(`${names[stage]} SEQUENCED`) : sc.header.left === `${code} CLEARED · PICK ONE`, `stage ${stage}: header "${sc.header.left}"`);
+    assert(sc.cartridges.every((c) => c.text.length > 3 && c.rect), `stage ${stage}: every cartridge has its label and a rect`);
+    seen.push({ stage, ids: run.offer.ids, sectorCard: run.offer.ids.find((id) => ({ 3: 'tidal-volume', 6: 'streamline', 9: 'proofreading' })[stage] === id) || null });
+    // Real keys: look at the others first, then take one.
+    if (stage === 1) {
+      // The arrows walk the three (Left / Up back, Right / Down forward) and never leave 0-2.
+      const sel = async () => (await sceneOf(p)).selected;
+      assert((await sel()) === 0, 'the first cartridge starts selected');
+      const walk = [['ArrowRight', 1], ['ArrowDown', 2], ['ArrowRight', 2], ['ArrowLeft', 1], ['ArrowUp', 0], ['ArrowLeft', 0]];
+      for (const [key, want] of walk) {
+        await p.keyboard.press(key);
+        await p.waitForTimeout(60);
+        assert((await sel()) === want, `${key} selects ${want}, got ${await sel()}`);
+      }
+    }
+    await p.keyboard.press('Digit3');
+    await p.keyboard.press('Digit1');
+    await p.waitForTimeout(260);
+    const slot = stage % 3;
+    await p.keyboard.press(`Digit${slot + 1}`);
+    await p.waitForTimeout(220);
+    assert((await sceneOf(p)).selected === slot, `stage ${stage}: Digit${slot + 1} selects`);
+    await p.keyboard.press(stage % 2 ? 'Enter' : 'Space');
+    await stuck(p, `stage ${stage} pick`, p.waitForFunction((st) => !window.__game.draft.screen().holding && window.__game.getState().phase === 'playing' && window.__game.getState().wave === st + 1, stage, { timeout: 15000 }));
+    const deck = (await runOf(p)).deck;
+    assert(deck.length === stage && deck.at(-1).id === run.offer.ids[slot], `stage ${stage}: the deck gained ${run.offer.ids[slot]} (${deck.length} cards)`);
+  }
+  assert(seen.length === 11, `${seen.length} drafts`);
+  assert(errors.length === 0, `console errors: ${errors.join('; ')}`);
+  await ctx.close();
+  return { drafts: seen.length, sectorCardsOffered: seen.filter((s) => s.sectorCard).map((s) => s.sectorCard) };
+});
 
 // ---- D7: input ----------------------------------------------------------------------
 await check('D7 keyboard: a held Space never picks; 1-3 select, Enter injects; play resumes <= 1.2 s; R resamples; S twice discards (+1 SOAP)', async () => {

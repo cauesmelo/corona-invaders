@@ -121,6 +121,27 @@ test('D7 captions never end in half a word and the SYNERGY row names both cartri
   assert.equal(withSynergy, SYNERGIES.length * 2, 'every printed synergy was exercised from both cards');
 });
 
+test('D7 caption rows keep a legible dot pitch: the rail condenses a row to fit (976 px), never below 70% of the row pitch and 3.6 px', () => {
+  const ctx = { power: 2, difficulty: 'normal', titer: 0, stage: 4 };
+  let worst = 6,
+    row = '';
+  for (const c of ALL_CARDS) {
+    const partners = SYNERGIES.filter((s) => s.includes(c.id)).map((s) => s.find((x) => x !== c.id));
+    for (const deck of [[], ...partners.map((p) => [{ id: p, at: 1 }])]) {
+      const rows = captionOf(c.id, deck, ctx).lines;
+      // Three rows are drawn at a 4.8 px pitch, one or two at 6.2 (draft3d drawCaption).
+      const pitch0 = rows.length > 2 ? 4.8 : 6.2;
+      for (const r of rows) {
+        const pitch = Math.min(pitch0, 976 / textDots(r.text));
+        if (pitch / pitch0 < worst / pitch0 || worst === 6) [worst, row] = [pitch, r.text];
+        // A 36-character row at the two-row 6.2 px pitch is 0.73 by design.
+        assert.ok(pitch / pitch0 >= 0.7, `${c.id}: "${r.text}" squeezed to ${(pitch / pitch0).toFixed(2)}`);
+      }
+    }
+  }
+  assert.ok(worst >= 3.6, `narrowest caption row ${worst.toFixed(2)} px: "${row}"`);
+});
+
 test('card briefs: <= 72 characters, two caption rows, and only where the full sentence needs more', () => {
   const briefs = ALL_CARDS.filter((c) => c.brief);
   assert.ok(briefs.length >= 8);
