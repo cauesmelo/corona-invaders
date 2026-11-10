@@ -22,6 +22,7 @@ import * as THREE from './vendor/three.module.js';
 import { cameraLayout, FRAMING_POINTS, pxPerUnit } from './camera.mjs';
 import { RULES, getLevel, chainMultiplier, antibodyOffsets } from './model.mjs';
 import { createKitLayer } from './render-kit.mjs';
+import { createDraft3D } from './draft3d.mjs';
 import { SHAPES, SYRINGE, PALETTE, shapeFor } from './shapes.mjs';
 import { COLLIDERS, NEEDLE, MARKER, GRAZE_RING, INJECT, BULLET_OUTLINE_PX, markerQuad, spriteLayout, bulletQuad, enemyScale, bodyRadiusOf, bulletAxis, needleSegment } from './hitboxes.mjs';
 import { characterOf, bodyMotion, bossMenace, marchTempo, bossLine, talkTime, DEFEAT_FINAL, DEFEAT_POPS } from './personality.mjs';
@@ -965,7 +966,7 @@ function buildShape(spec, { seed = 1, tint = null } = {}) {
   return handles;
 }
 
-export function createRenderer({ canvas, stage, settings }) {
+export function createRenderer({ canvas, stage, settings, cue = () => {} }) {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
   renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2));
   renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -2434,10 +2435,29 @@ export function createRenderer({ canvas, stage, settings }) {
       markerVisible: dot.visible,
     };
   }
+  // FORMULATE in 3D (draft3d.mjs): its own scene on this renderer, built and
+  // compiled now so the first draft never stalls. On its way back to play the
+  // draft syringe lands where the board syringe is.
+  const draft = createDraft3D(THREE, {
+    renderer,
+    stage,
+    settings,
+    cue,
+    boardRatio: () => Math.min(devicePixelRatio || 1, 2),
+    boardSyringe: () => {
+      if (!stateRef) return null;
+      const i = syringeInfo(stateRef);
+      const core = project([stateRef.ship.x, BULLET_Y, stateRef.ship.z]);
+      return { x: core.pixelX, y: core.pixelY, lengthPx: i.lengthPx };
+    },
+  });
+  draft.prewarm();
+  new ResizeObserver(() => draft.resize()).observe(stage);
   return {
     renderer,
     camera,
     fx,
+    draft,
     /** Board point (x, z) on the bullet plane under a client point. */
     pick(clientX, clientY) {
       const r = canvas.getBoundingClientRect();

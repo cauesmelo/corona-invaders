@@ -2090,367 +2090,126 @@ kbd {
   clip: rect(0 0 0 0);
   white-space: nowrap;
 }
+/* ---- FORMULATE: the 3D draft's input layer and control bar -----------------
+ * The cartridges are drawn in WebGL (draft3d.mjs). This layer is transparent:
+ * it only takes pointer input (hit-tested in 3D) and holds the control bar.
+ * No backdrop-filter, blur or large shadows over the canvas: the old glass
+ * slides' DOM-over-canvas compositing once cost SwiftShader 5-13 fps. */
 .formulate {
-  --cobalt: #5b7cff;
   position: absolute;
   inset: 0;
   z-index: 8;
-  display: grid;
-  place-items: center;
-  padding: 14px;
-  /* The board behind dims to ~35% (its last frame, game.js); the HUD panels
-   * under it go quiet too. */
-  background:
-    linear-gradient(rgba(3, 8, 10, 0.78), rgba(3, 8, 10, 0.78)),
-    var(--board, none) center / 100% 100% no-repeat,
-    #05090c;
-}
-.f-panel {
-  width: min(800px, 100%);
-  max-height: 100%;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  justify-content: flex-end;
+  padding: 0 12px 12px;
+  outline: none;
+  pointer-events: auto;
 }
-.f-head {
+.formulate.over {
+  cursor: pointer;
+}
+/* Machined instrument keys: anodised faces, an engraved label and a lit
+ * edge, the same black aluminium as the 3D rack. */
+.f-bar {
   display: flex;
-  align-items: baseline;
-  flex-wrap: wrap;
-  gap: 4px 14px;
-  padding: 0 4px 8px;
-  border-bottom: 1px solid var(--line-hi);
-}
-.f-title {
-  color: var(--cyan);
-  font-size: 18px;
-  font-weight: 700;
-  letter-spacing: 0.32em;
-  text-shadow: 0 0 8px #7fe8ff66;
-}
-.f-sub {
-  color: var(--ink);
-  font-size: 13px;
-  letter-spacing: 0.14em;
-}
-.f-titer {
-  margin-left: auto;
-  color: var(--muted);
-  font-size: 13px;
-  letter-spacing: 0.14em;
-}
-.slides {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 14px;
-}
-.slide {
-  --rim: #9fb3b8;
-  --rim2: transparent;
-  --face: rgba(214, 236, 240, 0.07);
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  gap: 7px;
-  min-height: 300px;
-  padding: 12px 12px 40px;
-  text-align: left;
-  color: var(--ink);
-  font-size: 14px;
-  line-height: 1.35;
-  border: 1px solid var(--rim);
-  border-radius: 6px;
-  background:
-    linear-gradient(160deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.02) 34%, rgba(0, 0, 0, 0.18) 100%),
-    var(--face),
-    #081216;
-  /* Cheap light: hard-edged bevels and one short drop shadow (blurred
-   * shadows and 3D layers over the live WebGL canvas cost SwiftShader
-   * 30 fps). Only transform and opacity animate. */
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.22),
-    inset 0 -2px 0 rgba(0, 0, 0, 0.5),
-    0 0 0 3px var(--rim2),
-    0 6px 0 rgba(0, 0, 0, 0.45);
-  transition:
-    transform 0.16s ease,
-    opacity 0.16s ease;
-  overflow: hidden;
-}
-/* The specimen spot and the glass edge catch the lamp. */
-.slide-glass {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  /* The specimen well (a thin cover-slip ring) and a glass glint. */
-  background:
-    radial-gradient(circle at 84% 78%, transparent 0 26px, rgba(191, 233, 245, 0.16) 27px 28px, transparent 29px),
-    linear-gradient(115deg, transparent 40%, rgba(255, 255, 255, 0.07) 48%, transparent 56%);
-}
-.slide.tier-common {
-  --rim: #8a9da1;
-  --face: rgba(200, 220, 225, 0.08);
-}
-.slide.tier-rare {
-  --rim: var(--cyan);
-  --face: rgba(127, 232, 255, 0.07);
-}
-.slide.tier-epic {
-  --rim: var(--cobalt);
-  --rim2: rgba(91, 124, 255, 0.45);
-  --face: rgba(91, 124, 255, 0.1);
-  border-width: 2px;
-}
-.slide.tier-legendary {
-  --rim: var(--amber);
-  --rim2: rgba(255, 198, 90, 0.35);
-  --face: rgba(255, 198, 90, 0.1);
-  border-width: 2px;
-}
-.slide.tier-legendary .slide-glass::after {
-  content: '';
-  position: absolute;
-  inset: -40% -60%;
-  background: linear-gradient(105deg, transparent 42%, rgba(255, 214, 130, 0.32) 50%, transparent 58%);
-  animation: f-sweep 2.4s linear infinite;
-}
-@keyframes f-sweep {
-  from {
-    transform: translateX(-45%);
-  }
-  to {
-    transform: translateX(45%);
-  }
-}
-.slide.selected,
-.slide:focus-visible {
-  outline: 2px solid var(--rim);
-  outline-offset: 3px;
-  transform: translateY(-6px);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.3),
-    inset 0 -2px 0 rgba(0, 0, 0, 0.5),
-    0 0 0 3px var(--rim2),
-    0 10px 0 rgba(0, 0, 0, 0.45);
-}
-.band {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding-bottom: 6px;
-  border-bottom: 1px solid var(--rim);
-}
-.tier-word {
-  color: var(--rim);
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.22em;
-}
-.pips {
-  display: flex;
-  gap: 3px;
-}
-.pips i {
-  width: 7px;
-  height: 7px;
-  border: 1px solid var(--rim);
-  transform: rotate(45deg);
-}
-.pips i.on {
-  background: var(--rim);
-}
-.band .key {
-  margin-left: auto;
-  color: var(--muted);
-  font-size: 12px;
-}
-.title {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.title strong {
-  font-size: 15px;
-  letter-spacing: 0.1em;
-  color: #f2fbff;
-}
-.glyph {
-  flex: 0 0 auto;
-  width: 22px;
-  height: 22px;
-  color: var(--cyan);
-}
-.tier-legendary .glyph {
-  color: var(--amber);
-}
-.tags {
-  color: var(--muted);
-  font-size: 12px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-.effect {
-  font-size: 14px;
-}
-.num {
-  color: var(--cyan);
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-  letter-spacing: 0.04em;
-}
-.tier-legendary .num {
-  color: var(--amber);
-}
-.cost {
-  color: var(--pink);
-  font-size: 13px;
-}
-.cost .num {
-  color: var(--pink);
-}
-.after {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  margin-top: auto;
-  padding-top: 6px;
-  border-top: 1px dashed var(--line-hi);
-  color: #bfe9f5;
-  font-size: 12px;
-  letter-spacing: 0.04em;
-}
-.synergy {
-  color: var(--amber);
-  font-size: 12px;
-  letter-spacing: 0.06em;
-}
-.stack {
-  color: var(--muted);
-  font-size: 12px;
-  letter-spacing: 0.1em;
-}
-.inject-cta {
-  position: absolute;
-  left: 10px;
-  right: 10px;
-  bottom: 8px;
-  padding: 5px 0;
-  text-align: center;
-  color: #031419;
-  background: var(--rim);
-  border-radius: 3px;
-  font-weight: 700;
-  letter-spacing: 0.3em;
-  opacity: 0;
-  transform: translateY(6px);
-  transition:
-    opacity 0.15s,
-    transform 0.15s;
-}
-.slide.selected .inject-cta {
-  opacity: 1;
-  transform: none;
-}
-/* The reveal: frosted backs rise, then flip to their faces. */
-.slide.rising {
-  opacity: 0;
-  transform: translateY(34px) scale(0.96);
-}
-.slide.rising.shown {
-  opacity: 1;
-  transform: none;
-}
-.slide.rising.shown.selected {
-  transform: translateY(-6px);
-}
-.slide:not(.revealed) > :not(.slide-glass) {
-  visibility: hidden;
-}
-/* The frosted back: one plain gradient (a repeating hatch was the costliest
- * first raster on SwiftShader). */
-.slide:not(.revealed) {
-  background: linear-gradient(160deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.03) 45%, rgba(0, 0, 0, 0.2)), #0a161a;
-  --rim: #5a6d71;
-  --rim2: transparent;
-}
-.slide.revealed {
-  animation: f-flip 0.12s ease-out;
-}
-@keyframes f-flip {
-  from {
-    transform: scaleX(0.04);
-  }
-  to {
-    transform: none;
-  }
-}
-.slide.charging {
-  --rim: var(--amber);
-  animation: f-charge 0.5s ease-in infinite;
-}
-@keyframes f-charge {
-  0% {
-    outline: 2px solid rgba(255, 198, 90, 0.2);
-    outline-offset: 2px;
-  }
-  100% {
-    outline: 3px solid rgba(255, 198, 90, 0.95);
-    outline-offset: 7px;
-  }
-}
-.f-panel[data-motion='reduced'] .slide,
-.f-panel[data-motion='reduced'] .slide * {
-  animation: none !important;
-  transition: none !important;
-}
-.f-foot {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
   justify-content: center;
+  align-items: stretch;
+  gap: 10px;
+  margin: 0 auto;
+  width: min(var(--field-width, 480px), 100%);
 }
-.f-btn {
-  min-height: 40px;
-  padding: 8px 16px;
-  color: var(--ink);
-  font-size: 13px;
-  letter-spacing: 0.14em;
-  background: linear-gradient(#11232a, #08131a);
-  border: 1px solid var(--line-hi);
-  border-radius: 4px;
+.cabinet[data-layout='strip'] .f-bar {
+  width: 100%;
 }
-.f-btn b {
-  color: var(--cyan);
+.f-key {
+  position: relative;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-width: 48px;
+  min-height: 48px;
+  padding: 6px 12px 7px;
+  color: #d8ebe8;
+  font-size: 12px;
+  letter-spacing: 0.16em;
+  background: linear-gradient(#1b272c, #0b1216 58%, #070c0f);
+  border: 1px solid #2c4146;
+  border-radius: 6px;
+  box-shadow:
+    inset 0 1px 0 #3d575c,
+    inset 0 -2px 0 #04080a,
+    0 2px 0 #020405;
 }
-.f-btn kbd {
-  padding: 1px 5px;
-  margin-right: 4px;
-  color: var(--muted);
-  font: inherit;
-  font-size: 11px;
-  border: 1px solid var(--line-hi);
-  border-radius: 3px;
-}
-.f-btn.inject {
-  color: #031419;
+.f-key span {
   font-weight: 700;
-  background: linear-gradient(#a8f1ff, var(--cyan));
-  border-color: var(--cyan);
 }
-.f-btn.inject kbd {
-  color: #0b3a45;
-  border-color: #0b3a45;
+.f-key b {
+  color: var(--cyan);
+  font-weight: 700;
 }
-.f-btn:disabled {
-  opacity: 0.4;
+.f-key kbd {
+  padding: 0 3px;
+  margin-bottom: 1px;
+  color: #7f9b98;
+  font: inherit;
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  border: 1px solid #34494d;
+  border-radius: 2px;
+}
+.f-key:hover:not(:disabled) {
+  border-color: #4f7a7c;
+}
+.f-key:active:not(:disabled) {
+  transform: translateY(1px);
+  box-shadow:
+    inset 0 1px 0 #2a3d41,
+    inset 0 -1px 0 #04080a;
+}
+.f-key.inject {
+  flex: 1 1 auto;
+  max-width: 220px;
+  color: #04161b;
+  font-size: 15px;
+  letter-spacing: 0.3em;
+  background: linear-gradient(#c9f6ff, #7fe8ff 55%, #45bcd6);
+  border-color: #9ff0ff;
+  box-shadow:
+    inset 0 1px 0 #f0fdff,
+    inset 0 -2px 0 #2c8ea4,
+    0 2px 0 #031014,
+    0 0 14px rgba(127, 232, 255, 0.35);
+}
+.f-key.inject kbd {
+  color: #0b4552;
+  border-color: #2c8ea4;
+}
+.f-key.confirm {
+  color: var(--amber);
+  border-color: var(--amber);
+}
+.f-key:disabled {
+  opacity: 0.42;
   cursor: default;
 }
-.f-btn.confirm {
-  border-color: var(--amber);
-  color: var(--amber);
+.f-key:focus-visible {
+  outline: 3px solid #e8fbff;
+  outline-offset: 3px;
 }
-.f-rack {
-  display: flex;
-  justify-content: center;
+/* While drafting the instruments stay readable but step back; on phones the
+ * strip's rack readout (it overlaps the board) hides. */
+.cabinet[data-draft] .hud .panel {
+  opacity: 0.8;
+}
+.cabinet[data-layout='strip'][data-draft] .rack-meter {
+  display: none;
+}
+/* The draft layer is transparent: play's callouts under it step aside. */
+.cabinet[data-draft] :is(#hint, #callout, #card-result, #tally, #intro-card, #boss-card, #boss-status, #twist-tag, #damage-flash) {
+  visibility: hidden;
 }
 
 /* ---- The owned-adjuvant rack (HUD, pause, FORMULATE) ---------------------- */
@@ -2480,36 +2239,60 @@ kbd {
   display: inline-flex;
   align-items: flex-end;
   justify-content: center;
-  width: 13px;
-  height: 20px;
-  border: 1px solid #5f7a7f;
-  border-radius: 2px 2px 4px 4px;
-  background: rgba(10, 24, 28, 0.9);
+  width: 12px;
+  height: 26px;
 }
-.chip .fill {
-  position: absolute;
-  left: 1px;
-  right: 1px;
-  bottom: 1px;
-  height: 55%;
-  border-radius: 0 0 3px 3px;
-  background: #7b9196;
+/* Mini cartridges (formulate.mjs cartridgeChip): the same materials as the
+ * 3D draft. Clear glass, frosted, cobalt, and a gold cap with glowing serum. */
+.cart {
+  width: 12px;
+  height: 26px;
+  overflow: visible;
 }
-.chip.tier-rare {
-  border-color: var(--cyan);
+.cart .glass {
+  fill: rgba(233, 251, 255, 0.1);
+  stroke: #b9dbe2;
+  stroke-width: 0.8;
 }
-.chip.tier-rare .fill {
-  background: var(--cyan);
+.cart .sheen {
+  fill: #ffffff;
+  opacity: 0.55;
 }
-.chip.tier-epic {
-  border-color: var(--cobalt, #5b7cff);
-  box-shadow: 0 0 0 1px rgba(91, 124, 255, 0.4);
+.cart .serum {
+  opacity: 0.62;
 }
-.chip.tier-epic .fill {
-  background: #5b7cff;
+.cart .frost {
+  fill: rgba(240, 250, 255, 0.5);
 }
-.chip .chip-glyph {
-  display: none;
+.cart .cobalt {
+  fill: rgba(58, 91, 255, 0.55);
+}
+.cart.tier-epic .glass {
+  stroke: #7d93ff;
+}
+.cart .neck {
+  fill: #8fa3a8;
+}
+.cart .capbody {
+  stroke: #0b1418;
+  stroke-width: 0.5;
+}
+.cart .notch {
+  stroke: #1a272c;
+  stroke-width: 0.45;
+}
+.cart.tier-rare .capbody {
+  stroke: #5fe3ff;
+  stroke-width: 0.8;
+}
+.cart .crown {
+  fill: #f2c14e;
+}
+.cart.tier-legendary .serum {
+  opacity: 1;
+}
+.cart.tier-legendary {
+  filter: drop-shadow(0 0 2px rgba(255, 195, 90, 0.75));
 }
 .chip em {
   position: absolute;
@@ -2525,19 +2308,14 @@ kbd {
 }
 .chip.legend {
   width: auto;
-  height: 20px;
-  gap: 4px;
+  height: 26px;
+  gap: 5px;
   align-items: center;
-  padding: 0 6px 0 3px;
+  padding: 0 6px 0 4px;
   color: var(--amber);
-  border-color: var(--amber);
+  border: 1px solid rgba(242, 193, 78, 0.7);
   border-radius: 3px;
-  background: rgba(255, 198, 90, 0.12);
-}
-.chip.legend .chip-glyph {
-  display: block;
-  width: 14px;
-  height: 14px;
+  background: rgba(255, 198, 90, 0.1);
 }
 .chip.legend b {
   font-size: 10px;
@@ -2616,124 +2394,29 @@ kbd {
   letter-spacing: 0.14em;
 }
 
-/* Portrait / narrow: three full-width rows; the selected row expands; the
- * INJECT button sits in the thumb zone where the SOAP button lives. */
+/* Portrait: the control bar is the thumb zone; INJECT is the 72 px key where
+ * the SOAP button lives in play. */
 @media (max-width: 640px), (max-aspect-ratio: 4/5) {
   .formulate {
-    place-items: stretch;
-    padding: 10px;
+    padding: 0 8px 10px;
   }
-  .f-panel {
+  .f-bar {
     gap: 8px;
-    height: 100%;
-    min-height: 0;
   }
-  .f-title {
-    font-size: 15px;
+  .f-key {
+    flex: 1 1 0;
+    min-height: 60px;
+    padding: 6px 4px;
+    font-size: 11px;
+    letter-spacing: 0.1em;
   }
-  .f-sub,
-  .f-titer {
-    font-size: 12px;
-  }
-  .slides {
-    grid-template-columns: 1fr;
-    gap: 8px;
-    align-content: start;
-    flex: 1 1 auto;
-    min-height: 0;
-    overflow: auto;
-    padding: 2px 2px 6px;
-    /* overflow:hidden slides contribute no min-content height: size rows to
-     * their content and let the list scroll instead of squashing them. */
-    grid-auto-rows: max-content;
-  }
-  .slide {
-    min-height: 0;
-    padding: 9px 11px 10px;
-    font-size: 13px;
-    gap: 5px;
-  }
-  .slide .tags,
-  .slide .after,
-  .slide .stack,
-  .slide .synergy {
-    display: none;
-  }
-  .slide.selected .after,
-  .slide.selected .synergy {
-    display: flex;
-  }
-  .slide.selected,
-  .slide:focus-visible,
-  .slide.rising.shown.selected {
-    transform: none;
-  }
-  .inject-cta {
-    display: none;
-  }
-  .f-foot {
-    margin-top: auto;
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-  }
-  .f-btn.inject {
-    grid-column: 1 / -1;
+  .f-key.inject {
+    flex: 1.5 1 0;
     min-height: 72px;
-    font-size: 16px;
-    order: 3;
-  }
-  .f-rack {
-    justify-content: flex-start;
+    font-size: 15px;
+    letter-spacing: 0.24em;
   }
 }
-/* Short phones (320x568): all three rows stay in view without scrolling. */
-@media (max-aspect-ratio: 4/5) and (max-height: 700px), (max-width: 640px) and (max-height: 700px) {
-  .f-head {
-    padding-bottom: 4px;
-  }
-  .f-title {
-    font-size: 13px;
-  }
-  .f-rack,
-  .f-titer {
-    display: none;
-  }
-  .slides {
-    gap: 6px;
-  }
-  .slide {
-    padding: 7px 10px 8px;
-    gap: 3px;
-    line-height: 1.28;
-  }
-  .band {
-    padding-bottom: 3px;
-  }
-  .title strong {
-    font-size: 14px;
-  }
-  .slide.selected .after span:not(:last-child) {
-    display: none;
-  }
-  /* Tap-to-expand rows: an unselected row shows its effect in two lines; the
-   * COST appears on the selected row, the only one INJECT can take. */
-  .slide:not(.selected) .effect {
-    display: -webkit-box;
-    -webkit-line-clamp: 2;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
-  }
-  .slide:not(.selected) .cost {
-    display: none;
-  }
-  .f-btn {
-    min-height: 36px;
-    padding: 4px 8px;
-    font-size: 12px;
-  }
-  .f-btn.inject {
-    min-height: 56px;
-  }
 /* v1.0 lab voice: the microscope magnification, FIELD NOTES, the LAB REPORT
    assessment and the 1CC stamp. Calm, clinical, no exclamation marks. */
 #intro-zoom {

@@ -50,7 +50,8 @@ import {
   PROLOGUE,
 } from './model.mjs';
 import { KEYS, loadStore, write as writeKey } from './save.mjs';
-import { formulateHTML, offerSummary, rackHTML, formulationList, createDraftGate } from './formulate.mjs';
+import { controlsHTML, offerSummary, rackHTML, formulationList, createDraftGate } from './formulate.mjs';
+import { captionOf } from './draft3d.mjs';
 import { CARD, limitOf, legendariesIn } from './cards.mjs';
 import { clamp } from './core.mjs';
 import { normalizeBullet } from './bullets.mjs';
@@ -145,12 +146,11 @@ const ui = {
   crackedUntil: 0,
   timers: {},
   layout: '',
-  // FORMULATE: the focused slide, the two-step DISCARD, and the reveal.
+  // FORMULATE: the selected cartridge, the two-step DISCARD (the reveal and
+  // every animation live in draft3d.mjs).
   fSel: 0,
   fConfirm: false,
   fKey: '',
-  fRevealed: true,
-  fRevealTimers: [],
 };
 const draftGate = createDraftGate();
 
@@ -845,6 +845,7 @@ function syncLayout() {
     cabinet.dataset.layout = layout;
     view?.setTopBand(layout === 'side' ? TOP_BAND.side : TOP_BAND.strip);
   }
+  if (view?.draft?.active) requestAnimationFrame(syncDraftRect);
   if (view && layout === 'side') {
     const r = view.info(state).fieldRect;
     cabinet.style.setProperty('--field-left', `${Math.round(r.left)}px`);
@@ -859,6 +860,8 @@ function syncUI() {
   overlay.hidden = !screen || screen === 'formulate';
   const fEl = $('#formulate');
   if (fEl.hidden !== (screen !== 'formulate')) fEl.hidden = screen !== 'formulate';
+  const drafting = screen === 'formulate' || !!view?.draft?.active;
+  if (cabinet.hasAttribute('data-draft') !== drafting) cabinet.toggleAttribute('data-draft', drafting);
   if (screen === 'formulate' && ui.fKey !== offerKey()) openFormulate();
   if (screen !== ui.screen) {
     // The report appears after the defeat payoff: a key still held from the
@@ -866,7 +869,7 @@ function syncUI() {
     if (screen === 'report' && ui.reportAt) lockHeld();
     ui.screen = screen;
     if (screen && screen !== 'formulate') configure(screen);
-    if (screen === 'formulate') $('#formulate-panel').querySelector(`.slide[data-slot="${ui.fSel}"]`)?.focus({ preventScroll: true });
+    if (screen === 'formulate') $('#formulate').focus({ preventScroll: true });
   }
   syncHUD(ui.screen === 'demo' && ui.demo ? ui.demo : state);
 }
@@ -1074,125 +1077,103 @@ $('#pause-button').addEventListener('click', () => {
 });
 
 // ---- FORMULATE: the adjuvant draft between stages --------------------------------
-// Nothing simulates while it is open (the model's 'draft' phase). One input
+// Nothing simulates while it is open (the model's 'draft' phase). The draft
+// is a 3D scene (draft3d.mjs, drawn by render.mjs on the same canvas): three
+// vaccine cartridges whose labels carry the name and one stat. One input
 // scheme per device, as in play: keys (arrows / A-D / 1-3, Enter or Space to
-// INJECT, R resample, S twice to discard), mouse (hover or click a slide, then
-// INJECT or double-click) and touch (tap a slide, tap INJECT). Every press
-// waits 0.5 s after the screen opens and must be fresh (formulate.mjs gate).
+// INJECT, R resample, S twice to discard), mouse (hover selects; click the
+// selected cartridge, or double-click, injects) and touch (tap selects, tap
+// again or INJECT injects). Every press waits 0.5 s after the screen opens
+// and must be fresh (formulate.mjs gate). A pick or a discard is applied to
+// the model at once; play is then held for its animation (<= 1.1 s, any
+// press after 0.36 s skips it).
 const fPanel = $('#formulate-panel');
+const fLayer = $('#formulate');
 const offerKey = () => (state.run?.offer ? `${state.wave}:${state.run.drafts}:${state.run.resamples}:${state.run.offer.ids.join(',')}` : '');
+const revealed = () => view?.draft?.revealed ?? true;
 function draftKitCtx() {
   return { power: entryPower(Math.min(STAGE_COUNT, state.wave + 1)), difficulty: state.difficulty, titer: state.run.titer, stage: state.wave + 1 };
+}
+/** The header etched on the rack: what was cleared, and the titer. */
+function draftHeader() {
+  const run = state.run;
+  const level = getLevel(state.wave);
+  const boss = level.kind === 'boss' && run.offer?.boosted;
+  const def = boss ? BOSSES[level.boss] : null;
+  const capturable = def ? def.cards.filter((c) => c.type !== 'phase').length : 0;
+  const left = boss ? `${def?.name || 'VARIANT'} SEQUENCED ${Math.round((run.lastShare ?? 0) * capturable)}/${capturable}` : `${level.code} CLEARED · PICK ONE`;
+  const titer = Array.from({ length: 3 }, (_, i) => (i < run.titer ? '◆' : '◇')).join('');
+  return { left, right: `TITER ${titer}` };
+}
+/** The safe rect (stage CSS px) the cartridges must fit: between the side
+ * panels in landscape, the full width on phones, above the control bar. */
+function syncDraftRect() {
+  if (!view?.draft) return;
+  const sr = stage.getBoundingClientRect();
+  const bar = fPanel.getBoundingClientRect();
+  let x = 12,
+    right = sr.width - 12;
+  if (ui.layout === 'side') {
+    x = $('#panel-left').getBoundingClientRect().right - sr.left + 8;
+    right = $('#panel-right').getBoundingClientRect().left - sr.left - 8;
+  }
+  const top = ui.layout === 'side' ? 12 : 6;
+  const bottom = (bar.height ? bar.top - sr.top : sr.height) - 6;
+  view.draft.setSafeRect({ x, y: top, w: right - x, h: bottom - top }, ui.layout === 'side' ? 'wide' : 'tall');
+}
+function renderControls() {
+  fPanel.innerHTML = controlsHTML({ tokens: state.run?.tokens ?? 0, confirm: ui.fConfirm, touch: touchQuery.matches });
+}
+function describeSelected() {
+  const id = state.run?.offer?.ids[ui.fSel];
+  if (!id) return null;
+  const cap = captionOf(id, state.run.deck, draftKitCtx());
+  view?.draft?.setCaption(cap.lines);
+  $('#formulate-live').textContent = `${ui.fSel + 1} of ${state.run.offer.ids.length}: ${cap.full}`;
+  return cap;
 }
 function openFormulate({ resampled = false } = {}) {
   const run = state.run;
   if (!run?.offer) return;
-  for (const t of ui.fRevealTimers) clearTimeout(t);
-  ui.fRevealTimers = [];
   ui.fKey = offerKey();
   ui.fSel = Math.min(ui.fSel, run.offer.ids.length - 1);
   if (!resampled) ui.fSel = 0;
   ui.fConfirm = false;
   const now = performance.now();
   draftGate.open(now, [...held].filter((k) => ['Space', 'KeyX', 'Enter', 'KeyR', 'KeyS'].includes(k)));
-  renderFormulate();
-  const offer = run.offer;
-  const motion = settings.effects();
-  fPanel.dataset.motion = motion ? 'full' : 'reduced';
+  renderControls();
+  // Laid out before measuring, so the cartridges fit above the control bar.
+  fLayer.hidden = false;
+  cabinet.toggleAttribute('data-draft', true);
+  syncDraftRect();
+  // The tray sound plays from the model's own 'draft' event (handleEvents);
+  // the reveal's tier sounds are cued by the 3D timeline as each lands.
+  view?.draft?.open(
+    { ids: run.offer.ids, tiers: run.offer.tiers, selected: ui.fSel, deck: run.deck, header: draftHeader(), caption: captionOf(run.offer.ids[ui.fSel], run.deck, draftKitCtx()).lines },
+    { resampled },
+  );
   $('#formulate-live').textContent = offerSummary(run);
-  // The tray sound plays from the model's own 'draft' event (handleEvents).
-  // The reveal: slides rise 90 ms apart, then flip left to right; a
-  // legendary glows 0.5 s before its flip (the centrifuge spin-up). Any press
-  // after 0.4 s completes it. Reduced motion: instant, one sound per tier.
-  ui.fRevealed = !motion;
-  const flips = [];
-  let t = 260;
-  offer.tiers.forEach((tier, i) => {
-    if (tier === 'legendary') t += 500;
-    flips.push(t);
-    t += 120;
-  });
-  const slides = [...fPanel.querySelectorAll('.slide')];
-  offer.tiers.forEach((tier, i) => {
-    const el = slides[i];
-    if (!motion) {
-      el.classList.add('shown', 'revealed');
-      return;
-    }
-    el.classList.add('rising');
-    ui.fRevealTimers.push(setTimeout(() => el.classList.add('shown'), i * 90));
-    if (tier === 'legendary') {
-      ui.fRevealTimers.push(
-        setTimeout(() => {
-          el.classList.add('charging');
-          audio.event({ type: 'legendary-riser' }, state);
-        }, flips[i] - 500),
-      );
-    }
-    ui.fRevealTimers.push(
-      setTimeout(() => {
-        el.classList.add('revealed');
-        el.classList.remove('charging');
-        audio.event({ type: 'reveal', tier, slot: i }, state);
-        if (tier === 'legendary') view?.flash?.('legendary');
-      }, flips[i]),
-    );
-  });
-  if (motion) ui.fRevealTimers.push(setTimeout(() => (ui.fRevealed = true), flips.at(-1) + 200));
-  else for (const tier of [...new Set(offer.tiers)]) audio.event({ type: 'reveal', tier, slot: 1 }, state);
 }
 function skipReveal() {
-  if (ui.fRevealed) return false;
-  for (const tm of ui.fRevealTimers) clearTimeout(tm);
-  ui.fRevealTimers = [];
-  for (const el of fPanel.querySelectorAll('.slide')) {
-    el.classList.add('shown', 'revealed');
-    el.classList.remove('charging', 'rising');
-  }
-  ui.fRevealed = true;
-  return true;
+  return view?.draft?.skipReveal() ?? false;
 }
-function renderFormulate() {
-  const run = state.run;
-  const level = getLevel(state.wave);
-  const boss = level.kind === 'boss' && run.offer.boosted;
-  const def = boss ? BOSSES[level.boss] : null;
-  const capturable = def ? def.cards.filter((c) => c.type !== 'phase').length : 0;
-  const sequenced = boss ? `${Math.round((run.lastShare ?? 0) * capturable)}/${capturable}` : '';
-  fPanel.innerHTML = formulateHTML({
-    run,
-    stageCode: level.code,
-    boss,
-    bossName: def?.name,
-    sequenced,
-    cards: { potency: state.kit.potency },
-    ctx: draftKitCtx(),
-    selected: ui.fSel,
-    touch: touchQuery.matches,
-    confirmDiscard: ui.fConfirm,
-  });
-}
-function selectSlide(i, { focus = true } = {}) {
+function selectSlide(i) {
   const n = state.run?.offer?.ids.length ?? 0;
   if (!n) return;
-  ui.fSel = Math.max(0, Math.min(n - 1, i));
-  for (const el of fPanel.querySelectorAll('.slide')) el.classList.toggle('selected', Number(el.dataset.slot) === ui.fSel);
-  const inject = fPanel.querySelector('[data-act="inject"]');
-  if (inject) inject.disabled = false;
-  if (focus) fPanel.querySelector(`.slide[data-slot="${ui.fSel}"]`)?.focus({ preventScroll: true });
+  const next = Math.max(0, Math.min(n - 1, i));
+  if (next === ui.fSel) return;
+  ui.fSel = next;
+  view?.draft?.select(ui.fSel);
+  describeSelected();
 }
 function setConfirm(on) {
   ui.fConfirm = on;
-  const b = fPanel.querySelector('[data-act="discard"]');
-  if (!b) return;
-  b.classList.toggle('confirm', on);
-  b.innerHTML = `${touchQuery.matches ? '' : '<kbd>S</kbd> '}${on ? 'CONFIRM DISCARD' : 'DISCARD'} <b>+1 SOAP</b>`;
+  renderControls();
+  if (on) fPanel.querySelector('[data-act="discard"]')?.focus({ preventScroll: true });
 }
 /** After a pick or a discard: the model began the next stage; its events
  * (adjuvant / discard, wave-start) are handled here, outside update(). */
 function leaveFormulate() {
-  for (const t of ui.fRevealTimers) clearTimeout(t);
-  ui.fRevealTimers = [];
   ui.fKey = '';
   handleEvents(state.events, state, true);
   state.events = [];
@@ -1200,12 +1181,17 @@ function leaveFormulate() {
   syncUI();
   focusGame();
 }
-function doPick(i = ui.fSel) {
+function doPick(i = ui.fSel, { animate = true } = {}) {
+  if (view?.draft?.active && view.draft.mode !== 'draft') return false;
   if (!pickAdjuvant(state, i)) return false;
+  // The cartridge loads into the syringe; play waits for it (draft3d).
+  if (animate) view?.draft?.inject(i);
+  else view?.draft?.close();
   leaveFormulate();
   return true;
 }
 function doResample() {
+  if (view?.draft?.busy) return false;
   if (!resampleAdjuvants(state)) return false;
   audio.event({ type: 'resample' }, state);
   const ev = state.events.find((e) => e.type === 'resample');
@@ -1216,8 +1202,17 @@ function doResample() {
   return true;
 }
 function doDiscard() {
+  if (view?.draft?.busy) return;
   if (!ui.fConfirm) return setConfirm(true);
-  if (discardAdjuvants(state)) leaveFormulate();
+  if (discardAdjuvants(state)) {
+    view?.draft?.discard();
+    leaveFormulate();
+  }
+}
+function controlAction(act) {
+  if (act === 'inject') return doPick(ui.fSel);
+  if (act === 'resample') return doResample();
+  if (act === 'discard') return doDiscard();
 }
 function formulateKey(event) {
   const code = event.code;
@@ -1230,12 +1225,14 @@ function formulateKey(event) {
   }
   const now = performance.now();
   if (!draftGate.accept(code, now, event.repeat)) return;
+  if (view?.draft?.busy) return;
   // The reveal can be skipped after 0.4 s (the gate already waits 0.5 s);
   // the skipping press does nothing else.
-  if (!ui.fRevealed && now - draftGate.openedAt >= 400 && skipReveal()) return;
+  if (!revealed() && now - draftGate.openedAt >= 400 && skipReveal()) return;
   const n = state.run?.offer?.ids.length ?? 0;
-  if (code === 'ArrowLeft' || code === 'KeyA') return selectSlide(ui.fSel - 1);
-  if (code === 'ArrowRight' || code === 'KeyD') return selectSlide(ui.fSel + 1);
+  // The cartridges are stacked top to bottom: up/left and down/right move.
+  if (['ArrowLeft', 'ArrowUp', 'KeyA', 'KeyW'].includes(code)) return selectSlide(ui.fSel - 1);
+  if (['ArrowRight', 'ArrowDown', 'KeyD'].includes(code)) return selectSlide(ui.fSel + 1);
   if (['Digit1', 'Digit2', 'Digit3', 'Numpad1', 'Numpad2', 'Numpad3'].includes(code)) {
     const i = Number(code.at(-1)) - 1;
     if (i < n) selectSlide(i);
@@ -1244,43 +1241,49 @@ function formulateKey(event) {
   if (code === 'KeyR') return doResample();
   if (code === 'KeyS') return doDiscard();
   if (code === 'Enter' || code === 'Space') {
+    // A focused control does what it says (Tab reaches the bar).
+    const act = event.target?.closest?.('[data-act]')?.dataset.act;
+    if (act) return controlAction(act);
     if (ui.fConfirm) return doDiscard();
     return doPick(ui.fSel);
   }
   if (ui.fConfirm) setConfirm(false);
 }
-/** Mouse and touch: a click or tap selects a slide; INJECT (on the selected
- * slide or in the footer) or a double-click picks it. Presses obey the same
- * 0.5 s gate as keys. */
-fPanel.addEventListener('pointerover', (event) => {
-  if (event.pointerType !== 'mouse') return;
-  const slide = event.target.closest('.slide');
-  if (slide) selectSlide(Number(slide.dataset.slot), { focus: false });
+/** Mouse and touch: the cartridges are hit-tested in 3D (draft3d.hit, a 12%
+ * margin around each). Hover selects; a click or tap on the selected
+ * cartridge injects, on another one selects it; a double-click injects. */
+const stagePoint = (event) => {
+  const r = stage.getBoundingClientRect();
+  return [event.clientX - r.left, event.clientY - r.top];
+};
+fLayer.addEventListener('pointermove', (event) => {
+  if (event.pointerType !== 'mouse' || ui.screen !== 'formulate' || !view?.draft) return;
+  const i = view.draft.hit(...stagePoint(event));
+  fLayer.classList.toggle('over', i >= 0);
+  if (i >= 0 && revealed() && !view.draft.busy) selectSlide(i);
 });
-fPanel.addEventListener('click', (event) => {
+fLayer.addEventListener('click', (event) => {
   const now = performance.now();
-  if (draftGate.locked(now)) return;
-  if (!ui.fRevealed && skipReveal()) return;
+  if (draftGate.locked(now) || view?.draft?.busy) return;
+  if (!revealed() && skipReveal()) return;
   const act = event.target.closest('[data-act]')?.dataset.act;
-  if (act === 'inject') return doPick(ui.fSel);
-  if (act === 'resample') return doResample();
-  if (act === 'discard') return doDiscard();
-  const slide = event.target.closest('.slide');
-  if (!slide) return;
-  const i = Number(slide.dataset.slot);
-  if (ui.fConfirm) setConfirm(false);
-  // The INJECT label shows on the selected slide; a click on it picks.
-  if (i === ui.fSel && event.target.closest('.inject-cta') && slide.classList.contains('selected')) return doPick(i);
-  // Keyboard activation of a focused slide (Enter/Space on the button) is
-  // handled by the keydown gate; a pointer click only selects.
+  if (act) return controlAction(act);
+  // Keyboard activation of a focused control is handled by the keydown
+  // gate; only real pointer clicks hit-test the scene.
   if (event.detail === 0) return;
+  const i = view?.draft?.hit(...stagePoint(event)) ?? -1;
+  if (i < 0) return;
+  if (ui.fConfirm) setConfirm(false);
+  if (i === ui.fSel) return doPick(i);
   selectSlide(i);
 });
-fPanel.addEventListener('dblclick', (event) => {
+fLayer.addEventListener('dblclick', (event) => {
   if (draftGate.locked(performance.now())) return;
-  const slide = event.target.closest('.slide');
-  if (slide) doPick(Number(slide.dataset.slot));
+  const i = view?.draft?.hit(...stagePoint(event)) ?? -1;
+  if (i >= 0 && state.phase === 'draft') doPick(i);
 });
+// While a pick or a discard animates, any press after 0.36 s skips to play.
+stage.addEventListener('pointerdown', () => view?.draft?.holding && view.draft.finish(), { capture: true });
 
 // ---- Keyboard --------------------------------------------------------------------
 const MOVE_KEYS = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'KeyA', 'KeyD', 'KeyW', 'KeyS'];
@@ -1294,6 +1297,14 @@ window.addEventListener('keydown', (event) => {
   held.add(event.code);
   if (!inputEnabled) return;
   const code = event.code;
+  if (view?.draft?.holding) {
+    // The pick animates (play is held): a press skips it after 0.36 s and
+    // never reaches play (a SOAP key counts only after a release).
+    event.preventDefault();
+    if (!event.repeat) view.draft.finish();
+    if (EDGE_KEYS.includes(code)) locked.add(code);
+    return;
+  }
   const onButton = event.target instanceof HTMLButtonElement;
   const screen = ui.screen;
   if (screen === 'lost' && (code === 'Space' || code === 'Enter') && (event.repeat || performance.now() < (ui.lockUntil || 0))) {
@@ -1593,7 +1604,40 @@ window.__game = {
   /** The run's draft state (QA): deck, pity, tokens, titer and the offer. */
   run: () => (state.run ? structuredClone({ ...state.run, kit: { potency: state.kit.potency, limit: state.kit.limit, atLimit: state.kit.atLimit } }) : null),
   /** FORMULATE actions, exactly as the screen calls them. */
-  draft: { pick: (i) => doPick(i), resample: () => doResample(), discard: () => (doDiscard(), doDiscard()), skip: () => skipReveal(), screen: () => ({ selected: ui.fSel, revealed: ui.fRevealed, confirm: ui.fConfirm, key: ui.fKey }) },
+  draft: {
+    /** Immediate pick (no animation), as the bots need; players go through
+     * the keys, mouse and touch, which animate. */
+    pick: (i, opts = { animate: false }) => doPick(i, opts),
+    resample: () => doResample(),
+    discard: () => (doDiscard(), doDiscard()),
+    skip: () => skipReveal(),
+    screen: () => ({ selected: ui.fSel, revealed: revealed(), confirm: ui.fConfirm, key: ui.fKey, holding: !!view?.draft?.holding }),
+    /** The 3D draft (draft3d.info): cartridges, labels, screen rects, label
+     * cap heights, tier materials, renderer calls and triangles. */
+    scene: () => view?.draft?.info() ?? null,
+    /** Render now and measure each cartridge's pixels (shading probe). */
+    probe: () => view?.draft?.probe() ?? null,
+    /** LITE on/off by hand (stops the automatic switch). */
+    lite: (on) => view?.draft?.setLite(on),
+    /** GPU cost of one draft frame (ms each, render + a pixel read), for D8. */
+    bench: (n) => view?.draft?.bench(n) ?? null,
+    /** Dev-only scene handles, for profiling. */
+    parts: () => view?.draft?.parts() ?? null,
+    /** The board's GPU cost per frame (same method), for comparison. */
+    benchBoard: (n = 30) => {
+      if (!view) return null;
+      const gl = view.renderer.getContext();
+      const px = new Uint8Array(4);
+      const out = [];
+      for (let i = 0; i < n; i++) {
+        const t0 = performance.now();
+        view.render(state, 0);
+        gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
+        out.push(performance.now() - t0);
+      }
+      return out;
+    },
+  },
   /** QA fixture only: hand the run a deck (normal play never calls this). */
   setDeck: (ids) => {
     if (!state.run) return false;
@@ -1658,7 +1702,7 @@ window.__game = {
 // ---- Boot ------------------------------------------------------------------------
 async function boot() {
   const { createRenderer } = await import('./render.mjs');
-  view = createRenderer({ canvas, stage, settings });
+  view = createRenderer({ canvas, stage, settings, cue: (ev) => audio.event(ev, state) });
   canvas.addEventListener('webglcontextlost', (event) => {
     event.preventDefault();
     state.paused = true;
@@ -1694,7 +1738,13 @@ async function boot() {
     // One input record per rendered frame, applied to each of its steps; a
     // press is an edge on the first of them only (model.mjs).
     const input = demo ? null : currentInput();
-    for (let i = 0; i < clock.steps; i++) {
+    // FORMULATE: a pick or a discard applied to the model waits for its
+    // animation; the next stage starts simulating when the draft hands back.
+    const draft = view.draft;
+    if (draft.active && draft.holding && state.paused) draft.close();
+    if (draft.active && !draft.holding && state.phase !== 'draft') draft.close();
+    const holdSim = !demo && draft.holding;
+    for (let i = 0; i < clock.steps && !holdSim; i++) {
       if (i === clock.steps - 1) {
         prevPositions = clock.smooth ? capturePositions(shown) : null;
         prevOf = shown;
@@ -1726,27 +1776,18 @@ async function boot() {
       }
     }
     const drawn = clock.smooth && prevOf === shown ? interpolatedView(shown, prevPositions, clock.alpha) : shown;
-    // FORMULATE: nothing simulates, so the board is drawn once, copied into
-    // the screen's backdrop and the WebGL canvas is hidden until the pick.
-    // Redrawing a static scene under the glass slides every frame cost
-    // SwiftShader 5-13 fps (vs 61 held), and merely skipping renders left a
-    // non-preserved drawing buffer that captures showed as garbage.
-    const hold = !demo && state.phase === 'draft' && !state.paused ? `${ui.fKey}|${stage.clientWidth}x${stage.clientHeight}` : '';
-    if (!hold || hold !== ui.heldFrame) {
+    if (!demo && draft.active) {
+      // The 3D draft: the board is drawn only when the draft needs it (the
+      // open frame, which it copies as its backdrop, a resize, and the
+      // return to play), never under the cartridges every frame.
+      const boardDrawn = draft.wantsBoard();
+      if (boardDrawn) $('#damage-flash').style.opacity = String(view.render(drawn, dt));
+      draft.frame(state.paused ? 0 : real * 1000, { boardDrawn });
+      if (!draft.active && !boardDrawn) view.render(drawn, 0);
+    } else {
       const flash = view.render(drawn, dt);
       $('#damage-flash').style.opacity = String(flash);
-      if (hold) {
-        try {
-          // Read in the same task as the render, before the buffer is presented.
-          $('#formulate').style.setProperty('--board', `url(${canvas.toDataURL('image/jpeg', 0.85)})`);
-          canvas.style.visibility = 'hidden';
-        } catch {
-          ui.heldFrame = '';
-        }
-      }
     }
-    if (!hold && canvas.style.visibility) canvas.style.visibility = '';
-    if (hold !== ui.heldFrame && !(hold && canvas.style.visibility !== 'hidden')) ui.heldFrame = hold;
     syncUI();
     requestAnimationFrame(frame);
   }
