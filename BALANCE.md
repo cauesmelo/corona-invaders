@@ -215,7 +215,7 @@ Brief: [RESEARCH_CARDS.md](./RESEARCH_CARDS.md). Pure tests: `tests/cards.test.m
 
 **Ceilings (unit tests).** No deck exceeds its titer limit (10,000 random decks). Greedy offense ≤ 1.5× the random median at every stage. STRONGEST_BUILD ends a card at ≥ 0.7 × E ÷ limit of its TTK: **44.7%** at worst (2-2's midboss), against the 40% floor. Hits to game over (core hit every 6 s, no input, real model): Normal 3, Easy 20, the worst non-legendary Normal deck (EXTRA DOSE ×2, LATHER ×2, EPIPEN, ENTERIC ×2, BACKUP ALIQUOT) **18** (≤ 20), plus LNP 19, plus AUTOCLAVE 22 (≤ 24). **Known excess:** LNP and AUTOCLAVE together on that stack measure 29 in an endless stage. Single legendaries: LNP alone +4 hits, ENTERIC +3 (one per vial at 3 vials, over the rare budget of +2), EPIPEN +3.
 
-**Whole runs (test 12, 30 seeds, Normal, 3 credits).** With SOAP the 150 ms reactive player deathbombs so well that every pair clears on one credit, so the no-SOAP pass is the informative one:
+**Whole runs (test 12, 30 seeds, Normal, 3 credits; the card squad's run, kept as recorded).** With SOAP the 150 ms reactive player deathbombs so well that every pair clears on one credit, so the no-SOAP pass is the informative one:
 
 | Pair | 1CC (SOAP on) | 1CC (no SOAP) | Credits used (no SOAP) | Boss time (s) | Vials lost per 4-x stage | Legendaries 0/1/2 |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -231,6 +231,60 @@ Brief: [RESEARCH_CARDS.md](./RESEARCH_CARDS.md). Pure tests: `tests/cards.test.m
   - 2b: random decks 1CC 24/30 against the reference syringe's 10/30. The target is ±10 points.
   - 4a: defense decks lose 0.06 vials per sector-4 stage against 0.59. The target is ≥ 25% of random.
   - 4b: defense core hits per minute 0.35 against 0.39. The target is ≥ random.
-- **Cause, not yet fixed:** any deck helps the no-SOAP player far beyond what its potency predicts. Greedy offense, with no defensive cards at all, also 1CCs 24/30. Potency measures focused single-target DPS on a boss. This player sprays at popcorn, where TWIN BARREL's +2 spray needles, pierce, split and spare vials are not priced. Stopping the coating's respawn refill moved none of these numbers (24/30 again), so that change was not kept.
-- **Next step:** price spray coverage in the popcorn HP curve, using a spray-DPS expected potency for formation HP, and re-run this table.
+- **Cause (as the card squad recorded it at 30 seeds):** potency measures focused single-target DPS on a boss, while this player sprays at popcorn.
+
+### The spray-aware potency experiment and the real cause (2026-11-10, v1.0 finishing squad)
+
+**Built and measured, then not shipped.** `cards.mjs` now computes `sprayPotency` for every kit: the deck's unfocused formation DPS over the base kit's, under the same titer scale. In this model TWIN BARREL adds 2 spray needles, HOLLOW BORE and FEVER reach a second row, SPLIT TIP re-fires on kills, and STEADY HAND and the jet count for nothing (`sprayDpsOf`; its conventions are a 0.5 formation depth, 1 kill per 3 needles and half the split needles landing). The random drafter's median spray potency runs above the focused table: 1.00 1.00 1.06 1.17 1.25 1.28 1.39 1.46 1.47 1.60 1.69 1.77, against 1.00 … 1.51.
+
+Routing formation HP (popcorn, SOAP and cell-pop damage) through that table and re-running test 12 at the brief's 50 seeds gave:
+
+| No-SOAP pass, 50 seeds | Focused HP (shipped) | Spray-priced formation HP (experiment) |
+| --- | --- | --- |
+| 2b random 1CC vs reference | 37 vs 16 (MISS) | 34 vs 16 (MISS) |
+| 3a offense 1CC ≥ random | 41 vs 37 (PASS) | 38 vs 34 (PASS) |
+| 4a defense vials per 4-x stage ≥ 25% of random | 0.04 vs 0.57 (MISS) | 0.09 vs 0.67 (MISS) |
+| 4b defense hits/min ≥ random | 0.33 vs 0.38 (MISS) | 0.31 vs 0.42 (MISS) |
+| 5b placebo finishes ≥ 80% | 44/50 (PASS) | **38/50 (MISS)** |
+| SOAP pass: all ten targets | 10/10 PASS (4b 0.35 vs 0.35) | 9/10 (4b 0.31 vs 0.37 MISS) |
+
+The spray price moved the three misses by less than their gaps and broke 5b, so HP stays on the focused `EXPECTED_POTENCY`. `sprayPotency` stays as a reported diagnostic (`spray@end` in the test-12 table). The 30-seed scratch runs agreed: 2b 24 → 22 vs 10, and 3a, 5a and 5b all failed.
+
+**The real cause is survivability, not kill speed.** test 12 now counts how each core hit ends (`deaths`, and `saves` = coating absorbs + EPIPEN + auto-SOAP):
+
+| Pair (no SOAP, 50 seeds) | Deaths per run | Saves per run | 1CC |
+| --- | --- | --- | --- |
+| reactive × reference syringe | 7.10 | 0 | 16/50 |
+| reactive × random | 4.80 | 2.54 | 37/50 |
+| reactive × greedy defense | 1.40 | 4.14 | 49/50 |
+| reactive × greedy offense | 3.34 | 0.64 | 41/50 |
+| reactive × placebo | 9.66 | 0 | 12/50 |
+
+A 30-seed scratch breakdown agrees: random decks take more threats than the reference (8.96 against 7.10 per run) but convert 3.3 of them into saves. Two rules make defence nearly free for a player who is hit about every 2.5 minutes and never presses SOAP:
+
+1. **The coating is full at every sample start.** Its re-form timer barely matters: setting it to 60 s, or off entirely, changed no 1CC count.
+2. **EPIPEN spends a SOAP stock that this player never uses.**
+
+Greedy offense still 1CCs more than random because it kills popcorn before it fires (4.74 threats per run).
+
+No HP scaling can close 2b without failing 5b, because both act on the same stages. Closing 2b, 4a and 4b means pricing survivability: a coating that refills per boss rather than per sample, EPIPEN at 3 SOAP, or judging 2b on the SOAP pass. Each of those changes a card's identity or the brief's target, so it is left to the lead game designer's difficulty brief. The owner has since asked for a harder game with a real difficulty curve.
+
 - **Not run:** targets 6 and 7 (the ladders and FAIR-150 with random decks and at the 10.58 / 12.88 u/s extremes), and the favour-one-card bands of §5.5.
+
+## Readability: high-contrast bullets (v1.0, 2026-11-10)
+
+The brief's SHOULD item asks for each bullet's core to stay readable over every sector backdrop and over enemies, with colliders at or under what is visible.
+
+**Measured** on real frames: 960 × 640, Chrome with SwiftShader, every one of the 12 stages in practice. Backdrop pixels come from the bullet field with bullets and enemies cleared. Enemy pixels are the pixels that get brighter when the formation or boss is present. The table gives WCAG contrast, and a bullet counts as readable over a pixel if any of its layers reaches 3:1 against it.
+
+- **Before:** the 4.5 sprite-px dark rim sat inside the collider. That is about 0.5 screen px, below what the eye resolves, so in practice the bullet was its body plus its white core.
+  - Over the floors, the worst 1% of pixels was 2.25–2.97:1.
+  - Over enemies it was 1.60–1.97:1. Over 3-2's viruses only 30% of enemy pixels reached 3:1 for an aerosol dot.
+  - The cause: pink #ff4fa3 has a relative luminance of 0.30, and the lit green viruses (#12ce5d, 0.45) and the grey-white boss bodies (#e6e8ee) sit close to it. Pink against green is 1.45:1, white core against the boss body 1.11:1. Over an enemy, a bullet read by hue alone.
+- **After:** a 9 sprite-px near-black outline (`hitboxes.BULLET_OUTLINE_PX`, about 0.9 screen px at the far edge) sits **outside** the solid, like the glow.
+  - The coloured capsule now fills exactly the collider, so the visible solid is never smaller than what hits you. The QA solid mask, `drawnSolid` and the collider pins are unchanged.
+  - The virion gained the white core the other families have.
+  - Every family over every sampled backdrop and enemy pixel in all 12 stages now has a layer at 3:1 or more: the worst 1% is 4.28:1, and 100% of pixels pass in every row.
+  - `tests/theme.test.mjs` asserts the palette side: the outline is at least 3:1 against every virus and boss colour (9.45–16.3:1 measured), the core is at least 3:1 against the brightest measured floor (4.28:1), and the outline sits inside the sprite margin.
+- **Evidence:** `common/artifacts/ci-v1-release/contrast-before.txt`, `contrast-after.txt` and `bullets-after-*.png`.
+- **Speed trails were not added.** Bullet direction already reads from the capsule's long axis and the leading core, and a trail would add area near the core that is not collider.

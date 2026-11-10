@@ -2,6 +2,8 @@
 
 The brief is `RESEARCH_V1.md` (decisions) and `RESEARCH_CARDS.md` §2.8 (its answers to the brief's assumptions). This file records what is built, in `levels.mjs`, `enemies.mjs`, `patterns.mjs` and `bosses.mjs`. Measured numbers are in `BALANCE.md`. The 18-stage revision-five suite is history (git before `6a9a672`).
 
+**Status at the v1.0 release chores (2026-11-10):** no stage, pattern or HP value changed in this round. The audit misses held in `tests/suite.test.mjs` `KNOWN_GAPS` are unchanged: three stage lengths, three hit ceilings, four rest gaps, and the mix and quiet shares (BALANCE.md). They were set aside when the owner, after playing, called the start too frantic and the game too easy. A lead game designer's difficulty and progression brief replaces that tuning. Only the bullet sprites changed: a dark outline outside the solid, with colliders identical.
+
 ## Structure: a zoom into the body under the lab's microscope
 
 The run is **4 sectors × 3 stages**: two samples (the second ends in a midboss), then a boss. Each sector is one magnification step deeper. Its twist runs on **every** stage of it, the boss included (MUTATION touches formation members only, so OMICRON is unaffected).
