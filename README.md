@@ -24,10 +24,11 @@ npm test              # 240 tests
 #   soundboard.html                        audition and measure every SFX (npm run dev, then /soundboard.html)
 #   node tests/browser/audio-measure.mjs [--before <git ref>]
 #   node tests/browser/personality-audit.mjs [--root <other checkout>]
+#   node tests/browser/draft-3d.mjs http://127.0.0.1:4436/ [--shots DIR] [--json FILE]   the 3D draft (D7/D8)
 npm run build:itch    # dist/corona-invaders-itch.zip
 ```
 
-Node 18 or later; nothing to install. Three.js r187 and its license live in `vendor/`. Serve over HTTP (module imports are blocked from `file:`). `index.html` is a plain green `#168546` page with only the game centred, at most 960×640; in an iframe or fullscreen the same game fills the surface. The itch ZIP holds 32 files (0.63 MiB; `soundboard.html` stays out): runtime modules (`.mjs` rewritten to `.js`), `vendor/` with three.js's licence, and the player docs only (README and CHANGELOG). No font, image, model or sound is downloaded at runtime.
+Node 18 or later; nothing to install. Three.js r187 and its license live in `vendor/`. Serve over HTTP (module imports are blocked from `file:`). `index.html` is a plain green `#168546` page with only the game centred, at most 960×640; in an iframe or fullscreen the same game fills the surface. The itch ZIP holds 33 files (0.66 MiB; `soundboard.html` stays out): runtime modules (`.mjs` rewritten to `.js`), `vendor/` with three.js's licence, and the player docs only (README and CHANGELOG). No font, image, model or sound is downloaded at runtime.
 
 ## Controls (one scheme)
 
@@ -62,8 +63,13 @@ The owner asked for a roguelike pick after every stage: three cards, keep one, e
 - **30 adjuvants** (`cards.mjs`): 10 common, 9 rare, 6 epic, 5 legendary in five lines (NEEDLE, ANTIBODY, DOSE, SOAP, GRAZE). The owner's examples are all there: CONCENTRATE (damage), RAPID RELEASE (cadence), TWIN BARREL (the double shot: +1 needle), SILICONE PLUNGER (speed), EXTRA DOSE (more vials), ENTERIC COATING (the shield that re-forms). Card 27 is RETRACTABLE NEEDLE because INJECT ships. Legendaries (JET INJECTOR, HERD IMMUNITY, LNP SHELL, AUTOCLAVE, INNATE RESPONSE) need two earlier picks in their line, and a run holds at most two. Every card's text is generated from its data.
 - **Odds:** per-slot tier weights by **titer** (non-final bosses beaten: 70/25/5/0 → 60/28/10/2 → 50/31/15/4 → 42/32/20/6), and the boosted draft's first slot is always Epic or better with Legendary 12% + 16% × the share of that boss's cards NEUTRALIZED. Hidden pity (incubation) and a floor make two all-common offers in a row impossible. No dead offers: maxed cards, antibody cards without antibodies, REFLEX ARC / EPIPEN on Easy and speed cards for touch players are never shown. One trade-off at most, one offense card at least, three lines when possible. **RESAMPLE** tokens (1 at start, +1 per non-final boss, +1 more for a full sequence, at most 3) and **DISCARD** (+1 SOAP).
 - **Guard-rails:** a potency limit that rises with titer (×1.5 / 1.8 / 2.0 / 2.15), per-stat caps (+70% damage, 10 volleys/s, 10.5–12.9 u/s, focus fixed at 5.0, vials base + 2, 6 SOAP, 4 antibodies), and enemy HP that follows the **expected** potency of a random drafter at each stage (`levels.stageDps`), never your own deck. Patterns never scale. **No adjuvant changes a collider**: the coating is an extra hit charge on the same 0.2 u core test, and JET INJECTOR's stream is the one new rectangle, drawn at exactly its 0.5 u width.
-- **FORMULATE:** three glass specimen slides with tier word, pips and frame (grey glass, cyan rim, cobalt double rim, amber sweep), the effect sentence, a COST line for trade-offs, a NOW → AFTER line from the kit diff, stacks and synergies. Keys (←/→ or 1–3, Enter/Space to INJECT, R, S twice, Esc), mouse (hover/click, INJECT or double-click) and touch (tap, tap INJECT; portrait rows with a 72 px INJECT in the thumb zone). Every press waits 0.5 s and must be fresh. The board is drawn once and held behind the screen. Reveal sounds escalate by tier; a legendary spins up for 0.5 s first.
-- **HUD and saves:** the ADJUVANTS rack (vial chips by line, legendaries on top, POTENCY ×n / limit) under mRNA; pause and the final report list the formulation (PLACEBO GROUP for a run that discarded every draft). The run is saved under `corona-invaders-v6-run` (versioned, validated; a corrupt save hides RESUME RUN) at every stage entry, draft and resample. Practice and tray starts past 1-1 use STANDARD ISSUE, the reference syringe at the stage's expected potency.
+- **FORMULATE is a 3D scene (`draft3d.mjs`, 2026-11-10; RESEARCH_DIFFICULTY §6).** The owner found the flat slides generic and wants the game strongly 3D, so each offered adjuvant is a **vaccine cartridge**: a horizontal glass carpule that floats into the lab view over the frozen board (dimmed to 35%, desaturated 60%), turns slowly (yaw ±18°, a 0.03 u bob) and catches the board's own key, rim and fill lights while the key's azimuth sweeps ±10°. Picking one **loads it into the syringe**: it arcs into the barrel and seats with a click, the plunger pushes home and its serum colour runs into the barrel and the dose, the other two slide out, and the syringe flies down to where the board syringe stands as the veil lifts.
+  - **Tier is material, not colour alone:** clear borosilicate (common), frosted glass with a noise bump (rare, plus a cyan anodised ring), cobalt glass with suspended motes (epic), and a gold crimp cap with a crown flip-off seal over glowing serum with a slow swirl and an amber lamp (legendary). The cap carries 1–4 turned grooves, and the label prints the tier word and ◆ pips. The **line** reads through the serum colour and what floats in it: a needle, a plunger tip, a Y antibody, a dashed graze ring, rising bubbles, or a sloshing dose (DOSE fills only 68% of the bore).
+  - **Text is on the cartridge:** the paper label prints the NAME and one stat line (the card's own `stat`, and a trade-off's `costLabel` in pink) in the game's 5×7 dot-matrix face. The cartridges lie horizontally so a 16-character name gets a straight run at a ≥ 14 px cap height (≥ 11 px at 320×568); an upright carpule would bend it round its girth. The rack's top rail is etched with the stage cleared and the titer; its front rail holds the selected cartridge's effect sentence plus SYNERGY or COST. Nothing that shows card content is DOM: only the RESAMPLE / INJECT / DISCARD keys (machined, ≥ 48 px, a 72 px INJECT on phones) and the hidden `#formulate-live` region with the full text.
+  - **Input (one scheme):** ←/→/↑/↓ or 1–3 select, Enter/Space injects, R resamples, S twice discards, Esc pauses; the mouse hovers to select and clicks the selected cartridge (or double-clicks) to inject; touch taps to select and taps again or INJECT. Every press waits 0.5 s and must be fresh; the first press during the reveal only completes it. A pick is applied to the model at once and play is held for its animation (≤ 1.0 s; any press after 0.36 s skips it).
+  - **Reveal:** cartridges drop at 150 / 270 / 390 ms with a 6% overshoot and their tier sound on landing; rare glints cyan, epic motes wake, and a legendary falls in front while rolling 1.5 turns about its axis to the 0.5 s centrifuge riser, then settles label-forward with a gold bloom and a warm flash. RESAMPLE spins the three away and drops new ones; DISCARD tips them behind the syringe and a SOAP bubble rises. Reduced motion places everything at once and resumes play immediately.
+  - **Performance:** the board is drawn once and copied with `copyFramebufferToTexture` (no render target, so no second set of board shader programs); every draft program, geometry and the PMREM environment are built at boot. 32 draw calls and about 7.3k triangles per frame, one point light, no shadows, no transmission, pixel ratio ≤ 1.25. Glass is `MeshStandardMaterial` and only reflective parts sample the environment (an interleaved A/B on SwiftShader measured about 23% and 20% less GPU time). If the first 30 frames' median exceeds 28 ms a LITE mode drops the reflections, motes, swirl and lamp (`__game.draft.scene().lite`).
+- **HUD and saves:** the ADJUVANTS rack (small cartridges in the draft's materials, grouped by line with stack dots and cap grooves for the tier, legendaries on top with a gold cap and their name, POTENCY ×n / limit) under mRNA; pause and the final report list the formulation (PLACEBO GROUP for a run that discarded every draft). The run is saved under `corona-invaders-v6-run` (versioned, validated; a corrupt save hides RESUME RUN) at every stage entry, draft and resample. Practice and tray starts past 1-1 use STANDARD ISSUE, the reference syringe at the stage's expected potency.
 
 ## The UI: a lab instrument, tied to the theme
 
@@ -148,7 +154,8 @@ Two rounds of feedback. First: "the theme is great but it reads generic; the vil
 | `model.mjs` | State, the kit, supplies, stage scripts, twists, checkpoints, practice, medals, the draft actions and run save/resume, `update()` |
 | `cards.mjs` | The 30 adjuvants (data and generated text), `kitOf` with caps and the titer limit, potency, the seeded offer generator (odds, boss slot, pity, floor, eligibility), RESAMPLE/DISCARD, `EXPECTED_POTENCY`, the drafting bots |
 | `syringe-kit.mjs` | Adjuvant behaviours in play: coating absorbs, the jet, split needles, innate needles, the aliquot, foam, autoclave |
-| `formulate.mjs` | The FORMULATE screen and the owned-adjuvant rack as pure HTML builders, plus the 0.5 s fresh-press gate |
+| `draft3d.mjs` | FORMULATE in 3D: the cartridge scene on the game's renderer (lights, PMREM environment, tier materials, labels, rails, the draft syringe), its animations, hit-testing and QA view; pure label, layout and timing data for tests |
+| `formulate.mjs` | The draft's DOM controls (RESAMPLE / INJECT / DISCARD), the owned-adjuvant rack's cartridge chips, the pause list and the 0.5 s fresh-press gate |
 | `render-kit.mjs` | The jet stream, the coating glaze, the twin needle and the foam disc |
 | `autopilot.mjs` | Ordinary-input 2D look-ahead player (attract demo and QA) |
 | `shapes.mjs` | The mesh registry (every silhouette as data) and palette |
@@ -163,6 +170,8 @@ Two rounds of feedback. First: "the theme is great but it reads generic; the vil
 The simulation imports neither the DOM nor Three.js. It advances in substeps of at most 1/120 s; one call advances at most 2 s.
 
 ## Validate
+
+The 3D draft (2026-11-10) adds `tests/draft3d.test.mjs` to `npm test` (12 tests: every card's label name, stat and COST; every printable character has a dot-matrix glyph; captions fit the rail; the four tier looks are distinct and tier never rests on colour alone; the reveal and inject timings; label cap heights by projection at 960×640, 390×844 and 320×568; and the draw-call, triangle, light and per-cartridge budget counted from the real scene graph without a GPU). The browser half is `node tests/browser/draft-3d.mjs <url>` (RESEARCH_DIFFICULTY §8 D7/D8: no DOM card content, cartridges = the offer, legible labels, tier materials and a shading probe on real pixels, keyboard / mouse / touch picks, RESAMPLE, DISCARD, reduced motion, pause / resize / blur, and frame time, which it reports INCONCLUSIVE above load 4), and the root suite's Corona FORMULATE check now drives the 3D draft.
 
 `npm test` also runs `tests/cards.test.mjs` (the adjuvant draft, RESEARCH_CARDS §8 tests 1–11, 13 and 14) and the adjuvant sound test; `npm run test:balance` runs test 12, whole runs of bots on the real model (see BALANCE.md "Adjuvants").
 
@@ -179,7 +188,11 @@ __game.levels();                       // the run's stage list [{ id, code, kind
 __game.checkpoint(3);                  // start an unlocked stage (1..12; 3 = ALPHA)
 __game.practice(12, 2, 'omicron');     // MUTATION LAB card (stage, card, boss type)
 __game.speed(0.8);                     // ASSIST game speed (1, 0.9, 0.8, 0.7)
-__game.draft.pick(0);                  // resolve an open ADJUVANT draft (phase 'draft')
+__game.draft.pick(0);                  // resolve an open ADJUVANT draft at once (phase 'draft'; no animation)
+__game.draft.scene();                  // the 3D draft: cartridges (id, tier, label, screen rect, label cap px, materials), lite, calls
+__game.draft.probe();                  // render now and measure each cartridge's pixels (shading probe, mean colour)
+__game.draft.bench(40); __game.draft.benchBoard(40);   // GPU ms per frame (render + a 1-pixel read), draft vs board
+__game.draft.lite(false);              // LITE on/off by hand (stops the automatic switch)
 __game.restart(); __game.bomb(); __game.setDifficulty('easy'); __game.renderer();
 __game.hitboxes(true);                 // dev overlay: every collider outlined (also ?hitboxes=1)
 __game.probe('marker-solid');          // QA: draw one layer alone on black ('marker' | 'bullets' | 'graze', '-solid' = white solid masks)
@@ -204,6 +217,15 @@ __game.audit();                        // QA: { enemies: [{ collider, drawn, min
 - **Beams:** a SNEEZE JET lane telegraphs for 1.5 s (was 1.0 s).
 
 ## Known limits (honest scope)
+
+- **3D draft (2026-11-10):** its frame time has not been judged on an idle machine. Every run of the session was at load 27–60 on 14 cores, where `tests/browser/draft-3d.mjs` reports D8 INCONCLUSIVE. At load about 30 it measured a draft rAF median of 16.7 ms and p95 33.4 ms (with LITE switched on by the 28 ms rule), against a board at 1-1 of 50.1 / 199.9 ms in the same window. The first open took 50 ms, and the inject p95 was 33.4 ms. GPU time at full quality (a render plus a pixel read) was 26.0 ms for the draft vs 15.3 ms for the board. The budget of 32 calls and 7.3k triangles holds. A physical phone is still owed. Deviations from RESEARCH_DIFFICULTY §6, with reasons:
+  - horizontal stacked cartridges rather than upright ones on an arc;
+  - no portrait carousel (all three fit);
+  - a size test of ≥ 300×72 px plus label cap heights, rather than ≥ 90 px tall;
+  - standard glass rather than clearcoat;
+  - a 1.0 s inject rather than 1.1 s.
+
+  Not built: the LAB REPORT camera ease into a lab view (the draft opens over the held board), and dragging a cartridge onto the syringe.
 
 - Tuning comes from the autopilot and the 150 ms reactive player, not from human playtests. Easy is implemented and unit-tested but not curve-measured.
 - Faces, idle life and the new audio were measured on SwiftShader only (above). The SFX were designed and verified numerically (levels, onsets, clipping, variation), not yet auditioned by a human listener: `soundboard.html` is there for that. SwiftShader (software WebGL, 960×640) after the 3D art pass: title 60 fps, the 1-1 grid 55, a boss spiral 60, 4-3 OUTBREAK 60, the 600-bullet stress fixture 43 (was 19). Real gameplay peaks near 140 bullets. Starts are prewarmed (every shape compiled and rendered hidden at boot) and frame medians stay at 17 ms, but one 280–520 ms frame remains at the first sample start and at ALPHA/OMICRON entry on SwiftShader. A CPU profile shows the page's main thread idle during it (under 60 ms of script in 1.5 s), so it is in the software GPU or compositor process; it was not measured on a hardware GPU. Not checked on real phone GPUs, Safari, Firefox or physical touch devices.
