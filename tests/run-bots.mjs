@@ -28,6 +28,10 @@ export function playRun({ seed = 42, player = 'autopilot', policy = 'random', di
     stageStart = 0,
     coreHits = 0,
     playFrames = 0;
+  // How each core hit ended: a lost vial, or saved by a coating charge, the
+  // EPIPEN or Easy's auto-SOAP (BALANCE.md "Adjuvants": the no-SOAP misses
+  // come from these saves, not from kill speed).
+  const outcome = { deaths: 0, absorbs: 0, epipens: 0, autoBombs: 0 };
   const entry = (st) => (stages[st] ||= { stage: st, kind: getLevel(st).kind, attempts: 0, time: 0, vialsLost: 0, absorbs: 0, potency: 0 });
   entry(1).attempts = 1;
   entry(1).potency = s.kit.potency;
@@ -59,6 +63,10 @@ export function playRun({ seed = 42, player = 'autopilot', policy = 'random', di
     if (s.phase === 'playing') playFrames++;
     for (const ev of s.events) {
       if (ev.type === 'hit-core' || ev.type === 'absorb' || ev.type === 'auto-bomb' || ev.type === 'epipen') coreHits++;
+      if (ev.type === 'damage') outcome.deaths++;
+      else if (ev.type === 'absorb') outcome.absorbs++;
+      else if (ev.type === 'epipen') outcome.epipens++;
+      else if (ev.type === 'auto-bomb') outcome.autoBombs++;
       if (ev.type === 'wave') {
         const st = entry(ev.stage);
         st.time = ev.time;
@@ -86,6 +94,9 @@ export function playRun({ seed = 42, player = 'autopilot', policy = 'random', di
     hitsPerMinute: coreHits / Math.max(1e-9, playFrames / 3600),
     deck,
     legendaries: deck.filter((id) => LEGENDARY.includes(id)).length,
+    outcome,
+    // The build's unfocused formation potency at the end (cards.mjs sprayDpsOf).
+    sprayPotency: s.kit?.sprayPotency ?? 1,
     discards: s.run?.discards ?? 0,
     stages: Object.values(stages).sort((a, b) => a.stage - b.stage),
     stageCount: STAGE_COUNT,

@@ -1323,3 +1323,21 @@ test('14 medals and sequencing: an absorb voids the capture; EPIPEN scores like 
 // (tests/audio.test.mjs builds and stops every SFX_CATALOG entry, the new
 // adjuvant sounds included; the per-tier distinctness and level checks for
 // the reveal sounds live there.)
+
+// ---- Spray potency (a measured diagnostic, BALANCE.md "Adjuvants") ------------------
+test('spray potency: 1 for the base kit; TWIN BARREL pays more unfocused, STEADY HAND nothing, the titer scale applies', () => {
+  for (const power of [1, 2, 3, 4]) assert.ok(near(kitOf([], { power }).sprayPotency, 1), `L${power}`);
+  const twin = kitOf([{ id: 'twin-barrel', at: 0 }], { power: 2, titer: 3 });
+  assert.ok(twin.sprayPotency > twin.potency, `twin: spray ${twin.sprayPotency.toFixed(3)} vs focused ${twin.potency.toFixed(3)}`);
+  const steady = kitOf([{ id: 'steady-hand', at: 0 }], { power: 2, titer: 3 });
+  assert.ok(near(steady.sprayPotency, 1), 'STEADY HAND is focus-only');
+  const pierce = kitOf([{ id: 'hollow-bore', at: 0 }], { power: 2, titer: 3 });
+  assert.ok(pierce.sprayPotency > 1 && near(pierce.potency, 1), 'HOLLOW BORE only pays in a formation');
+  // One titer clamp scales needle and antibody damage, so spray potency moves
+  // with it exactly: titer 0 vs titer 3 on the same deck.
+  const deck = C.STRONGEST_BUILD.map((id) => ({ id, at: 0 }));
+  const t0 = kitOf(deck, { power: 4, titer: 0 }),
+    t3 = kitOf(deck, { power: 4, titer: 3 });
+  assert.ok(t0.potencyScale < t3.potencyScale);
+  assert.ok(near(t0.sprayPotency / t3.sprayPotency, t0.potencyScale / t3.potencyScale, 1e-9), 'scaled by the same titer clamp');
+});

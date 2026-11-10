@@ -14,7 +14,8 @@ if (!isMainThread) {
   for (const job of workerData.jobs) parentPort.postMessage(playRun(job));
   parentPort.close();
 } else {
-  const SEEDS = Number(process.env.SEEDS || 30),
+  // RESEARCH_CARDS §5.6 states its targets over 50 seeds.
+  const SEEDS = Number(process.env.SEEDS || 50),
     WORKERS = Number(process.env.WORKERS || 6);
   // NOSOAP=1: the reactive player never bombs. With SOAP it deathbombs so
   // well that every pair 1CCs and sector-4 vial losses are ~0, which makes
@@ -70,13 +71,16 @@ if (!isMainThread) {
       minTtk: ttkFrac.length ? Math.min(...ttkFrac) : null,
       p05Ttk: ttkFrac.length ? [...ttkFrac].sort((a, b) => a - b)[Math.floor(ttkFrac.length * 0.05)] : null,
       potencyEnd: mean(rs.map((r) => r.stages.at(-1)?.potency ?? 1)),
+      sprayEnd: mean(rs.map((r) => r.sprayPotency)),
+      deaths: mean(rs.map((r) => r.outcome.deaths)),
+      saves: mean(rs.map((r) => r.outcome.absorbs + r.outcome.epipens + r.outcome.autoBombs)),
     };
   };
   const S = Object.fromEntries([...groups].map(([k, rs]) => [k, stat(rs)]));
   console.log(`Test 12: ${results.length} runs (${SEEDS} seeds x ${combos.length}, reactive SOAP ${bombs ? 'on' : 'off'}) in ${((Date.now() - t0) / 1000).toFixed(0)} s`);
-  console.log('pair'.padEnd(22), 'runs 1CC finish credits min  bossT  vialsS4 hits/min  legendary0/1/2 minTTK p5TTK potency@4-3');
+  console.log('pair'.padEnd(22), 'runs 1CC finish credits min  bossT  vialsS4 hits/min  legendary0/1/2 minTTK p5TTK potency@4-3 spray@end deaths saves');
   for (const [k, v] of Object.entries(S))
-    console.log(k.padEnd(22), String(v.runs).padStart(4), String(v.oneCredit).padStart(3), String(v.finished).padStart(6), v.credits.toFixed(2).padStart(7), v.minutes.toFixed(1).padStart(5), v.bossTime.toFixed(1).padStart(6), v.vialsS4.toFixed(2).padStart(8), v.hitsPerMin.toFixed(2).padStart(8), v.legendaries.join('/').padStart(14), (v.minTtk ?? 0).toFixed(2).padStart(6), (v.p05Ttk ?? 0).toFixed(2).padStart(5), v.potencyEnd.toFixed(2).padStart(8));
+    console.log(k.padEnd(22), String(v.runs).padStart(4), String(v.oneCredit).padStart(3), String(v.finished).padStart(6), v.credits.toFixed(2).padStart(7), v.minutes.toFixed(1).padStart(5), v.bossTime.toFixed(1).padStart(6), v.vialsS4.toFixed(2).padStart(8), v.hitsPerMin.toFixed(2).padStart(8), v.legendaries.join('/').padStart(14), (v.minTtk ?? 0).toFixed(2).padStart(6), (v.p05Ttk ?? 0).toFixed(2).padStart(5), v.potencyEnd.toFixed(2).padStart(8), v.sprayEnd.toFixed(2).padStart(9), v.deaths.toFixed(2).padStart(6), v.saves.toFixed(2).padStart(5));
   const A = S['autopilot×random'],
     R = S['reactive×random'],
     O = S['reactive×offense'],

@@ -254,6 +254,10 @@ export function kitOf(deck = [], { power = 1, difficulty = 'normal', titer = 0, 
   if (raw > limit) k.potencyScale = limit / raw;
   k.potency = raw * k.potencyScale;
   k.atLimit = raw >= limit - 1e-9;
+  // Spray potency: the same deck's unfocused formation DPS over the base
+  // kit's, under the same titer scale (it is one damage multiplier in play).
+  // It prices formation HP; focused `potency` keeps pricing boss cards.
+  k.sprayPotency = (sprayDpsOf(k) / baseSprayDps(power)) * k.potencyScale;
   return Object.freeze(k);
 }
 
@@ -287,6 +291,44 @@ const baseDps = (power) => BASE.fireRate * focusCount(power) + abCount(power) * 
 function rawPotency(k) {
   return dpsOf(k) / baseDps(k.power);
 }
+
+/** Formation conventions for the spray model (sprayDpsOf). A popcorn
+ * formation is several rows deep, so a needle that passes through its first
+ * virus finds a second one about half the time (FORMATION_DEPTH). A WILD TYPE
+ * takes 3 needles at the reference power (levels.mjs ARCHETYPES.wild.hp), so
+ * one needle in 3 kills (KILL_SHARE), and a split needle at +/-25 degrees in a
+ * formation lands about half the time (SPLIT_LANDS). These are conventions
+ * for pricing, like dpsOf's FEVER uptime; the whole-run bots (test 12) are the
+ * measurement that judges them. */
+const FORMATION_DEPTH = 0.5;
+const KILL_SHARE = 1 / 3;
+const SPLIT_LANDS = 0.5;
+/** Sustained DPS of an UNFOCUSED syringe into a popcorn formation, before the
+ * titer clamp: every SPRAY needle (TWIN BARREL's +2 included) finds a virus,
+ * STEADY HAND does nothing (it is focus-only), the jet is off (focus-only),
+ * HOLLOW BORE and FEVER's pierce reach a second row, SPLIT TIP re-fires on
+ * kills, and antibodies and INNATE count as in dpsOf. The weak player clears
+ * popcorn this way (tests/reactive.mjs focuses only to dodge).
+ *
+ * Measured, not priced: pricing formation HP by the random drafter's median
+ * spray potency (1.00 ... 1.77 against 1.00 ... 1.51 focused) was built and
+ * run at 50 seeds on 2026-11-10. It made the no-SOAP pass worse (placebo
+ * finished 38/50, below 5b's 40) and moved 2b, 4a and 4b by less than their
+ * gaps, because those misses come from defensive saves, not kill speed
+ * (BALANCE.md "Adjuvants"). HP therefore stays on the focused EXPECTED_POTENCY;
+ * `npm run test:balance` reports this figure so the two can be compared. */
+function sprayDpsOf(k) {
+  const lc = k.liveCulture ? 0.5 * CARD['live-culture'].fx.on + 0.5 * CARD['live-culture'].fx.off : 0;
+  const fv = k.fever ? 0.2 * CARD.fever.fx.needle : 0;
+  const unit = 1 + Math.min(CAPS.needleBonus, k.needleBonus + lc + fv);
+  const pierce = 1 + FORMATION_DEPTH * (k.pierce + (k.fever ? 0.2 : 0));
+  const split = k.split ? 1 + 2 * SPLIT_LANDS * KILL_SHARE : 1;
+  const needles = k.fireRate * needlesPerVolley(k, false) * unit * pierce * split;
+  const abs = antibodiesOf(k) * k.abRate * (1 + k.abBonus);
+  const innate = k.innate ? 1 * CARD['innate-response'].fx.mult * unit : 0;
+  return (needles + abs + innate) * (k.tag && antibodiesOf(k) > 0 ? 1 + CARD['opsonin-tag'].fx.tag : 1);
+}
+const baseSprayDps = (power) => BASE.fireRate * sprayCount(power) + abCount(power) * BASE.abRate;
 /** Effective potency of a deck (after the titer limit). */
 export const potencyOf = (deck, ctx) => kitOf(deck, ctx).potency;
 
@@ -600,11 +642,14 @@ export function simulateDraft(profile, { seed = 1, policy = 'random', difficulty
   const run = createRun(seed, { inject });
   const bot = { rng: (seed ^ 0x2545f491) >>> 0 || 1 };
   const potency = [];
+  const spray = [];
   const shown = [];
   const count = profile.length;
   for (let i = 0; i < count; i++) {
     const st = profile[i];
-    potency.push(kitOf(run.deck, { power: st.power, difficulty, titer: run.titer, stage: st.stage }).potency);
+    const kit = kitOf(run.deck, { power: st.power, difficulty, titer: run.titer, stage: st.stage });
+    potency.push(kit.potency);
+    spray.push(kit.sprayPotency);
     if (st.stage === count) break;
     if (st.boss) bossCleared(run, share);
     const next = profile[i + 1];
@@ -615,7 +660,7 @@ export function simulateDraft(profile, { seed = 1, policy = 'random', difficulty
     if (choice < 0) discard(run);
     else pick(run, choice);
   }
-  return { run, potency, shown };
+  return { run, potency, spray, shown };
 }
 const TIER_RANK = { common: 0, rare: 1, epic: 2, legendary: 3 };
 /** Drafting policies (RESEARCH_CARDS §5.6). Returns a slot index, or -1 for
@@ -656,12 +701,13 @@ export const quantile = (xs, q) => {
   const a = [...xs].sort((p, q2) => p - q2);
   return a.length ? a[Math.min(a.length - 1, Math.max(0, Math.round(q * (a.length - 1))))] : 0;
 };
-/** Median potency per stage of a drafting policy over many seeds. */
-export function measurePotency(profile, { seeds = 600, policy = 'random', from = 1, ...opts } = {}) {
+/** Potency per stage of a drafting policy over many seeds (take the median
+ * per stage). `field: 'spray'` measures the spray potency instead. */
+export function measurePotency(profile, { seeds = 600, policy = 'random', from = 1, field = 'potency', ...opts } = {}) {
   const per = profile.map(() => []);
   for (let i = 0; i < seeds; i++) {
-    const { potency } = simulateDraft(profile, { ...opts, seed: from + i * 7919, policy });
-    potency.forEach((p, j) => per[j].push(p));
+    const sim = simulateDraft(profile, { ...opts, seed: from + i * 7919, policy });
+    sim[field].forEach((p, j) => per[j].push(p));
   }
   return per;
 }
