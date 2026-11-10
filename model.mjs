@@ -230,7 +230,7 @@ export function restartGame(s, { assist = false, easy = false } = {}) {
     practice: practice ? { ...practice, result: null } : null,
   });
   setPower(s.ship, checkpoint.power ?? 1);
-  if (practice) setupSector(s, checkpoint.stage, { card: practice.card ?? null });
+  if (practice) setupPractice(s, practice);
   s.rngState = checkpoint.rngState;
   s.sector.entryScore = s.score;
   s.sector.entryPower = s.ship.power;
@@ -258,16 +258,34 @@ export function entryPower(stage) {
   for (const level of LEVELS.slice(0, stage - 1)) for (const st of level.script || []) if (st.vesicle || st.midboss) n++;
   return powerOf(n);
 }
-export function startPractice(s, stage, { card = null } = {}) {
-  const level = getLevel(stage);
+/** Home stage of a boss or midboss type. */
+export function bossHome(type) {
+  const level = LEVELS.find((l) => l.boss === type || (l.script || []).some((st) => st.midboss === type));
+  return level ? level.id : null;
+}
+/** Card practice: a boss stage starts at that card; a midboss card is staged
+ * alone in its sample (the script is skipped). */
+function setupPractice(s, practice) {
+  if (practice.card === null || practice.card === undefined) return;
+  const level = getLevel(practice.stage);
+  const type = practice.boss || level.boss;
+  if (level.kind === 'boss' && type === level.boss) return setupSector(s, practice.stage, { card: practice.card });
+  setupSector(s, practice.stage);
+  s.sector.step = (level.script || []).length;
+  const b = createBoss(s, type, { world: level.world, startCard: practice.card });
+  b.practiceCard = practice.card;
+}
+export function startPractice(s, stage, { card = null, boss = null } = {}) {
   if (!Number.isInteger(stage) || stage < 1 || stage > STAGE_COUNT) return false;
-  if (card !== null && (level.kind !== 'boss' || !BOSSES[level.boss].cards[card])) return false;
+  const level = getLevel(stage);
+  const type = boss || level.boss;
+  if (card !== null && (!type || !BOSSES[type]?.cards[card] || bossHome(type) !== stage)) return false;
   const { unlockedStage, medals, difficulty, seed } = s;
   Object.assign(s, createState({ seed, stage, difficulty }), { phase: 'playing', unlockedStage, medals });
-  s.practice = { stage, card, result: null };
+  s.practice = { stage, card, boss: card !== null ? type : null, result: null };
   setPower(s.ship, entryPower(stage));
   s.sector.entryPower = s.ship.power;
-  if (card !== null) setupSector(s, stage, { card });
+  setupPractice(s, s.practice);
   s.health = s.lives = 1;
   s.checkpoint = makeCheckpoint(s);
   return true;
@@ -825,6 +843,8 @@ function finishSector(s, level) {
       stage: s.wave,
       code: level.code,
       card: s.practice.card,
+      boss: s.practice.boss,
+      cardName: s.boss?.practiceDone?.name ?? null,
       neutralized: s.boss?.practiceDone?.neutralized ?? null,
       vialsLost: s.sector.vialsLost,
       time: s.waveElapsed,

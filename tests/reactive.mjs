@@ -3,7 +3,8 @@
  *   - perceives the world only every `sampleEvery` frames (default 6 = 100 ms),
  *   - acts on a perception that is `lagFrames` old (default 9 = 150 ms),
  *   - extrapolates what it saw in straight lines only (it does not know RNA
- *     sines, splits, deceleration or the world twists),
+ *     sines, splits, deceleration or upcoming twist changes),
+ *   - prefers sidestepping out of a bullet's line to backing away along it,
  *   - commits to one keyboard direction until its next decision,
  *   - bombs only if `bombs` is enabled and a seen bullet is about to land.
  * It still never edits state: it returns ordinary inputs.
@@ -33,7 +34,7 @@ function perceive(s) {
       .filter((b) => Math.abs(b.x - s.ship.x) < 8 && b.z > s.ship.z - 9 && b.z < s.ship.z + 4)
       .map((b) => {
         const [vx, vz] = seenVelocity(s, b);
-        return { x: b.x, z: b.z, vx, vz, r: (b.hit ?? b.radius ?? 0.16) + CORE };
+        return { x: b.x, z: b.z, vx, vz, r: (b.hit ?? b.radius ?? 0.16) + CORE, curved: !!b.sine };
       }),
     lanes: (s.emitters || []).filter((em) => em.preset === 'jet' && em.state === 'tele').flatMap((em) => (em.lanes || []).map((l) => ({ x: l.x, w: l.width, fromZ: l.fromZ }))),
     beams: s.beams.map((b) => ({ x: b.x, w: b.width, fromZ: b.fromZ })),
@@ -103,6 +104,19 @@ export function createReactive({ sampleEvery = 6, lagFrames = 9, phase = 0, bomb
             }
             for (const l of [...v.lanes, ...v.beams]) if (Math.abs(px - l.x) < l.w / 2 + 0.4 && pz > l.fromZ) risk += 30;
             for (const e of v.enemies) if (Math.hypot(e.x - px, e.z - pz) < e.r * 0.8 + 0.6) risk += 20;
+          }
+          // A person sidesteps out of a bullet's line instead of backing away
+          // along it: ending this move inside any bullet's future path (the
+          // next 2 s) costs a little, even beyond the short look-ahead.
+          const ex = Math.max(-8.9, Math.min(8.9, sx + dx * speed * 0.38)),
+            ez = Math.max(-3, Math.min(12, sz + dz * speed * 0.38));
+          for (const b of v.shots) {
+            const bx = b.x + b.vx * lag,
+              bz = b.z + b.vz * lag,
+              v2 = b.vx * b.vx + b.vz * b.vz;
+            if (v2 < 1e-6 || b.curved) continue;
+            const k = Math.max(0, Math.min(2, ((ex - bx) * b.vx + (ez - bz) * b.vz) / v2));
+            if (Math.hypot(bx + b.vx * k - ex, bz + b.vz * k - ez) < b.r + 0.2) risk += 6;
           }
           const score = risk + Math.abs(sx + dx * speed * 0.3 - tx) * 0.3 + Math.abs(sz + dz * speed * 0.3 - preferZ) * 0.1;
           if (score < bestScore) [bestScore, best, bestHit] = [score, [dx, dz, sp === 1], hitAt];

@@ -44,7 +44,8 @@ test('every boss and midboss card is dodgeable without SOAP by a 150 ms reactive
   }
 });
 
-const SEEDS = [42, 1, 7, 3, 5];
+// Eight seeds: single-sample vial losses are noisy (chaotic trajectories).
+const SEEDS = [42, 1, 7, 3, 5, 11, 23, 99];
 function playSample(stage, seed, bombs) {
   const s = running(seed, stage);
   let losses = 0,

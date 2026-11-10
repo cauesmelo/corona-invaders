@@ -32,8 +32,8 @@ export const BOSSES = Object.freeze({
     body: 'crown',
     radius: 2,
     cards: [
-      phase('COUGH COUGH', 18, [P('cough', { n: 3, spread: 28, speed: 7 }, 0.8), P('ring', { n: 12, speed: 3.5, family: 'droplet' }, 2, { at: 0.9 })], { move: 'sway' }),
-      card('FIRST SNEEZE', 22, [P('sneeze', { n: 9, spread: 60, speeds: [4, 5.5], reps: 2, repGap: 0.5, tele: 1 }, 3.4)], { move: 'sway' }),
+      phase('COUGH COUGH', 18, [P('cough', { n: 3, spread: 28, speed: 6.5 }, 1), P('ring', { n: 12, speed: 3.5, family: 'droplet' }, 2.2, { at: 0.9 })], { move: 'sway' }),
+      card('FIRST SNEEZE', 22, [P('sneeze', { n: 9, spread: 60, speeds: [4, 5.5], reps: 2, repGap: 0.55, tele: 1 }, 3.8)], { move: 'sway' }),
       card('SPIKE BLOOM', 22, [P('bloom', { n: 7, interval: 0.38, rotate: 11, speed: 3.8, duration: 6 }, 7.2, { alternate: true })], { move: 'still' }),
       card('CORONA', 18, [P('ring', { n: 20, speed: 4, reps: 4, interval: 1.1, family: 'droplet' }, 5), P('cough', { n: 1, speed: 7.5 }, 2.2, { at: 1.6 })], { move: 'sway' }),
     ],
@@ -48,8 +48,10 @@ export const BOSSES = Object.freeze({
     cards: [
       phase('PING-PONG', 18, [P('drip', { n: 8, speed: 7.5 }, 1.4, { from: 'alt' })], { move: 'twins' }),
       card('CROSS INFECTION', 24, [P('sneeze', { n: 7, spread: 54, speeds: [4.2], angle: 0.42 }, 1.7, { from: 'B' }), P('sneeze', { n: 7, spread: 54, speeds: [4.2], angle: -0.42 }, 1.7, { from: 'G' })], { move: 'corners' }),
-      card('MIRROR STRAIN', 24, [P('cough', { n: 3, spread: 26, speed: 6 }, 2, { from: 'G' }), P('ring', { n: 12, speed: 3.5 }, 2.6, { from: 'B', at: 0.7 })], { move: 'mirror', nucleus: 5 }),
-      card('DOUBLE HELIX', 20, [P('strand', { n: 8, speed: 4.4, amp: 0.8, wavelength: 5, angle: 0.3 }, 1.7, { from: 'B' }), P('strand', { n: 8, speed: 4.4, amp: 0.8, wavelength: 5, angle: -0.3, phase: Math.PI }, 1.7, { from: 'G', at: 0.85 }), P('sniffle', { n: 6, spread: 44, speed: 4.6 }, 3.4, { from: 'near', at: 1.2 })], { move: 'orbit' }),
+      // The tracker overhead lays slow rings; the aimed cough comes from the
+      // mirror twin on the far side, so the aimed shot is always diagonal.
+      card('MIRROR STRAIN', 24, [P('cough', { n: 3, spread: 22, speed: 6.5 }, 1.9, { from: 'B' }), P('ring', { n: 10, speed: 3.5 }, 2.3, { from: 'G', at: 0.7 })], { move: 'mirror', nucleus: 5 }),
+      card('DOUBLE HELIX', 20, [P('strand', { n: 7, speed: 4.2, amp: 0.7, wavelength: 5, angle: 0.3 }, 1.8, { from: 'B' }), P('strand', { n: 7, speed: 4.2, amp: 0.7, wavelength: 5, angle: -0.3, phase: Math.PI }, 1.8, { from: 'G', at: 0.9 }), P('sniffle', { n: 6, spread: 44, speed: 4.6 }, 3.8, { from: 'near', at: 1.2 })], { move: 'orbit' }),
     ],
   },
   // W3: a delta-seamed crown that really splits in two.
@@ -127,14 +129,17 @@ export const BOSSES = Object.freeze({
     body: 'lambda',
     radius: 1.6,
     cards: [
-      phase('TRACKING', 16, [P('sniffle', { n: 8, spread: 50, speed: 5 }, 1.5), P('drip', { n: 8, speed: 7.5 }, 2.4, { at: 1.2 })], { move: 'track' }),
+      // A tracker never pairs with an aimed stream: you cannot stream past a
+      // boss that follows you. Even fans (stay put) plus slow rings instead.
+      phase('TRACKING', 16, [P('sniffle', { n: 8, spread: 50, speed: 5 }, 1.6), P('ring', { n: 12, speed: 3.6 }, 2.6, { at: 1.2 })], { move: 'track' }),
       card('MIRROR', 20, [P('jet', { width: 1.8, at: 'owner' }, 2.6), P('ring', { n: 16, speed: 4 }, 1.9, { at: 1.3 })], { move: 'mirror1' }),
     ],
   },
 });
 export const BOSS_TYPES = Object.freeze(Object.keys(BOSSES));
 const INTRO = 1.5;
-const BOSS_Z = -8;
+// Seated below the reserved top band so the VIRAL LOAD bar never covers a boss.
+const BOSS_Z = -7.2;
 
 const timeoutFor = (c) => (c.type === 'survival' ? c.duration : c.type === 'phase' ? RULES.phaseTimeout : RULES.cardTimeout);
 /** Card HP: TTK x reference DPS (x0.85 on Easy). */

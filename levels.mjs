@@ -38,7 +38,7 @@ export const ARCHETYPES = Object.freeze({
   // Buds two shootable VIRION bullets when it dies.
   budder: { label: 'BUDDER', hp: 8, radius: 0.75, score: 250, attack: { preset: 'cough', params: { n: 1, speed: 6.5 } }, byWorld: { 3: { n: 2 }, 4: { n: 3, spread: 20 } } },
   // Weaves across the top leaving an RNA bead trail, then an RNA STRAND.
-  worm: { label: 'RNA WORM', hp: 4, radius: 0.55, score: 150, attack: { preset: 'strand', params: { n: 8, speed: 4.6, interval: 0.13, amp: 0.9, wavelength: 5 } }, byWorld: { 3: { n: 10 }, 4: { n: 12, amp: 1.1 } } },
+  worm: { label: 'RNA WORM', hp: 4, radius: 0.55, score: 150, attack: { preset: 'strand', params: { n: 9, speed: 4.8, interval: 0.13, amp: 0.9, wavelength: 5 } }, byWorld: { 3: { n: 10 }, 4: { n: 12, amp: 1.1 } } },
   // A ring of tiny virions that puffs slow mist.
   puff: { label: 'AEROSOL PUFF', hp: 10, radius: 0.9, score: 300, attack: { preset: 'aerosol', params: { rate: 5, cone: 100, speed: [2.5, 4], duration: 1.6 } }, byWorld: { 3: { rate: 6 }, 4: { rate: 7 } } },
   // Draws its dashed sneeze path for 0.8 s, dives, and splashes into a ring.
@@ -105,7 +105,7 @@ const wait = (seconds) => ({ wait: seconds });
  * together. `maxBullets`: the stage cap for non-boss emitters (peak bullets on
  * screen, Normal; Easy is x0.6 through the per-emitter counts). */
 const W1 = { world: 1, choir: { interval: [1.8, 1.2], size: [2, 3] }, maxBullets: 45 };
-const W2 = { world: 2, choir: { interval: [1.6, 1.05], size: [2, 4] }, maxBullets: 70 };
+const W2 = { world: 2, choir: { interval: [1.45, 1], size: [3, 4] }, maxBullets: 70 };
 const W3 = { world: 3, choir: { interval: [1.15, 0.8], size: [3, 5] }, maxBullets: 95 };
 const W4 = { world: 4, choir: { interval: [1.05, 0.72], size: [4, 6] }, maxBullets: 120 };
 
@@ -121,7 +121,7 @@ export const LEVELS = Object.freeze(
       maxBullets: 30,
       script: [
         // Homage: the original game's 4 x 15 grid of 60 mini coronas.
-        grid(Array(4).fill('mmmmmmmmmmmmmmm'), { spacing: 1.15, rowGap: 1.2, z: -12.4, sway: 0.9, frequency: 0.55, descent: 0.12 }),
+        grid(Array(4).fill('mmmmmmmmmmmmmmm'), { spacing: 1.18, rowGap: 1.3, z: -12.6, sway: 0.5, frequency: 0.55, descent: 0.12 }),
         wait(9),
         fly('swoopL', 'wild', 5),
         until('thin', 16),
