@@ -10,7 +10,18 @@ Evidence comes from three places:
 
 Statuses follow the rubric. **PASS** means inside the target. **WARN** means within 25 % of the target, or a reasoned exception. **FAIL** means anything else.
 
-## Scorecard
+## v1.0 re-measure (2026-11-10)
+
+The short syringe, the spray step and INJECT changed the kit, so the model audit (`tests/movement-audit.test.mjs`, 18 tests, all passing) was re-run on `main` at `77102b2`:
+
+- **Still 0 FAIL.** Two WARNs became PASS; one WARN remains (the 1.55 s crossing, kept on purpose).
+- **D2 skill gradient: WARN → PASS.** Holding focus while lined up now clears the four boss stages (1-3, 2-3, 3-3, 4-3, seeds 42/1/7) **16.2–17.0 % faster** (1051 s → 881 s in the last run; target ≥ 15 %). Focused antibodies converge on the needle line and the unfocused spray widened to 4.25° steps.
+- **E2 resources on the character: WARN → PASS.** The barrel's vaccine level is EXPOSURE, the graze progress toward the next SOAP; the core alone flashes pink-white in the 0.18 s deathbomb window; the needle tip's glint shows INJECT's reload. In the browser the fluid equals `grazeProgress / 100` exactly.
+- **D1:** focus deals ×1.00 / ×1.34 / ×2.35 on one 0.55 u target at power 1 / 2 / 4 (was ×1.00 / ×1.34 / ×2.01); on a 0.6 u target at 10 u it deals ×3.0–×7.1 (`tests/syringe.test.mjs`).
+- **F fairness:** RAIN joins the preset list (harshest use: 3-1's 5 u/s lanes, 0 hits on 5 starts); every other preset is unchanged at 0 hits; QUARANTINE 0 1 1 0 1.
+- **C1:** the core marker is unchanged (0.2 u, the collider); the drawn syringe measures 36.8 px and its needle tip sits 0.84 px from the INJECT collider at 960×640 (root browser QA).
+
+## Scorecard (revision five; D2 and E2 superseded above)
 
 | # | Criterion | Before | After | Target | Status (before → after) | Evidence |
 |---|---|---|---|---|---|---|
