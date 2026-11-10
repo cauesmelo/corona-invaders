@@ -32,7 +32,7 @@ const THEMES = {
   1: { name: 'AIRWAY', background: '#0a1416', floor: '#3c5f60', rim: '#69c6c0', rail: '#8fd8d0', fog: '#0a1416' },
   2: { name: 'LUNGS', background: '#0b1018', floor: '#4a5a72', rim: '#8fb4e6', rail: '#a9c6ee', fog: '#0b1018' },
   3: { name: 'BLOODSTREAM', background: '#0c1012', floor: '#3e5d5c', rim: '#72d0c4', rail: '#9adcd2', fog: '#0c1012' },
-  4: { name: 'LAB / PETRI', background: '#120d06', floor: '#7d6532', rim: '#e8c27a', rail: '#f0d49a', fog: '#120d06' },
+  4: { name: 'LAB / PETRI', background: '#0e0d07', floor: '#5c5634', rim: '#d8cf9a', rail: '#e4dcae', fog: '#0e0d07' },
 };
 const BULLET_Y = RULES.bulletY;
 // Exponential easing per frame; a QA render with dt = 0 snaps to the target.
@@ -101,14 +101,22 @@ function spikeParts({ count, r, length, stem, cap, ring = 0, detail = 1 }) {
   return out;
 }
 /** CDC-style club spikes: a thin stem and a flared head. */
-function clubGeometry({ count, r, length, head, jitter = 0 }, seed = 1) {
+function clubGeometry({ count, r, length, head, jitter = 0, groups = 0, spread = 0.4 }, seed = 1) {
   const parts = [];
-  const stem = new THREE.CylinderGeometry(head * 0.32, head * 0.38, 1, 5);
-  const cap = new THREE.CylinderGeometry(head, head * 0.55, head * 1.1, 7);
-  let n = seed * 9301;
+  const stem = new THREE.CylinderGeometry(head * 0.32, head * 0.38, 1, 6);
+  const cap = new THREE.CylinderGeometry(head, head * 0.55, head * 1.1, 9);
+  let n = seed * 9301 + 17;
   const rnd = () => ((n = (n * 16807) % 2147483647) / 2147483647);
   for (let i = 0; i < count; i++) {
-    const v = fib(i, count);
+    let v = fib(i, count);
+    if (groups) {
+      // Horn clusters: spikes bunched around `groups` in-plane directions
+      // (the first points up-field), so the crown reads as a triangle etc.
+      const g = i % groups;
+      const a = -Math.PI / 2 + (g / groups) * Math.PI * 2 + (rnd() - 0.5) * spread * 2;
+      const up = 0.15 + (rnd() - 0.3) * spread;
+      v = new THREE.Vector3(Math.cos(a), up, Math.sin(a)).normalize();
+    }
     const len = length * (1 + (rnd() - 0.5) * jitter * 2);
     const q = new THREE.Quaternion().setFromUnitVectors(UP, v);
     const mid = v.clone().multiplyScalar(r + len / 2);
@@ -174,7 +182,7 @@ const DANGER = { pink: PALETTE.danger, violet: PALETTE.dangerViolet, core: PALET
  * is light, not matter. Canvas "up" is the direction of travel. */
 const FAMILY_STYLE = {
   droplet: { body: DANGER_PINK(), core: true },
-  aerosol: { body: '#ff8cc8', core: true },
+  aerosol: { body: '#ff5fb4', core: true },
   spike: { body: '#ff3fb7', core: true, stripe: true },
   rna: { body: '#b45cff', core: true },
   virion: { body: '#ff4fa3', crown: true },
@@ -451,12 +459,18 @@ export function drawPickupIcon(g, kind, w, color = PALETTE.amber) {
 }
 function pickupTexture(kind) {
   return canvasTexture(96, 96, (g, w) => {
-    g.fillStyle = '#1c1204';
+    // Dark disc, amber ring and a thin white outline: readable on any backdrop.
+    g.fillStyle = '#120b02';
     g.beginPath();
-    g.arc(48, 48, 44, 0, Math.PI * 2);
+    g.arc(48, 48, 46, 0, Math.PI * 2);
     g.fill();
+    g.strokeStyle = '#ffffff';
+    g.lineWidth = 3;
+    g.stroke();
     g.strokeStyle = PALETTE.amber;
     g.lineWidth = 5;
+    g.beginPath();
+    g.arc(48, 48, 40, 0, Math.PI * 2);
     g.stroke();
     drawPickupIcon(g, kind, w);
   });
@@ -561,10 +575,12 @@ function backdropTexture(world) {
         }
       }
     } else if (world === 3) {
-      // BLOODSTREAM: teal glass over desaturated drifting red cells.
-      g.fillStyle = '#29484a';
+      // BLOODSTREAM: teal glass over desaturated drifting red cells. The
+      // cells are raised discs with a soft lit rim and a paler dimple (they
+      // read as cells, not as dark holes).
+      g.fillStyle = '#2f5153';
       g.fillRect(0, 0, w, h);
-      for (let i = 0; i < 34; i++) {
+      for (let i = 0; i < 30; i++) {
         const x = rnd() * w,
           y = rnd() * h,
           r = 22 + rnd() * 14;
@@ -572,34 +588,37 @@ function backdropTexture(world) {
         g.translate(x, y);
         g.rotate(rnd() * 3);
         g.scale(1, 0.72);
-        g.fillStyle = '#5b4446';
+        const cell = g.createRadialGradient(-r * 0.3, -r * 0.3, r * 0.1, 0, 0, r);
+        cell.addColorStop(0, '#9a7a78');
+        cell.addColorStop(0.55, '#7f6061');
+        cell.addColorStop(1, '#6a5052');
+        g.fillStyle = cell;
         g.beginPath();
         g.arc(0, 0, r, 0, Math.PI * 2);
         g.fill();
-        g.fillStyle = '#4b3a3c';
+        g.fillStyle = '#8f7372';
         g.beginPath();
-        g.arc(0, 0, r * 0.5, 0, Math.PI * 2);
+        g.arc(0, 0, r * 0.45, 0, Math.PI * 2);
         g.fill();
         g.restore();
       }
-      g.fillStyle = '#2f6b6a44';
-      g.fillRect(0, 0, w, h);
     } else {
-      // LAB / PETRI: amber agar with colonies.
+      // LAB / PETRI: a darker olive agar (the old bright amber hid the pale
+      // aerosol dots and the amber supplies) with muted colonies.
       const grad = g.createRadialGradient(w / 2, h / 2, 40, w / 2, h / 2, w * 0.9);
-      grad.addColorStop(0, '#7a5f2a');
-      grad.addColorStop(1, '#4a3816');
+      grad.addColorStop(0, '#4f4a2c');
+      grad.addColorStop(1, '#2b2914');
       g.fillStyle = grad;
       g.fillRect(0, 0, w, h);
       for (let i = 0; i < 22; i++) {
         const x = rnd() * w,
           y = rnd() * h,
           r = 16 + rnd() * 34;
-        g.fillStyle = '#8a6e36';
+        g.fillStyle = '#5c5634';
         g.beginPath();
         g.arc(x, y, r, 0, Math.PI * 2);
         g.fill();
-        g.strokeStyle = '#6a5226';
+        g.strokeStyle = '#3e3a20';
         g.lineWidth = 3;
         g.stroke();
       }
@@ -628,7 +647,9 @@ function buildShape(spec, { seed = 1, tint = null } = {}) {
   const mats = [];
   const handles = { body, mats, spikes: [], eyes: [], petals: [], membrane: null };
   const mat = (color, extra = {}) => {
-    const m = new THREE.MeshStandardMaterial({ color, roughness: 0.5, metalness: 0.02, emissive: color, emissiveIntensity: 0.28, ...extra });
+    // Lit and glossy (revision-four depth): low emissive so key, rim and
+    // specular shading read; just enough self-light to keep greens vivid.
+    const m = new THREE.MeshStandardMaterial({ color, roughness: 0.34, metalness: 0.06, emissive: color, emissiveIntensity: 0.1, ...extra });
     m.userData.base = m.emissiveIntensity;
     m.userData.baseColor = new THREE.Color(m.emissive);
     m.userData.baseTransparent = m.transparent;
@@ -638,7 +659,7 @@ function buildShape(spec, { seed = 1, tint = null } = {}) {
   };
   const mainColor = tint || spec.color;
   const bodyMat = mat(mainColor);
-  const spikeMat = spec.spikes ? mat(spec.spikes, { emissiveIntensity: 0.3 }) : bodyMat;
+  const spikeMat = spec.spikes ? mat(spec.spikes, { emissiveIntensity: 0.22, roughness: 0.3 }) : bodyMat;
   const add = (geo, m, at = [0, 0, 0], scale = [1, 1, 1]) => {
     const mesh = new THREE.Mesh(geo, m);
     mesh.position.set(...at);
@@ -656,13 +677,36 @@ function buildShape(spec, { seed = 1, tint = null } = {}) {
     if (!batches.has(m)) batches.set(m, []);
     batches.get(m).push([geo, matrix]);
   };
-  for (const p of spec.parts) {
+  for (const [partIndex, p] of spec.parts.entries()) {
     const at = p.at || [0, 0, 0],
       sc = p.scale || [1, 1, 1];
     if (p.type === 'sphere') {
       const m = p.color ? mat(p.color, { emissiveIntensity: 0.6 }) : p.role === 'inner' ? mat(PALETTE.virus, { emissiveIntensity: 0.35 }) : p.role === 'nucleus' ? mat('#b9c2d6') : bodyMat;
       if (p.role === 'cargo') handles.cargo = add(new THREE.IcosahedronGeometry(p.r, detail), m, at, sc);
-      else batch(m, new THREE.IcosahedronGeometry(p.r, detail), M(...at, ...sc));
+      else if (p.bumps) {
+        // A lumpy, mutated body: vertices pushed inward only, so the drawn
+        // footprint never exceeds the collider circle.
+        const g = cachedGeo(spec, `bumpy${partIndex}`, () => {
+          const geo = new THREE.IcosahedronGeometry(p.r, 4);
+          const pos = geo.attributes.position;
+          for (let i = 0; i < pos.count; i++) {
+            const x = pos.getX(i),
+              y = pos.getY(i),
+              z = pos.getZ(i);
+            const k = 1 - p.bumps * (0.5 + 0.5 * Math.sin(x * 7.1) * Math.sin(y * 5.3 + 1) * Math.sin(z * 6.7 + 2));
+            pos.setXYZ(i, x * k, y * k, z * k);
+          }
+          geo.computeVertexNormals();
+          return geo;
+        });
+        add(g, m, at, sc);
+      } else batch(m, new THREE.IcosahedronGeometry(p.r, detail), M(...at, ...sc));
+    } else if (p.type === 'warts') {
+      const wart = new THREE.IcosahedronGeometry(p.size, 1);
+      for (let i = 0; i < p.count; i++) {
+        const v = fib(i, p.count).multiplyScalar(p.r);
+        batch(spikeMat, wart, M(v.x, v.y, v.z));
+      }
     } else if (p.type === 'crown') {
       const parts = spikeParts({ ...p, detail: small ? 0 : 1 });
       const tipMat = p.tips ? mat(p.tips, { emissiveIntensity: 0.35 }) : p.role === 'inner' ? mat(PALETTE.virus, { emissiveIntensity: 0.35 }) : bodyMat;
@@ -684,7 +728,7 @@ function buildShape(spec, { seed = 1, tint = null } = {}) {
         }
       }
     } else if (p.type === 'clubs') {
-      add(cachedGeo(spec, 'clubs', () => clubGeometry(p, seed)), spikeMat, at, sc);
+      add(cachedGeo(spec, `clubs${partIndex}`, () => clubGeometry(p, seed)), spikeMat, at, sc);
     } else if (p.type === 'shell') {
       const m = mat(spec.color, { transparent: true, opacity: 0.45, roughness: 0.1, emissiveIntensity: 0.08, depthWrite: false });
       handles.membrane = add(new THREE.IcosahedronGeometry(p.r, 3), m, at, sc);
@@ -693,7 +737,7 @@ function buildShape(spec, { seed = 1, tint = null } = {}) {
       const mesh = add(cachedGeo(spec, `tube${p.role || ''}`, () => helixGeometry(p)), m, at);
       if (!p.role) handles.helix = mesh;
     } else if (p.type === 'torus') {
-      const m = p.role === 'seam' || p.role === 'halo' ? mat('#ffffff', { emissiveIntensity: 0.5, transparent: true, opacity: 0.7 }) : bodyMat;
+      const m = p.role === 'seam' || p.role === 'halo' ? mat('#ffffff', { emissiveIntensity: 0.5, transparent: true, opacity: 0.7 }) : p.role === 'belt' ? spikeMat : bodyMat;
       const mesh = add(new THREE.TorusGeometry(p.r, p.tube, 6, 40), m, at);
       mesh.rotation.x = p.role === 'seam' ? 0 : Math.PI / 2;
       if (p.role === 'seam') mesh.rotation.y = Math.PI / 2;
@@ -732,6 +776,7 @@ function buildShape(spec, { seed = 1, tint = null } = {}) {
         const eye = new THREE.Group();
         const dir = new THREE.Vector3(side * p.gap, 0.78, 0.62).normalize();
         eye.position.copy(dir.clone().multiplyScalar(1.01));
+        eye.position.y *= p.lift ?? 1;
         eye.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), dir);
         const ball = new THREE.Mesh(new THREE.CircleGeometry(p.r * 1.35, 18), white);
         const pupil = new THREE.Mesh(new THREE.CircleGeometry(p.r, 18), black);
@@ -767,25 +812,52 @@ export function createRenderer({ canvas, stage, settings }) {
     hitboxesOn = false;
 
   // ---- Lights and the lab board -----------------------------------------------
-  scene.add(new THREE.HemisphereLight('#dff4ff', '#1b2a2a', 1.1));
-  const key = new THREE.DirectionalLight('#ffffff', 1.7);
+  // Key (warm, high front-left), rim (cool, behind) and a soft sky fill:
+  // shaded volumes with specular highlights and a bright edge on every body.
+  scene.add(new THREE.HemisphereLight('#e4f6ff', '#15302e', 0.75));
+  const key = new THREE.DirectionalLight('#fff4e6', 2.6);
   key.position.set(-6, 22, 10);
   scene.add(key);
-  const rimLight = new THREE.DirectionalLight('#9fe8ff', 0.8);
-  rimLight.position.set(8, 6, -14);
+  const rimLight = new THREE.DirectionalLight('#9fe8ff', 2.2);
+  rimLight.position.set(5, 9, -18);
   scene.add(rimLight);
+
 
   const shared = new THREE.BoxGeometry(1, 1, 1);
   const dark = new THREE.MeshStandardMaterial({ color: '#0c1518', roughness: 0.6, metalness: 0.3 });
   const table = new THREE.Mesh(shared, dark);
   table.scale.set(23, 1, 31);
-  table.position.y = -0.62;
+  table.position.y = -1.9;
+  // The well walls between the glass and the deep backdrop.
+  for (const [x, z, w, d] of [[-9.55, 0, 0.3, 27], [9.55, 0, 0.3, 27], [0, -13.55, 19.4, 0.3], [0, 13.55, 19.4, 0.3]]) {
+    const wall = new THREE.Mesh(shared, dark);
+    wall.scale.set(w, 1.3, d);
+    wall.position.set(x, FLOOR_Y - 0.62, z);
+    scene.add(wall);
+  }
   scene.add(table);
+  // Depth layering: the tissue / agar lies 1.2 u deep, under a tinted glass
+  // floor with a faint grid, so perspective gives the board real parallax.
   const backdropMat = new THREE.MeshBasicMaterial({ color: '#ffffff' });
   const backdrop = new THREE.Mesh(new THREE.PlaneGeometry(18.8, 26.8), backdropMat);
   backdrop.rotation.x = -Math.PI / 2;
-  backdrop.position.y = FLOOR_Y - 0.02;
+  backdrop.position.y = FLOOR_Y - 1.2;
   scene.add(backdrop);
+  // Unlit: a full-screen lit transparent layer was the costliest thing on
+  // software WebGL; the tint and grid carry the glass read on their own.
+  const glassFloorMat = new THREE.MeshBasicMaterial({ color: '#9fd8d0', transparent: true, opacity: 0.1, depthWrite: false, toneMapped: false });
+  const glassFloor = new THREE.Mesh(new THREE.PlaneGeometry(18.8, 26.8), glassFloorMat);
+  glassFloor.rotation.x = -Math.PI / 2;
+  glassFloor.position.y = FLOOR_Y;
+  scene.add(glassFloor);
+  {
+    const pts = [];
+    for (let x = -8; x <= 8; x += 2) pts.push(x, FLOOR_Y + 0.004, -13.2, x, FLOOR_Y + 0.004, 13.2);
+    for (let z = -12; z <= 12; z += 2) pts.push(-9.4, FLOOR_Y + 0.004, z, 9.4, FLOOR_Y + 0.004, z);
+    const gg = new THREE.BufferGeometry();
+    gg.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
+    scene.add(new THREE.LineSegments(gg, new THREE.LineBasicMaterial({ color: '#cfe9e6', transparent: true, opacity: 0.08 })));
+  }
   // Glass rails: round tubes at the board edges (lab glassware, not neon).
   const railMat = new THREE.MeshStandardMaterial({ color: '#8fd8d0', roughness: 0.15, metalness: 0.1, transparent: true, opacity: 0.7, emissive: '#8fd8d0', emissiveIntensity: 0.35 });
   for (const x of [-9.65, 9.65]) {
@@ -816,6 +888,7 @@ export function createRenderer({ canvas, stage, settings }) {
     scene.background.set(t.background);
     railMat.color.set(t.rail);
     railMat.emissive.set(t.rail);
+    glassFloorMat.color.set(t.rim);
     rimLight.color.set(t.rim);
     backdropMat.map = backdrops[world] ||= backdropTexture(world);
     backdropMat.map.wrapS = backdropMat.map.wrapT = THREE.RepeatWrapping;
@@ -1072,14 +1145,56 @@ export function createRenderer({ canvas, stage, settings }) {
   }
 
   // SOAP ring: a soap-film bubble (cyan rim, white sheen).
+  // Clipped to the board so it never spills over the instrument panels.
+  renderer.localClippingEnabled = true;
+  const boardClip = [new THREE.Plane(new THREE.Vector3(-1, 0, 0), 9.4), new THREE.Plane(new THREE.Vector3(1, 0, 0), 9.4), new THREE.Plane(new THREE.Vector3(0, 0, -1), 13.4), new THREE.Plane(new THREE.Vector3(0, 0, 1), 13.4)];
   const soap = new THREE.Group();
-  const soapRim = new THREE.Mesh(new THREE.TorusGeometry(1, 0.035, 6, 64), new THREE.MeshBasicMaterial({ color: '#e9fdff', transparent: true, opacity: 0.9, depthTest: false, toneMapped: false }));
+  const soapRim = new THREE.Mesh(new THREE.TorusGeometry(1, 0.012, 6, 96), new THREE.MeshBasicMaterial({ color: '#ffffff', transparent: true, opacity: 0.95, depthTest: false, toneMapped: false, clippingPlanes: boardClip }));
   soapRim.rotation.x = Math.PI / 2;
-  const soapFilm = new THREE.Mesh(new THREE.CircleGeometry(1, 48).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: PALETTE.vaccine, transparent: true, opacity: 0.14, depthTest: false, depthWrite: false, toneMapped: false }));
-  soap.add(soapRim, soapFilm);
+  const soapRim2 = new THREE.Mesh(new THREE.TorusGeometry(0.9, 0.008, 6, 96), new THREE.MeshBasicMaterial({ color: PALETTE.vaccine, transparent: true, opacity: 0.8, depthTest: false, toneMapped: false, clippingPlanes: boardClip }));
+  soapRim2.rotation.x = Math.PI / 2;
+  const soapFilm = new THREE.Mesh(new THREE.RingGeometry(0.55, 1, 64).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: PALETTE.vaccine, transparent: true, opacity: 0.2, depthTest: false, depthWrite: false, toneMapped: false, side: THREE.DoubleSide, clippingPlanes: boardClip }));
+  soap.add(soapRim, soapRim2, soapFilm);
   soap.renderOrder = 70;
   soap.visible = false;
   scene.add(soap);
+
+  // ---- Contact shadows: a soft dark disc under every body (cheap AO) -------------
+  const shadowTex = canvasTexture(64, 64, (g) => {
+    const r = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+    r.addColorStop(0, '#000000aa');
+    r.addColorStop(0.6, '#00000044');
+    r.addColorStop(1, '#00000000');
+    g.fillStyle = r;
+    g.fillRect(0, 0, 64, 64);
+  });
+  const SHADOWS = 160;
+  const shadowPool = new THREE.InstancedMesh(flat, new THREE.MeshBasicMaterial({ map: shadowTex, transparent: true, depthWrite: false, toneMapped: false }), SHADOWS);
+  shadowPool.renderOrder = 4;
+  shadowPool.frustumCulled = false;
+  shadowPool.count = 0;
+  scene.add(shadowPool);
+  // Light comes from the front-left: shadows fall back and to the right.
+  const SHADOW_DX = 0.18,
+    SHADOW_DZ = -0.3;
+  function syncShadows(s) {
+    let n = 0;
+    const put = (x, z, r, k = 1) => {
+      if (n >= SHADOWS) return;
+      tmp.position.set(x + SHADOW_DX * k, FLOOR_Y + 0.006, z + SHADOW_DZ * k);
+      tmp.rotation.set(0, 0, 0);
+      tmp.scale.set(r * 2.4, 1, r * 2.1);
+      tmp.updateMatrix();
+      shadowPool.setMatrixAt(n++, tmp.matrix);
+    };
+    if (s.phase !== 'title') {
+      for (const e of s.enemies) if (e.alive && e.z > -13.2) put(e.x, e.z, e.radius + (e.half || 0) * 0.6, e.kind === 'boss' ? 1.6 : 1);
+      if (s.ship.respawn <= 0) put(s.ship.x, s.ship.z + 0.3, 0.55, 1);
+      for (const p of s.pickups) put(p.x, p.z, p.radius * 0.8, 1);
+    }
+    shadowPool.count = n;
+    shadowPool.instanceMatrix.needsUpdate = true;
+  }
 
   // ---- Telegraph meshes ----------------------------------------------------------
   const teleMeshes = new Map();
@@ -1156,6 +1271,10 @@ export function createRenderer({ canvas, stage, settings }) {
     if (e.kind === 'boss' && e.part !== 'node') {
       ud.halo = sprite('#ffffff', 5, 0);
       group.add(ud.halo);
+      // A variant-coloured aura behind every boss: glow and depth.
+      const aura = sprite(spec.spikes || spec.color, 4.2, 0.22);
+      aura.position.y = -0.3;
+      group.add(aura);
     }
     if (e.kind === 'vesicle') {
       ud.icon = new THREE.Sprite(new THREE.SpriteMaterial({ map: pickupTextures[e.carry || 'mrna'], transparent: true, depthWrite: false, toneMapped: false }));
@@ -1269,7 +1388,12 @@ export function createRenderer({ canvas, stage, settings }) {
       shipFlash = 0.3;
       addBurst(ev.x, ev.z, PALETTE.danger, 1.8);
     } else if (ev.type === 'respawn') addBurst(ev.x, Math.min(ev.z, 12.5), PALETTE.vaccine, 2);
-    else if (ev.type === 'bomb') fx.trauma += 0.45;
+    else if (ev.type === 'bomb') {
+      fx.trauma += 0.45;
+      fx.flash = Math.max(fx.flash, 0.25);
+      addBurst(ev.x, ev.z, '#ffffff', 3.5);
+      addBurst(ev.x, ev.z, PALETTE.vaccine, 6);
+    }
     else if (ev.type === 'phase-break') fx.trauma += 0.5;
     else if (ev.type === 'spark') addBurst(ev.x, ev.z, PALETTE.vaccine, 0.5);
     else if (ev.type === 'split') addBurst(ev.x, ev.z, '#ffffff', 1.6);
@@ -1719,8 +1843,12 @@ export function createRenderer({ canvas, stage, settings }) {
     if (ring) {
       soap.position.set(ring.x, BULLET_Y + 0.05, ring.z);
       soap.scale.setScalar(Math.max(0.1, ring.r));
-      soapRim.material.opacity = Math.max(0, 0.9 - ring.t);
-      soapFilm.material.opacity = Math.max(0, 0.18 - ring.t * 0.2);
+      // The rim is drawn at exactly the cancel radius (tube thickness scales
+      // down with the bubble so the edge stays crisp).
+      soapRim.scale.set(1, 1, 1);
+      soapRim.material.opacity = Math.max(0, 1 - ring.t * 0.9);
+      soapRim2.material.opacity = Math.max(0, 0.85 - ring.t);
+      soapFilm.material.opacity = Math.max(0, 0.26 - ring.t * 0.3);
     }
   }
 
@@ -1872,6 +2000,7 @@ export function createRenderer({ canvas, stage, settings }) {
       syncShip(s, dt);
       syncTwist(s, dt);
       syncHitboxes(s);
+      syncShadows(s);
       updateDebris(dt);
       fx.flash = Math.max(0, fx.flash - dt * 2.5);
       updateCamera(dt);

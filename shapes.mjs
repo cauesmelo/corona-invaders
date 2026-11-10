@@ -19,6 +19,7 @@
  *   torus    {r, tube}                     ring outlines
  *   petals   {count, r, length, width}     BLOOM spike petals (closed bud)
  *   drop     {r, length}                   teardrop body
+ *   warts    {count, r, size}              surface lumps (OMICRON)
  *   eyes     {r, gap}                      two dot eyes (bosses only)
  */
 export const PALETTE = Object.freeze({
@@ -70,17 +71,23 @@ export const SHAPES = Object.freeze({
   virion: { color: '#6fe9a2', parts: [{ type: 'sphere', r: 0.42 }, crown({ count: 8, r: 0.42, length: 0.26, stem: 0.08, cap: 0.11, ring: 8 }), { type: 'tube', length: 0.9, r: 0.09, turns: 0, amp: 0, at: [0, 0, -0.7], role: 'mucus' }] },
   // Bosses: the grey-white CDC sphere with variant-green club spikes and eyes.
   alpha: { color: PALETTE.bossBody, spikes: PALETTE.alpha, parts: [{ type: 'sphere', r: 1 }, { type: 'clubs', count: 26, r: 1, length: 0.42, head: 0.15 }, { type: 'eyes', r: 0.13, gap: 0.42 }] },
-  twinB: { color: PALETTE.bossBody, spikes: PALETTE.beta, parts: [{ type: 'sphere', r: 1 }, { type: 'clubs', count: 22, r: 1, length: 0.4, head: 0.15 }, { type: 'eyes', r: 0.13, gap: 0.4 }] },
-  twinG: { color: PALETTE.bossBody, spikes: PALETTE.gamma, parts: [{ type: 'sphere', r: 1 }, { type: 'clubs', count: 22, r: 1, length: 0.4, head: 0.15 }, { type: 'eyes', r: 0.13, gap: 0.4 }] },
-  delta: { color: PALETTE.bossBody, spikes: PALETTE.delta, parts: [{ type: 'sphere', r: 1 }, { type: 'clubs', count: 26, r: 1, length: 0.44, head: 0.16 }, { type: 'torus', r: 1.02, tube: 0.035, role: 'seam' }, { type: 'eyes', r: 0.13, gap: 0.42 }] },
-  half: { color: PALETTE.bossBody, spikes: PALETTE.delta, parts: [{ type: 'sphere', r: 1 }, { type: 'clubs', count: 16, r: 1, length: 0.42, head: 0.15 }, { type: 'eyes', r: 0.12, gap: 0.3 }] },
+  // BETA: a tall egg with long, thin spikes. (Stretch is vertical only, so
+  // the footprint on the board stays the collider circle.)
+  twinB: { color: PALETTE.bossBody, spikes: PALETTE.beta, parts: [{ type: 'sphere', r: 1, scale: [1, 1.38, 1] }, { type: 'clubs', count: 18, r: 1, length: 0.66, head: 0.11, scale: [1, 1.38, 1] }, { type: 'eyes', r: 0.13, gap: 0.4, lift: 1.38 }] },
+  // GAMMA: squat, belted, with short fat clubs.
+  twinG: { color: PALETTE.bossBody, spikes: PALETTE.gamma, parts: [{ type: 'sphere', r: 1, scale: [1, 0.7, 1] }, { type: 'clubs', count: 30, r: 1, length: 0.28, head: 0.2, scale: [1, 0.7, 1] }, { type: 'torus', r: 1.0, tube: 0.08, role: 'belt' }, { type: 'eyes', r: 0.14, gap: 0.42, lift: 0.7 }] },
+  // DELTA: three horn clusters at 120 degrees give it a triangular crown.
+  delta: { color: PALETTE.bossBody, spikes: PALETTE.delta, parts: [{ type: 'sphere', r: 1 }, { type: 'clubs', count: 14, r: 1, length: 0.36, head: 0.15 }, { type: 'clubs', count: 15, r: 1, length: 0.9, head: 0.17, groups: 3, spread: 0.42 }, { type: 'torus', r: 1.02, tube: 0.035, role: 'seam' }, { type: 'eyes', r: 0.13, gap: 0.42 }] },
+  half: { color: PALETTE.bossBody, spikes: PALETTE.delta, parts: [{ type: 'sphere', r: 1 }, { type: 'clubs', count: 12, r: 1, length: 0.36, head: 0.15 }, { type: 'clubs', count: 8, r: 1, length: 0.85, head: 0.16, groups: 1, spread: 0.45 }, { type: 'torus', r: 1.02, tube: 0.035, role: 'seam' }, { type: 'eyes', r: 0.12, gap: 0.3 }] },
   // Heavily mutated: more, longer and uneven spikes.
-  omicron: { color: PALETTE.bossBody, spikes: PALETTE.omicron, parts: [{ type: 'sphere', r: 1 }, { type: 'clubs', count: 40, r: 1, length: 0.5, head: 0.16, jitter: 0.45 }, { type: 'eyes', r: 0.13, gap: 0.44 }] },
+  // OMICRON PRIME: lumpy, warted, crowded with uneven mutated spikes.
+  omicron: { color: PALETTE.bossBody, spikes: PALETTE.omicron, parts: [{ type: 'sphere', r: 1, bumps: 0.12 }, { type: 'clubs', count: 44, r: 0.96, length: 0.52, head: 0.16, jitter: 0.5 }, { type: 'warts', count: 18, r: 0.95, size: 0.13 }, { type: 'eyes', r: 0.13, gap: 0.44 }] },
   node: { color: '#d9dde6', spikes: PALETTE.omicron, parts: [{ type: 'sphere', r: 0.5 }, { type: 'clubs', count: 10, r: 0.5, length: 0.5, head: 0.14 }] },
   bigsneezer: { color: '#3fdc7c', parts: [{ type: 'sphere', r: 0.85, scale: [1, 0.85, 1] }, crown({ count: 16, r: 0.85, length: 0.34, stem: 0.18, cap: 0.22, ring: 8 }), { type: 'eyes', r: 0.12, gap: 0.38 }] },
   aerosolcloud: { color: '#46d88b', parts: [{ type: 'torus', r: 0.9, tube: 0.07 }, { type: 'torus', r: 0.55, tube: 0.06 }, { type: 'virions', count: 12, r: 0.9, size: 0.24 }, { type: 'sphere', r: 0.42, role: 'core' }, { type: 'eyes', r: 0.11, gap: 0.3 }] },
   mother: { color: PALETTE.bossBody, parts: [{ type: 'shell', r: 1 }, { type: 'sphere', r: 0.42, role: 'nucleus' }, { type: 'virions', count: 7, r: 0.62, size: 0.18 }, { type: 'eyes', r: 0.12, gap: 0.4 }] },
-  lambda: { color: PALETTE.bossBody, spikes: PALETTE.delta, parts: [{ type: 'sphere', r: 1 }, { type: 'clubs', count: 20, r: 1, length: 0.4, head: 0.15 }, { type: 'torus', r: 1.35, tube: 0.05, role: 'halo' }, { type: 'eyes', r: 0.13, gap: 0.4 }] },
+  // LAMBDA: a crown with one long antenna cluster and a thin halo.
+  lambda: { color: PALETTE.bossBody, spikes: PALETTE.delta, parts: [{ type: 'sphere', r: 1, scale: [1, 1.15, 1] }, { type: 'clubs', count: 18, r: 1, length: 0.38, head: 0.14 }, { type: 'clubs', count: 6, r: 1, length: 1, head: 0.15, groups: 1, spread: 0.3 }, { type: 'torus', r: 1.35, tube: 0.04, role: 'halo' }, { type: 'eyes', r: 0.13, gap: 0.4 }] },
 });
 
 /** The hero. The needle points up-field; nothing extends sideways beyond the

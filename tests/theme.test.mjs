@@ -11,7 +11,7 @@ import { BOSSES } from '../bosses.mjs';
 import { FAMILIES } from '../bullets.mjs';
 import { causeText } from '../ui.mjs';
 
-const ORGANIC = new Set(['sphere', 'crown', 'clubs', 'shell', 'tube', 'torus', 'petals', 'drop', 'virions', 'eyes']);
+const ORGANIC = new Set(['sphere', 'crown', 'clubs', 'shell', 'tube', 'torus', 'petals', 'drop', 'virions', 'warts', 'eyes']);
 const PLANE_WORDS = /wing|fin\b|tail|fuselage|cockpit|engine|thruster|rotor|propeller|nose ?cone|jet\b/i;
 
 test('no plane-like geometry: every mesh part is organic (no boxes, cones, wings, fins or tails)', () => {
@@ -39,6 +39,15 @@ test('the corona silhouette is everywhere: every virus carries a crown of spikes
   assert.ok(crowned(SHAPES.twinB) && crowned(SHAPES.twinG) && crowned(SHAPES.half) && crowned(SHAPES.node));
   // The original sprite's eight in-plane spikes are the WILD TYPE's ring.
   assert.equal(SHAPES.wild.parts.find((p) => p.type === 'crown').ring, 8);
+});
+
+test('the four variant bosses have distinct silhouettes, not one ball with recoloured spikes', () => {
+  const sig = (spec) => JSON.stringify(spec.parts.filter((p) => p.type !== 'eyes').map((p) => [p.type, p.scale ?? null, p.groups ?? 0, p.bumps ?? 0, p.count ?? 0, p.length ?? 0, p.role ?? '']));
+  const sigs = ['alpha', 'twinB', 'twinG', 'delta', 'omicron'].map((k) => sig(SHAPES[k]));
+  assert.equal(new Set(sigs).size, sigs.length);
+  // Footprints stay circles (any stretch is vertical), so bodies match colliders.
+  for (const k of ['alpha', 'twinB', 'twinG', 'delta', 'omicron', 'half', 'lambda'])
+    for (const p of SHAPES[k].parts.filter((p) => p.type === 'sphere' && p.scale)) assert.ok(p.scale[0] === 1 && p.scale[2] === 1, k);
 });
 
 test('only bosses have faces: popcorn stays faceless, true to the sprite', () => {
