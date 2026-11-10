@@ -14,7 +14,7 @@ import { cameraLayout, projectPoint } from '../camera.mjs';
 import { PRESETS, startPattern, upgradeParams } from '../patterns.mjs';
 import { ARCHETYPES, attackFor } from '../levels.mjs';
 import { createReactive } from './reactive.mjs';
-import { quiet, running, bullet, cardArena } from './helpers.mjs';
+import { quiet, running, bullet, cardArena, group } from './helpers.mjs';
 import { STEP as CLOCK_STEP, createClock, advanceClock, capturePositions, interpolatedView } from '../clock.mjs';
 
 const STEP = 1 / 120;
@@ -553,4 +553,45 @@ test('F fairness: a 150 ms reactive player dodges every pattern preset (harshest
     // most starts take at most one hit.
     assert.ok(mean <= 1.2 && Math.max(...hits) <= 3 && hits.filter((h) => h <= 1).length >= 3, `${preset}: ${hits.join(' ')}`);
   }
+});
+
+// ---- D expression -------------------------------------------------------------------
+test('D1: focus is a measurable technique: the NEEDLE stream deals more damage on one target', (t) => {
+  const dps = (power, focus) => {
+    const s = quiet();
+    s.ship.power = power;
+    const [e] = group(s, ['H'], { z: s.ship.z - 9 });
+    e.hp = e.maxHp = 1e6;
+    s.ship.x = e.x;
+    for (let i = 0; i < 600; i++) update(s, 1 / 60, { focus });
+    return (1e6 - e.hp) / 10;
+  };
+  const gains = [1, 2, 4].map((p) => dps(p, true) / dps(p, false));
+  t.diagnostic(`focus damage on one target, power 1 / 2 / 4: x${gains.map((g) => g.toFixed(2)).join(' / x')}`);
+  assert.ok(gains[0] >= 1 - 1e-9 && gains[1] >= 1.3 && gains[2] >= 1.9);
+});
+test('D2: a player who holds focus while lined up clears boss samples faster, without needing it', (t) => {
+  let base = 0,
+    expert = 0,
+    cleared = 0;
+  for (const seed of [42, 1, 7])
+    for (const stage of [4, 9, 13, 18])
+    for (const skilled of [false, true]) {
+      const s = running(seed, stage);
+      const p = createReactive({ phase: seed % 5, bombs: true });
+      let f = 0;
+      for (; f < 60 * 300 && s.phase === 'playing'; f++) {
+        const input = p(s, f);
+        if (skilled && !input.axisX && !input.axisZ) input.focus = true;
+        update(s, 1 / 60, input);
+      }
+      if (s.phase !== 'lost') cleared++;
+      if (skilled) expert += f;
+      else base += f;
+    }
+  const gain = 1 - expert / base;
+  t.diagnostic(`boss samples 1-4, 2-4, 3-4, 4-4 (seeds 42, 1, 7): ${(base / 60).toFixed(0)} s -> ${(expert / 60).toFixed(0)} s, ${(gain * 100).toFixed(1)} % faster`);
+  assert.equal(cleared, 24, 'both players clear: the technique is optional');
+  // Target 15 %; WARN band from 11.25 % (MOVEMENT_AUDIT.md D2).
+  assert.ok(gain >= 0.1125, `${gain}`);
 });

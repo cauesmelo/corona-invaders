@@ -701,7 +701,8 @@ canvas {
   font-size: 15px;
   font-weight: 800;
   letter-spacing: 0.2em;
-  background: rgba(4, 11, 13, 0.92);
+  background: rgba(4, 11, 13, 0.45);
+  text-shadow: 0 1px 3px #000, 0 0 2px #000;
   pointer-events: none;
   animation: strip 0.3s ease-out;
 }
@@ -731,7 +732,10 @@ canvas {
   padding: 8px 18px 8px 22px;
   white-space: nowrap;
   color: #f4f6fa;
-  background: rgba(10, 12, 18, 0.86);
+  /* Translucent: a surge or card callout can appear over live bullets, which
+     must stay visible through it (MOVEMENT_AUDIT.md E1). */
+  background: rgba(10, 12, 18, 0.45);
+  text-shadow: 0 1px 3px #000, 0 0 2px #000;
   border-top: 1px solid #b8bfcc;
   border-bottom: 1px solid #b8bfcc;
   font-weight: 800;
@@ -895,6 +899,19 @@ canvas {
   letter-spacing: 0.08em;
   text-align: center;
   pointer-events: none;
+}
+/* Landscape: one-time hints sit in the empty foot of the left instrument
+   panel, never over the board (over the bottom of the column a hint hid the
+   bullets approaching the syringe; MOVEMENT_AUDIT.md E1). Portrait already
+   shows them in the thumb zone under the board. */
+.cabinet[data-layout='side'] #hint {
+  z-index: 6; /* the panel's level; later in the DOM, so drawn over it */
+  left: 26px;
+  bottom: 30px;
+  transform: none;
+  width: min(182px, calc(var(--field-left) - 54px));
+  max-width: none;
+  text-align: left;
 }
 .easy-start {
   display: block;
