@@ -575,7 +575,10 @@ export function previewPick(deck, id, ctx) {
   const lines = [];
   const nUnit = needleMul(now, { focus: true }),
     aUnit = needleMul(after, { focus: true });
-  if (Math.abs(aUnit - nUnit) > 1e-6) lines.push(`NEEDLE DMG ${x2(nUnit)} → ${x2(aUnit)}`);
+  const aBusy = needleMul(after, { focus: true, ringBusy: true });
+  // LIVE CULTURE: both ring states, so the cost is never hidden.
+  if (after.liveCulture && Math.abs(aBusy - aUnit) > 1e-6) lines.push(`NEEDLE DMG ${x2(nUnit)} → ${x2(aBusy)} RING · ${x2(aUnit)} EMPTY`);
+  else if (Math.abs(aUnit - nUnit) > 1e-6) lines.push(`NEEDLE DMG ${x2(nUnit)} → ${x2(aUnit)}`);
   if (Math.abs(abMul(after) - abMul(now)) > 1e-6 && antibodiesOf(after) > 0) lines.push(`ANTIBODY DMG ${x2(abMul(now))} → ${x2(abMul(after))}`);
   if (after.fireRate !== now.fireRate) lines.push(`RATE ${num(now.fireRate)} → ${num(after.fireRate)}/S`);
   if (needlesPerVolley(after, true) !== needlesPerVolley(now, true)) lines.push(`NEEDLES ${needlesPerVolley(now, true)} → ${needlesPerVolley(after, true)}`);

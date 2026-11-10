@@ -20,6 +20,7 @@
           <div class="meter"><span class="label">DOSES</span><div class="vials" id="lives" role="img" aria-label="3 of 3 doses"></div></div>
           <div class="meter"><span class="label">SOAP</span><div class="soap" id="soap" role="img" aria-label="2 soap bursts"></div></div>
           <div class="meter power-meter"><span class="label">mRNA</span><div class="power" id="power" role="img" aria-label="Power 1 of 4"></div></div>
+          <div class="meter rack-meter"><span class="label">ADJUVANTS</span><div class="rack" id="rack" aria-label="Adjuvants"></div></div>
           <div id="powerups" hidden aria-live="polite"></div>
         </div>
         <div class="panel panel-right" id="panel-right">
@@ -63,6 +64,10 @@
           <span class="pad-hint" id="pad-hint">DRAG ANYWHERE · AUTO-FIRE</span>
         </div>
         <button id="touch-bomb" type="button" aria-label="Soap burst"><span id="touch-bomb-count">2</span><small>SOAP</small></button>
+        <div class="formulate" id="formulate" role="dialog" aria-modal="true" aria-label="Formulate: pick one adjuvant" hidden>
+          <div class="f-panel" id="formulate-panel"></div>
+          <p class="sr-only" id="formulate-live" aria-live="polite"></p>
+        </div>
         <div class="overlay" id="overlay" data-screen="title">
           <div class="attract-tag" id="attract-tag" hidden>DEMO</div>
           <div class="card" id="card" role="dialog" aria-labelledby="overlay-heading">
@@ -71,6 +76,7 @@
             <div id="overlay-body"></div>
             <div class="actions" id="actions">
               <button id="play-button" class="row primary" type="button">PRESS SPACE</button>
+              <button id="resume-button" class="row" type="button" hidden>RESUME RUN</button>
               <button id="assist-button" class="row" type="button" hidden>+1 VIAL</button>
               <button id="easy-button" class="row" type="button" hidden>SWITCH TO EASY</button>
               <button id="retry-button" class="row" type="button" hidden>RETRY SAMPLE</button>
