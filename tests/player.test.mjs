@@ -12,23 +12,24 @@ const at = (s, dx, dz, extra) => {
   return b;
 };
 
-test('the core hitbox is 0.16 u and the graze ring 1.0 u around it', () => {
-  assert.equal(RULES.shipRadius, 0.16);
+test('the core hitbox is 0.2 u and the graze ring 1.0 u around it', () => {
+  assert.equal(RULES.shipRadius, 0.2);
   assert.equal(RULES.grazeRadius, 1);
+  const r = RULES.shipRadius + 0.15; // core + a circle bullet's solid
   // Just inside core + bullet radius: a hit (the deathbomb window opens).
   let s = quiet();
-  at(s, 0.16 + 0.16 - 0.02, 0);
+  at(s, r - 0.02, 0);
   update(s, 1 / 120);
   assert.ok(s.ship.dying > 0, 'touching the core is a hit');
   // Just outside the core but inside the graze ring: a graze, never a hit.
   s = quiet();
-  at(s, 0.16 + 0.16 + 0.05, 0);
+  at(s, r + 0.03, 0);
   update(s, 1 / 120);
   assert.equal(s.ship.dying, 0);
   assert.equal(s.grazes, 1);
   // Outside the graze ring: nothing.
   s = quiet();
-  at(s, 1 + 0.16 + 0.05, 0);
+  at(s, 1 + 0.15 + 0.05, 0);
   update(s, 1 / 120);
   assert.equal(s.grazes, 0);
   assert.equal(s.ship.dying, 0);

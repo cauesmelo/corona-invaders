@@ -44,11 +44,14 @@ export const SHAPES = Object.freeze({
   wild: { color: PALETTE.virus, parts: [{ type: 'sphere', r: 0.62 }, crown({})] },
   mini: { color: PALETTE.virus, parts: [{ type: 'sphere', r: 0.62 }, crown({ count: 8, ring: 8, length: 0.3, cap: 0.13 })] },
   // Puffy crown with soft spikes; it swells 1.25x while inhaling.
-  sneezer: { color: '#3fdc7c', parts: [{ type: 'sphere', r: 0.72, scale: [1.08, 0.9, 1.08] }, crown({ count: 12, r: 0.72, length: 0.3, stem: 0.16, cap: 0.2, ring: 8 })] },
+  sneezer: { color: '#3fdc7c', parts: [{ type: 'sphere', r: 0.72, scale: [1, 0.85, 1] }, crown({ count: 12, r: 0.72, length: 0.3, stem: 0.16, cap: 0.2, ring: 8 })] },
   // Two lobes with a budding seam.
-  budder: { color: '#2bd06a', parts: [{ type: 'sphere', r: 0.5, at: [-0.34, 0, 0] }, { type: 'sphere', r: 0.5, at: [0.34, 0, 0] }, crown({ count: 12, r: 0.55, length: 0.3, ring: 8, scale: [1.5, 1, 1] }), { type: 'torus', r: 0.5, tube: 0.04, role: 'seam' }] },
+  // Two lobes (a capsule collider: lobe radius, lobe centres at +/-0.25).
+  budder: { color: '#2bd06a', parts: [{ type: 'sphere', r: 0.55, at: [-0.25, 0, 0] }, { type: 'sphere', r: 0.55, at: [0.25, 0, 0] }, crown({ count: 12, r: 0.58, length: 0.26, ring: 8, scale: [1.4, 1, 1] }), { type: 'torus', r: 0.55, tube: 0.04, role: 'seam' }] },
   // RNA helix ribbon tube; it wriggles as it weaves.
-  worm: { color: '#5fe08a', parts: [{ type: 'tube', length: 2.2, r: 0.16, turns: 2.5, amp: 0.22 }, { type: 'sphere', r: 0.26, at: [0, 0, 1.1], role: 'head' }] },
+  // bodyRadius: the tube's half-width (helix amplitude + tube radius); the
+  // collider is a capsule of that radius along the worm's length.
+  worm: { color: '#5fe08a', bodyRadius: 0.38, bodyHalf: 0.9, parts: [{ type: 'tube', length: 1.8, r: 0.16, turns: 2.2, amp: 0.22 }, { type: 'sphere', r: 0.3, at: [0, 0, 0.9], role: 'head' }] },
   // A ring outline of tiny virions (outlined, never fog).
   puff: { color: '#46d88b', parts: [{ type: 'torus', r: 0.75, tube: 0.06 }, { type: 'virions', count: 8, r: 0.75, size: 0.2 }] },
   // Teardrop with a virus visible inside.
@@ -70,11 +73,11 @@ export const SHAPES = Object.freeze({
   twinB: { color: PALETTE.bossBody, spikes: PALETTE.beta, parts: [{ type: 'sphere', r: 1 }, { type: 'clubs', count: 22, r: 1, length: 0.4, head: 0.15 }, { type: 'eyes', r: 0.13, gap: 0.4 }] },
   twinG: { color: PALETTE.bossBody, spikes: PALETTE.gamma, parts: [{ type: 'sphere', r: 1 }, { type: 'clubs', count: 22, r: 1, length: 0.4, head: 0.15 }, { type: 'eyes', r: 0.13, gap: 0.4 }] },
   delta: { color: PALETTE.bossBody, spikes: PALETTE.delta, parts: [{ type: 'sphere', r: 1 }, { type: 'clubs', count: 26, r: 1, length: 0.44, head: 0.16 }, { type: 'torus', r: 1.02, tube: 0.035, role: 'seam' }, { type: 'eyes', r: 0.13, gap: 0.42 }] },
-  half: { color: PALETTE.bossBody, spikes: PALETTE.delta, parts: [{ type: 'sphere', r: 1, scale: [0.74, 1, 1] }, { type: 'clubs', count: 16, r: 1, length: 0.42, head: 0.15, scale: [0.74, 1, 1] }, { type: 'eyes', r: 0.12, gap: 0.3 }] },
+  half: { color: PALETTE.bossBody, spikes: PALETTE.delta, parts: [{ type: 'sphere', r: 1 }, { type: 'clubs', count: 16, r: 1, length: 0.42, head: 0.15 }, { type: 'eyes', r: 0.12, gap: 0.3 }] },
   // Heavily mutated: more, longer and uneven spikes.
   omicron: { color: PALETTE.bossBody, spikes: PALETTE.omicron, parts: [{ type: 'sphere', r: 1 }, { type: 'clubs', count: 40, r: 1, length: 0.5, head: 0.16, jitter: 0.45 }, { type: 'eyes', r: 0.13, gap: 0.44 }] },
   node: { color: '#d9dde6', spikes: PALETTE.omicron, parts: [{ type: 'sphere', r: 0.5 }, { type: 'clubs', count: 10, r: 0.5, length: 0.5, head: 0.14 }] },
-  bigsneezer: { color: '#3fdc7c', parts: [{ type: 'sphere', r: 0.85, scale: [1.08, 0.9, 1.08] }, crown({ count: 16, r: 0.85, length: 0.34, stem: 0.18, cap: 0.22, ring: 8 }), { type: 'eyes', r: 0.12, gap: 0.38 }] },
+  bigsneezer: { color: '#3fdc7c', parts: [{ type: 'sphere', r: 0.85, scale: [1, 0.85, 1] }, crown({ count: 16, r: 0.85, length: 0.34, stem: 0.18, cap: 0.22, ring: 8 }), { type: 'eyes', r: 0.12, gap: 0.38 }] },
   aerosolcloud: { color: '#46d88b', parts: [{ type: 'torus', r: 0.9, tube: 0.07 }, { type: 'torus', r: 0.55, tube: 0.06 }, { type: 'virions', count: 12, r: 0.9, size: 0.24 }, { type: 'sphere', r: 0.42, role: 'core' }, { type: 'eyes', r: 0.11, gap: 0.3 }] },
   mother: { color: PALETTE.bossBody, parts: [{ type: 'shell', r: 1 }, { type: 'sphere', r: 0.42, role: 'nucleus' }, { type: 'virions', count: 7, r: 0.62, size: 0.18 }, { type: 'eyes', r: 0.12, gap: 0.4 }] },
   lambda: { color: PALETTE.bossBody, spikes: PALETTE.delta, parts: [{ type: 'sphere', r: 1 }, { type: 'clubs', count: 20, r: 1, length: 0.4, head: 0.15 }, { type: 'torus', r: 1.35, tube: 0.05, role: 'halo' }, { type: 'eyes', r: 0.13, gap: 0.4 }] },
@@ -84,6 +87,10 @@ export const SHAPES = Object.freeze({
  * barrel width + 0.2 u (the previous crossbars read as wings from above). */
 export const SYRINGE = Object.freeze({
   barrelRadius: 0.3,
+  // Drawn scale of the parts below, and the collision core: a glowing vaccine
+  // chamber at the barrel centre, marked at exactly the core radius (0.2 u).
+  scale: 1.333,
+  core: Object.freeze({ r: 0.2, z: 0 }),
   parts: [
     { type: 'cylinder', role: 'barrel', r: 0.3, length: 1.7, z: 0 },
     { type: 'cylinder', role: 'fluid', r: 0.23, length: 1.4, z: 0.05 },

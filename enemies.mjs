@@ -37,6 +37,7 @@ export function makeEnemy(s, kind, x, z, extra = {}) {
     baseX: x,
     baseZ: z,
     radius: a.radius,
+    half: a.half || 0,
     hp,
     maxHp: hp,
     alive: true,

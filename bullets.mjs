@@ -6,20 +6,26 @@
  * bullet-hell convention: the drawn bullet is bigger than its hitbox).
  */
 import { RULES, clamp, nextId, pushEvent } from './core.mjs';
+import { COLLIDERS } from './hitboxes.mjs';
 
+/** `hit` is the collider radius (the drawn solid body); `half` the capsule
+ * half-length along travel for elongated families (hitboxes.mjs). The glow
+ * around a bullet is light, not matter. */
+const fam = (label, family, speed) => ({ label, hit: COLLIDERS[family].r, half: COLLIDERS[family].half, vis: COLLIDERS[family].r, speed });
 export const FAMILIES = Object.freeze({
-  // Sneeze droplets: teardrop stretched 2.2x along its velocity.
-  droplet: { label: 'DROPLET', vis: 0.26, hit: 0.16, speed: [3, 9] },
-  // Aerosol mist: small round dot that decelerates to 60% over 1 s.
-  aerosol: { label: 'AEROSOL', vis: 0.17, hit: 0.11, speed: [2.5, 4.5] },
-  // Spike protein: a club ("lollipop") oriented along its velocity.
-  spike: { label: 'SPIKE PROTEIN', vis: 0.24, hit: 0.15, speed: [3.5, 10] },
-  // RNA beads joined by a thin harmless strand, travelling on a sine.
-  rna: { label: 'RNA STRAND', vis: 0.2, hit: 0.13, speed: [4, 6] },
-  // Tiny 8-spike crown (the user's original sprite). Shootable: 1 HP.
-  virion: { label: 'VIRION', vis: 0.32, hit: 0.2, speed: [2.5, 4] },
+  // Sneeze droplets: a capsule along the travel (an elongated drop).
+  droplet: fam('DROPLET', 'droplet', [3, 9]),
+  // Aerosol mist: a round dot that decelerates to 60% over 1 s.
+  aerosol: fam('AEROSOL', 'aerosol', [2.5, 4.5]),
+  // Spike protein: an elongated club along the travel (capsule).
+  spike: fam('SPIKE PROTEIN', 'spike', [3.5, 10]),
+  // RNA beads joined by a thin harmless thread, travelling on a sine.
+  rna: fam('RNA STRAND', 'rna', [4, 6]),
+  // Tiny 8-spike crown (the original sprite). Shootable: 1 HP. The body is
+  // the collider; its spikes are decorative, like every virus's.
+  virion: fam('VIRION', 'virion', [2.5, 4]),
   // Big wobbling mucus ball, used for walls.
-  glob: { label: 'MUCUS GLOB', vis: 0.6, hit: 0.45, speed: [2, 4] },
+  glob: fam('MUCUS GLOB', 'glob', [2, 4]),
 });
 export const FAMILY_NAMES = Object.freeze(Object.keys(FAMILIES));
 
@@ -47,6 +53,9 @@ export function spawnBullet(s, { x, z, angle, speed, family = 'droplet', src, ax
     family: FAMILIES[family] ? family : 'droplet',
     vis: f.vis,
     hit: f.hit,
+    half: f.half,
+    px: x,
+    pz: z,
     src: src || 'VIRUS',
     age: 0,
     grazed: false,
@@ -75,7 +84,11 @@ export function normalizeBullet(b) {
   if (!FAMILIES[b.family]) b.family = 'droplet';
   const f = FAMILIES[b.family];
   if (!(b.hit > 0)) b.hit = b.radius > 0 ? b.radius : f.hit;
-  if (!(b.vis > 0)) b.vis = Math.max(f.vis, b.hit / 0.62);
+  // A bare fixture bullet given only a radius is a circle of that radius.
+  b.half ??= b.radius > 0 ? 0 : f.half;
+  if (!(b.vis > 0)) b.vis = b.hit;
+  b.px ??= b.x;
+  b.pz ??= b.z;
   if (!b.src) b.src = 'VIRUS';
   b.age ??= 0;
   b.vx ??= 0;
@@ -101,6 +114,9 @@ export function updateBullets(s, dt) {
   const born = [];
   for (const b of s.enemyShots) {
     if (b.dead) continue;
+    // Previous position: collisions are swept over the substep.
+    b.px = b.x;
+    b.pz = b.z;
     b.age += step;
     if (b.decel) {
       const k = 1 - 0.4 * Math.min(1, b.age);
@@ -163,6 +179,9 @@ export function updateBullets(s, dt) {
       family: spec.family,
       vis: f.vis,
       hit: f.hit,
+      half: f.half,
+      px: spec.x,
+      pz: spec.z,
       src: spec.src,
       age: 0,
       grazed: false,

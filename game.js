@@ -1006,6 +1006,12 @@ window.__game = {
     return result;
   },
   bomb: () => useBomb(state),
+  /** Dev-only collider overlay (also ?hitboxes=1). Never shown to players by default. */
+  hitboxes: (on = true) => {
+    view?.setHitboxes(on);
+    view?.render(state, 0);
+    return !!view?.hitboxes;
+  },
   setDifficulty: (d) => {
     store.difficulty = d === 'easy' ? 'easy' : 'normal';
     setDifficulty(state, store.difficulty);
@@ -1057,6 +1063,7 @@ async function boot() {
     $('#graphics-error').hidden = false;
     overlay.hidden = true;
   });
+  if (new URLSearchParams(location.search).get('hitboxes') === '1') view.setHitboxes(true);
   new ResizeObserver(syncLayout).observe(cabinet);
   syncLayout();
   view.render(state, 0);

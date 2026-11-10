@@ -32,13 +32,15 @@ export const WORLDS = Object.freeze([
  * `attack` is an emitter preset from patterns.mjs. */
 export const ARCHETYPES = Object.freeze({
   mini: { label: 'WILD TYPE', hp: 1, radius: 0.42, score: 50, attack: { preset: 'cough', params: { n: 1, speed: 5.2 } } },
-  wild: { label: 'WILD TYPE', hp: 3, radius: 0.6, score: 100, attack: { preset: 'cough', params: { n: 1, speed: 6.5 } }, byWorld: { 2: { n: 2, speed: 7 }, 3: { n: 2, spread: 14, speed: 7.5 }, 4: { n: 3, spread: 18, speed: 7.5 } } },
+  wild: { label: 'WILD TYPE', hp: 3, radius: 0.6, score: 100, attack: { preset: 'cough', params: { n: 1, speed: 6.5 } }, byWorld: { 2: { n: 2, speed: 7 }, 3: { n: 2, spread: 14, speed: 7.5 }, 4: { n: 3, spread: 18, speed: 8 } } },
   // Inhales (swells 1.25x for 0.8 s: "ah... ah..."), then sneezes an odd fan.
   sneezer: { label: 'SNEEZER', hp: 10, radius: 0.8, score: 300, attack: { preset: 'sneeze', params: { n: 7, spread: 56, speeds: [4.5] } }, byWorld: { 2: { speeds: [4, 5.5] }, 3: { n: 9, speeds: [4, 5.5] }, 4: { n: 9, speeds: [4, 5.5, 7] } } },
   // Buds two shootable VIRION bullets when it dies.
-  budder: { label: 'BUDDER', hp: 8, radius: 0.75, score: 250, attack: { preset: 'cough', params: { n: 1, speed: 6.5 } }, byWorld: { 3: { n: 2 }, 4: { n: 3, spread: 20 } } },
+  // Two lobes: a capsule collider along x (radius 0.62, half 0.28).
+  budder: { label: 'BUDDER', hp: 8, radius: 0.62, half: 0.28, score: 250, attack: { preset: 'cough', params: { n: 1, speed: 6.5 } }, byWorld: { 3: { n: 2 }, 4: { n: 3, spread: 20 } } },
   // Weaves across the top leaving an RNA bead trail, then an RNA STRAND.
-  worm: { label: 'RNA WORM', hp: 4, radius: 0.55, score: 150, attack: { preset: 'strand', params: { n: 9, speed: 4.8, interval: 0.13, amp: 0.9, wavelength: 5 } }, byWorld: { 3: { n: 10 }, 4: { n: 12, amp: 1.1 } } },
+  // A helix tube crossing sideways: a capsule along x (radius 0.38, half 0.9).
+  worm: { label: 'RNA WORM', hp: 4, radius: 0.38, half: 0.9, score: 150, attack: { preset: 'strand', params: { n: 9, speed: 4.8, interval: 0.13, amp: 0.9, wavelength: 5 } }, byWorld: { 3: { n: 10 }, 4: { n: 12, amp: 1.1 } } },
   // A ring of tiny virions that puffs slow mist.
   puff: { label: 'AEROSOL PUFF', hp: 10, radius: 0.9, score: 300, attack: { preset: 'aerosol', params: { rate: 5, cone: 100, speed: [2.5, 4], duration: 1.6 } }, byWorld: { 3: { rate: 6 }, 4: { rate: 7 } } },
   // Draws its dashed sneeze path for 0.8 s, dives, and splashes into a ring.
@@ -50,7 +52,7 @@ export const ARCHETYPES = Object.freeze({
   // Elite: fat spikes that break off as it loses HP. A stack of three spikes.
   heavy: { label: 'HEAVY CROWN', hp: 14, radius: 0.85, score: 500, attack: { preset: 'cough', params: { n: 3, speed: 8, family: 'spike' } }, byWorld: { 4: { speed: 8.5 } } },
   // Invulnerable while closed; opens for 1.5 s, firing a spike ring.
-  bloom: { label: 'BLOOM', hp: 16, radius: 0.85, score: 450, attack: { preset: 'ring', params: { n: 14, speed: 3.8, family: 'spike' } } },
+  bloom: { label: 'BLOOM', hp: 16, radius: 0.85, score: 450, attack: { preset: 'ring', params: { n: 16, speed: 4.1, family: 'spike' } } },
   // Drifts across the back carrying a supply; never fires.
   vesicle: { label: 'VESICLE', hp: 20, radius: 0.75, score: 800, attack: null },
   // CULTURE CHECK target: harmless, flies drawn paths.
@@ -110,7 +112,7 @@ const wait = (seconds) => ({ wait: seconds });
 const W1 = { world: 1, choir: { interval: [1.8, 1.2], size: [2, 3] }, maxBullets: 45 };
 const W2 = { world: 2, choir: { interval: [1.45, 1], size: [3, 4] }, maxBullets: 70 };
 const W3 = { world: 3, choir: { interval: [1.15, 0.8], size: [3, 5] }, maxBullets: 95 };
-const W4 = { world: 4, choir: { interval: [1.05, 0.72], size: [4, 6] }, maxBullets: 120 };
+const W4 = { world: 4, choir: { interval: [0.95, 0.65], size: [4, 6] }, maxBullets: 120 };
 
 export const LEVELS = Object.freeze(
   [

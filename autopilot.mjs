@@ -19,7 +19,7 @@ export function chooseInput(s, frame = 0) {
   // Deathbomb: alternate presses so each frame pair is a fresh edge.
   if (ship.dying > 0) return { axisX: 0, axisZ: 0, focus: false, bomb: frame % 2 === 0 };
 
-  const CORE = 0.16,
+  const CORE = ship.radius || 0.2,
     FAST = 11.5,
     SLOW = 5,
     MINX = -8.9,
@@ -64,6 +64,16 @@ export function chooseInput(s, frame = 0) {
   // Pre-compute bullet positions per look-ahead step (shared by candidates).
   const pos = T.map((t) => near.map((b) => predict(b, t)));
   const rad = near.map((b) => (b.hit ?? b.radius ?? 0.16) + CORE + (b.splitAt && b.age > b.splitAt - 0.45 ? 0.6 : 0));
+  // Elongated bullets are capsules along their travel (hitboxes.mjs).
+  const hf = near.map((b) => b.half || 0);
+  const ux = near.map((b) => {
+    const v = Math.hypot(b.vx, b.vz);
+    return v > 1e-6 ? b.vx / v : 0;
+  });
+  const uz = near.map((b) => {
+    const v = Math.hypot(b.vx, b.vz);
+    return v > 1e-6 ? b.vz / v : 1;
+  });
 
   // ---- Goal: what to shoot, where to stand -------------------------------------
   const boss = s.boss && s.boss.state !== 'defeated' ? s.boss : null;
@@ -133,8 +143,13 @@ export function chooseInput(s, frame = 0) {
         pz = clampZ(ship.z + dz * v * T[k]);
         const P = pos[k];
         for (let i = 0; i < near.length; i++) {
-          const ex = P[i][0] - px,
+          let ex = P[i][0] - px,
             ez = P[i][1] - pz;
+          if (hf[i]) {
+            const k = lo(-(ex * ux[i] + ez * uz[i]), -hf[i], hf[i]);
+            ex += ux[i] * k;
+            ez += uz[i] * k;
+          }
           const gap = Math.sqrt(ex * ex + ez * ez) - rad[i];
           if (gap < 0) {
             risk += 60 * W[k];
@@ -147,7 +162,9 @@ export function chooseInput(s, frame = 0) {
           if (T[k] < firstHit) firstHit = T[k];
         }
         for (const e of bodies) {
-          const g = Math.hypot(e.x + (e.vx || 0) * T[k] - px, e.z + (e.vz || 0) * T[k] - pz) - (e.radius * 0.8 + CORE + 0.35);
+          const ax = e.x + (e.vx || 0) * T[k] - px,
+            az = e.z + (e.vz || 0) * T[k] - pz;
+          const g = Math.hypot(ax - lo(ax, -(e.half || 0), e.half || 0), az) - (e.radius + CORE + 0.35);
           if (g < 0) risk += 25 * W[k];
         }
       }

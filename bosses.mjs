@@ -87,11 +87,11 @@ export const BOSSES = Object.freeze({
         ],
         { move: 'sway', nodes: true },
       ),
-      card('SNEEZE STORM', 25, [P('aerosol', { rate: 8, cone: 110, speed: [2.6, 4.4], duration: 3, lanes: 2 }, 3.2), P('ring', { n: 16, speed: 3.8, family: 'spike' }, 2, { at: 1.2 })], { move: 'sway' }),
-      card('MUTATION SPIRAL', 25, [P('bloom', { n: 7, interval: 0.24, rotate: 13, speed: 4.3, duration: 2.4, dir: 1 }, 3.3, { alternate: true }), P('bloom', { n: 7, interval: 0.24, rotate: 13, speed: 4.3, duration: 2.4, dir: -1 }, 3.3, { alternate: true })], { move: 'still' }),
+      card('SNEEZE STORM', 25, [P('aerosol', { rate: 8, cone: 110, speed: [2.6, 4.4], duration: 3, lanes: 2 }, 3.2), P('cough', { n: 3, spread: 22, speed: 7 }, 1.5, { at: 1.2 })], { move: 'sway' }),
+      card('MUTATION SPIRAL', 25, [P('bloom', { n: 7, interval: 0.22, rotate: 13, speed: 4.6, duration: 2.4, dir: 1 }, 3.1, { alternate: true }), P('bloom', { n: 7, interval: 0.22, rotate: 13, speed: 4.6, duration: 2.4, dir: -1 }, 3.1, { alternate: true }), P('cough', { n: 3, spread: 20, speed: 7.5 }, 1.7, { at: 0.8 })], { move: 'still' }),
       { name: 'QUARANTINE', type: 'survival', ttk: 0, duration: 15, patterns: [P('ring', { n: 20, speed: 3.8, family: 'spike' }, 1.3, { at: 1 }), P('aerosol', { rate: 6, cone: 90, speed: [2.6, 3.6], duration: 1.6 }, 2.2, { at: 1.6 })], move: 'still', quarantine: true },
-      card('CORONA FLARE', 20, [P('ring', { n: 24, speed: 4.4, family: 'spike', gaps: 2 }, 1.6), P('cough', { n: 3, spread: 18, speed: 7.5 }, 1.3, { at: 1 })], { move: 'sway' }),
-      card('R0 > 1', 25, [P('replicate', { n: 4, spread: 66, speed: 3.3, maxGen: 2, splitEvery: 1 }, 1.4), P('cough', { n: 2, speed: 7.5 }, 1.8, { at: 1 })], { move: 'sway', finale: true }),
+      card('CORONA FLARE', 20, [P('ring', { n: 24, speed: 4.6, family: 'spike', gaps: 2 }, 1.4), P('cough', { n: 3, spread: 18, speed: 8 }, 1.2, { at: 1 })], { move: 'sway' }),
+      card('R0 > 1', 25, [P('replicate', { n: 5, spread: 70, speed: 3.5, maxGen: 2, splitEvery: 1 }, 1.3), P('cough', { n: 3, spread: 16, speed: 7.5 }, 1.6, { at: 1 })], { move: 'sway', finale: true }),
     ],
   },
   // Midbosses (1-3 cards, 20-40 s total TTK).
@@ -132,11 +132,11 @@ export const BOSSES = Object.freeze({
     cards: [
       // A tracker never pairs with an aimed stream: you cannot stream past a
       // boss that follows you. Even fans (stay put) plus slow rings instead.
-      phase('TRACKING', 16, [P('sniffle', { n: 8, spread: 50, speed: 5 }, 1.6), P('ring', { n: 12, speed: 3.6 }, 2.6, { at: 1.2 })], { move: 'track' }),
+      phase('TRACKING', 16, [P('sniffle', { n: 8, spread: 50, speed: 5.4 }, 1.4), P('ring', { n: 14, speed: 3.8 }, 2.2, { at: 1.2 })], { move: 'track' }),
       // The jet locks on where you stood at telegraph start (not on LAMBDA's
       // own column), and LAMBDA mirrors you 3 u aside: its only damage spot is
       // never inside the beam (playtest: the hardest card in the game).
-      card('MIRROR', 20, [P('jet', { width: 1.8, at: 'ship' }, 2.6), P('ring', { n: 16, speed: 4 }, 1.9, { at: 1.3 })], { move: 'mirror1' }),
+      card('MIRROR', 20, [P('jet', { width: 1.8, at: 'ship' }, 2.4), P('ring', { n: 18, speed: 4.2 }, 1.6, { at: 1.3 })], { move: 'mirror1' }),
     ],
   },
 });
@@ -175,7 +175,7 @@ function makePart(s, part, radius, extra = {}) {
     mode: 'boss',
     ...extra,
   });
-  Object.assign(e, { kind: 'boss', label: s.boss.name, part, radius, hp: extra.hp ?? s.boss.hp, maxHp: extra.maxHp ?? s.boss.maxHp });
+  Object.assign(e, { kind: 'boss', label: s.boss.name, part, radius, half: 0, hp: extra.hp ?? s.boss.hp, maxHp: extra.maxHp ?? s.boss.maxHp });
   s.enemies.push(e);
   return e;
 }

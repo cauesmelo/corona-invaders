@@ -17,9 +17,11 @@ export const RULES = Object.freeze({
   moveMinZ: -3,
   moveMaxZ: 12,
   shipZ: 10.4, // spawn / default row
-  // Collision core: radius 0.16 u at the barrel centre (about 6-7 px at
-  // 960x640). The visible syringe is ~12x bigger; only this dot can be hit.
-  shipRadius: 0.16,
+  // Collision core: radius 0.2 u, drawn as the glowing vaccine chamber at the
+  // barrel centre at exactly this radius (>= 6 px even at 320 px wide; the
+  // earlier 0.16 u core needed a larger-than-collider marker on phones).
+  // Only this core can be hit; the rest of the syringe never collides.
+  shipRadius: 0.2,
   // Graze ring: a bullet passing within 1.0 u of the core (edge to centre)
   // scores once per bullet.
   grazeRadius: 1,

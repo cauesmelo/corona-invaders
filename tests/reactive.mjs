@@ -9,7 +9,21 @@
  *   - bombs only if `bombs` is enabled and a seen bullet is about to land.
  * It still never edits state: it returns ordinary inputs.
  */
-const CORE = 0.16;
+const CORE = 0.2;
+/** Distance from (px, pz) to a seen bullet's solid (capsules along travel). */
+function gapTo(b, bx, bz, px, pz) {
+  let ex = bx - px,
+    ez = bz - pz;
+  if (b.half) {
+    const v = Math.hypot(b.vx, b.vz) || 1;
+    const ux = b.vx / v,
+      uz = b.vz / v;
+    const k = Math.max(-b.half, Math.min(b.half, -(ex * ux + ez * uz)));
+    ex += ux * k;
+    ez += uz * k;
+  }
+  return Math.hypot(ex, ez) - b.r;
+}
 /** What a player sees: where each bullet is and how it is visibly moving
  * (its on-screen velocity, so the world twists are "seen"), but not its future
  * curvature: RNA sines are followed only along their tangent. */
@@ -34,12 +48,12 @@ function perceive(s) {
       .filter((b) => Math.abs(b.x - s.ship.x) < 8 && b.z > s.ship.z - 9 && b.z < s.ship.z + 4)
       .map((b) => {
         const [vx, vz] = seenVelocity(s, b);
-        return { x: b.x, z: b.z, vx, vz, r: (b.hit ?? b.radius ?? 0.16) + CORE, curved: !!b.sine };
+        return { x: b.x, z: b.z, vx, vz, r: (b.hit ?? b.radius ?? 0.16) + CORE, half: b.half || 0, curved: !!b.sine };
       }),
     lanes: (s.emitters || []).filter((em) => em.preset === 'jet' && em.state === 'tele').flatMap((em) => (em.lanes || []).map((l) => ({ x: l.x, w: l.width, fromZ: l.fromZ }))),
     beams: s.beams.map((b) => ({ x: b.x, w: b.width, fromZ: b.fromZ })),
     walls: s.enemyShots.filter((b) => b.gaps && b.z < s.ship.z).map((b) => ({ z: b.z, gaps: b.gaps })),
-    enemies: s.enemies.filter((e) => e.alive && !e.harmless).map((e) => ({ x: e.x, z: e.z, r: e.radius, kind: e.kind, part: e.part, id: e.id, open: e.bud ? e.bud.state === 'open' : true })),
+    enemies: s.enemies.filter((e) => e.alive && !e.harmless).map((e) => ({ x: e.x, z: e.z, r: e.radius + (e.half || 0), kind: e.kind, part: e.part, id: e.id, open: e.bud ? e.bud.state === 'open' : true })),
     fliers: s.enemies.filter((e) => e.alive && e.harmless).map((e) => ({ x: e.x, z: e.z, open: e.bud ? e.bud.state === 'open' : true })),
     pickups: s.pickups.map((p) => ({ x: p.x, z: p.z })),
     boss: s.boss && s.boss.state !== 'defeated' ? { nodes: !!s.boss.cards[s.boss.card]?.nodes, nucleus: s.boss.cards[s.boss.card]?.nucleus ? s.boss.nucleus : null } : null,
@@ -96,14 +110,14 @@ export function createReactive({ sampleEvery = 6, lagFrames = 9, phase = 0, bomb
             }
             for (const b of v.shots) {
               const T = t + lag;
-              const g = Math.hypot(b.x + b.vx * T - px, b.z + b.vz * T - pz) - b.r;
+              const g = gapTo(b, b.x + b.vx * T, b.z + b.vz * T, px, pz);
               if (g < 0) {
                 risk += 40 / (t + 0.1);
                 hitAt = Math.min(hitAt, t);
               } else if (g < 0.35) risk += (0.35 - g) * 4;
             }
             for (const l of [...v.lanes, ...v.beams]) if (Math.abs(px - l.x) < l.w / 2 + 0.4 && pz > l.fromZ) risk += 30;
-            for (const e of v.enemies) if (Math.hypot(e.x - px, e.z - pz) < e.r * 0.8 + 0.6) risk += 20;
+            for (const e of v.enemies) if (Math.hypot(e.x - px, e.z - pz) < e.r + CORE + 0.4) risk += 20;
           }
           // A person sidesteps out of a bullet's line instead of backing away
           // along it: ending this move inside any bullet's future path (the

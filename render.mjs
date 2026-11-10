@@ -17,6 +17,7 @@ import * as THREE from './vendor/three.module.js';
 import { cameraLayout, FRAMING_POINTS, pxPerUnit } from './camera.mjs';
 import { RULES, getLevel, chainMultiplier, antibodyOffsets } from './model.mjs';
 import { SHAPES, SYRINGE, PALETTE, shapeFor } from './shapes.mjs';
+import { COLLIDERS, NEEDLE, spriteLayout, bulletQuad, enemyScale, bulletAxis, needleSegment } from './hitboxes.mjs';
 
 export { PALETTE };
 export const PICKUP_STYLE = Object.freeze({
@@ -168,7 +169,93 @@ function sprite(color, size, opacity = 0.6) {
 /** Bullet sprites, drawn flat on the bullet plane, "up" = direction of travel.
  * Value contrast first: white core, pink/violet body, near-black outline. */
 const DANGER = { pink: PALETTE.danger, violet: PALETTE.dangerViolet, core: PALETTE.dangerCore, rim: PALETTE.dangerRim };
+/** A bullet family's sprite, laid out by hitboxes.spriteLayout: the solid
+ * capsule (dark rim included) is exactly the collider; a soft glow outside it
+ * is light, not matter. Canvas "up" is the direction of travel. */
+const FAMILY_STYLE = {
+  droplet: { body: DANGER_PINK(), core: true },
+  aerosol: { body: '#ff8cc8', core: true },
+  spike: { body: '#ff3fb7', core: true, stripe: true },
+  rna: { body: '#b45cff', core: true },
+  virion: { body: '#ff4fa3', crown: true },
+  glob: { body: '#c75fd8', core: true, gloss: true },
+};
+function DANGER_PINK() {
+  return '#ff4fa3';
+}
+function familyTexture(family) {
+  const L = spriteLayout(family),
+    st = FAMILY_STYLE[family];
+  return canvasTexture(L.width, L.height, (g, w, h) => {
+    const cx = w / 2,
+      cy = h / 2,
+      R = L.r,
+      H = L.halfPx;
+    const capsule = (r) => {
+      g.beginPath();
+      g.arc(cx, cy - H, r, Math.PI, 0);
+      g.lineTo(cx + r, cy + H);
+      g.arc(cx, cy + H, r, 0, Math.PI);
+      g.closePath();
+    };
+    // Glow: light around the solid, never mistaken for it (low alpha).
+    for (let i = 4; i >= 1; i--) {
+      g.globalAlpha = 0.07;
+      g.fillStyle = st.body;
+      capsule(R + (L.margin * i) / 4);
+      g.fill();
+    }
+    g.globalAlpha = 1;
+    if (st.crown) {
+      // The sprite's 8 spikes: decorative, drawn thin outside the body.
+      g.strokeStyle = st.body;
+      g.lineWidth = 4;
+      g.lineCap = 'round';
+      for (let i = 0; i < 8; i++) {
+        const a = (i / 8) * Math.PI * 2;
+        g.beginPath();
+        g.moveTo(cx + Math.cos(a) * R, cy + Math.sin(a) * R);
+        g.lineTo(cx + Math.cos(a) * (R + L.margin - 6), cy + Math.sin(a) * (R + L.margin - 6));
+        g.stroke();
+        g.beginPath();
+        g.arc(cx + Math.cos(a) * (R + L.margin - 5), cy + Math.sin(a) * (R + L.margin - 5), 4, 0, Math.PI * 2);
+        g.fill();
+      }
+    }
+    // Solid: dark rim, coloured body, white core toward the front.
+    g.fillStyle = DANGER.rim;
+    capsule(R);
+    g.fill();
+    g.fillStyle = st.body;
+    capsule(R - 4.5);
+    g.fill();
+    if (st.stripe) {
+      g.fillStyle = '#ffd6ef';
+      g.fillRect(cx - 3, cy - H, 6, H * 2 + R * 0.6);
+    }
+    if (st.crown) {
+      g.strokeStyle = PALETTE.virus;
+      g.lineWidth = 4;
+      g.beginPath();
+      g.arc(cx, cy, R * 0.62, 0, Math.PI * 2);
+      g.stroke();
+    }
+    if (st.core) {
+      g.fillStyle = DANGER.core;
+      g.beginPath();
+      g.arc(cx, cy - H - R * 0.12, R * 0.42, 0, Math.PI * 2);
+      g.fill();
+    }
+    if (st.gloss) {
+      g.fillStyle = '#ffffff66';
+      g.beginPath();
+      g.ellipse(cx - R * 0.3, cy - R * 0.32, R * 0.32, R * 0.22, -0.5, 0, Math.PI * 2);
+      g.fill();
+    }
+  });
+}
 function bulletTexture(kind) {
+  if (COLLIDERS[kind]) return familyTexture(kind);
   return canvasTexture(128, 128, (g, w, h) => {
     g.translate(w / 2, h / 2);
     const outline = (path, body, core) => {
@@ -274,23 +361,29 @@ function bulletTexture(kind) {
       r.addColorStop(0.35, '#bff6ff');
       r.addColorStop(1, '#7fe8ff00');
       g.fillStyle = r;
+      // The solid streak spans 80 of 128 px across: exactly the needle collider.
       g.beginPath();
       g.moveTo(0, -64);
-      g.lineTo(40, -30);
-      g.lineTo(26, 64);
-      g.lineTo(-26, 64);
-      g.lineTo(-40, -30);
+      g.lineTo(40, -40);
+      g.lineTo(40, 64);
+      g.lineTo(-40, 64);
+      g.lineTo(-40, -40);
       g.closePath();
       g.fill();
     } else if (kind === 'dot') {
-      // The hitbox: a white core dot with a dark rim.
-      g.fillStyle = '#071318';
+      // The collision core marker: its outer edge (60 of 64 px) is exactly the
+      // collider. A dark rim, then the bright vaccine-white centre.
+      g.fillStyle = '#04161c';
       g.beginPath();
       g.arc(0, 0, 60, 0, Math.PI * 2);
       g.fill();
+      g.fillStyle = '#7fe8ff';
+      g.beginPath();
+      g.arc(0, 0, 50, 0, Math.PI * 2);
+      g.fill();
       g.fillStyle = '#ffffff';
       g.beginPath();
-      g.arc(0, 0, 42, 0, Math.PI * 2);
+      g.arc(0, 0, 36, 0, Math.PI * 2);
       g.fill();
     } else if (kind === 'antigen') {
       g.fillStyle = '#e9fdff';
@@ -671,8 +764,7 @@ export function createRenderer({ canvas, stage, settings }) {
     visualTime = 0,
     lastChainTier = 1,
     stateRef = null,
-    minVis = 0,
-    minDot = 0;
+    hitboxesOn = false;
 
   // ---- Lights and the lab board -----------------------------------------------
   scene.add(new THREE.HemisphereLight('#dff4ff', '#1b2a2a', 1.1));
@@ -737,9 +829,9 @@ export function createRenderer({ canvas, stage, settings }) {
   ship.add(syringe);
   // Tilted 20 degrees so the steep camera sees the barrel's side profile.
   syringe.rotation.x = 0.35;
-  // Drawn 1.35x larger than its parts list so the hero reads at 960x640;
-  // only the 0.16 u core dot can be hit.
-  syringe.scale.setScalar(1.35);
+  // Drawn at SYRINGE.scale so the barrel's half-width is the body that
+  // catches supplies (hitboxes.BODY_RADIUS); only the core can be hit.
+  syringe.scale.setScalar(SYRINGE.scale);
   scene.add(ship);
   const glassMat = new THREE.MeshStandardMaterial({ color: '#e8fbff', emissive: '#9fe9ff', emissiveIntensity: 0.25, transparent: true, opacity: 0.5, roughness: 0.05, metalness: 0.1, depthWrite: false });
   const fluidMat = new THREE.MeshStandardMaterial({ color: PALETTE.vaccine, emissive: PALETTE.vaccine, emissiveIntensity: 1.1, roughness: 0.2 });
@@ -814,6 +906,7 @@ export function createRenderer({ canvas, stage, settings }) {
     return m;
   }
   const bullets = Object.fromEntries(FAM.map((f, i) => [f, pool(f, MAXB, 60 - i)]));
+  const quads = Object.fromEntries(FAM.map((f) => [f, bulletQuad(f)]));
   // Big slow bullets underneath, small fast ones on top (Boghog): globs 55 ... droplets 60.
   bullets.glob.renderOrder = 54;
   bullets.virion.renderOrder = 55;
@@ -840,6 +933,86 @@ export function createRenderer({ canvas, stage, settings }) {
   const tmp = new THREE.Object3D(),
     tmpColor = new THREE.Color();
   debris.setColorAt(0, tmpColor.set('#ffffff'));
+
+  // MASK: the drawn 120 degree frontal arc is exactly where it absorbs.
+  const maskArc = new THREE.Mesh(
+    new THREE.RingGeometry(RULES.maskRadius - 0.08, RULES.maskRadius, 32, 1, Math.PI / 2 - RULES.maskArc, RULES.maskArc * 2).rotateX(-Math.PI / 2),
+    new THREE.MeshBasicMaterial({ color: PALETTE.vaccine, transparent: true, opacity: 0.75, depthTest: false, depthWrite: false, side: THREE.DoubleSide, toneMapped: false }),
+  );
+  maskArc.renderOrder = 78;
+  maskArc.visible = false;
+  scene.add(maskArc);
+
+  // ---- Dev hitbox overlay (?hitboxes=1, or __game.hitboxes(true)) ----------------
+  // Every collider as a line drawing on the board plane: red = hostile,
+  // cyan = the syringe, amber = supplies, white = SOAP. Off for players.
+  const HB_MAX = 60000;
+  const hbPos = new Float32Array(HB_MAX * 3),
+    hbCol = new Float32Array(HB_MAX * 3);
+  const hbGeo = new THREE.BufferGeometry();
+  hbGeo.setAttribute('position', new THREE.BufferAttribute(hbPos, 3));
+  hbGeo.setAttribute('color', new THREE.BufferAttribute(hbCol, 3));
+  const hbLines = new THREE.LineSegments(hbGeo, new THREE.LineBasicMaterial({ vertexColors: true, depthTest: false, transparent: true, toneMapped: false }));
+  hbLines.renderOrder = 99;
+  hbLines.frustumCulled = false;
+  hbLines.visible = false;
+  scene.add(hbLines);
+  function syncHitboxes(s) {
+    hbLines.visible = hitboxesOn;
+    if (!hitboxesOn) return;
+    let n = 0;
+    const c = new THREE.Color();
+    const seg = (ax, az, bx, bz, col) => {
+      if (n + 2 > HB_MAX) return;
+      c.set(col);
+      hbPos.set([ax, BULLET_Y + 0.03, az, bx, BULLET_Y + 0.03, bz], n * 3);
+      hbCol.set([c.r, c.g, c.b, c.r, c.g, c.b], n * 3);
+      n += 2;
+    };
+    const arc = (x, z, r, a0, a1, col, steps = 16) => {
+      for (let i = 0; i < steps; i++) {
+        const p = a0 + ((a1 - a0) * i) / steps,
+          q = a0 + ((a1 - a0) * (i + 1)) / steps;
+        seg(x + Math.cos(p) * r, z + Math.sin(p) * r, x + Math.cos(q) * r, z + Math.sin(q) * r, col);
+      }
+    };
+    const capsule = (ax, az, bx, bz, r, col) => {
+      const dx = bx - ax,
+        dz = bz - az,
+        L = Math.hypot(dx, dz);
+      if (L < 1e-6) return arc(ax, az, r, 0, Math.PI * 2, col, 20);
+      const a = Math.atan2(dz, dx);
+      const nx = (-dz / L) * r,
+        nz = (dx / L) * r;
+      seg(ax + nx, az + nz, bx + nx, bz + nz, col);
+      seg(ax - nx, az - nz, bx - nx, bz - nz, col);
+      arc(bx, bz, r, a - Math.PI / 2, a + Math.PI / 2, col, 10);
+      arc(ax, az, r, a + Math.PI / 2, a + (3 * Math.PI) / 2, col, 10);
+    };
+    for (const e of s.enemies) if (e.alive) capsule(e.x - (e.half || 0), e.z, e.x + (e.half || 0), e.z, e.radius, e.harmless ? '#ffd0d0' : '#ff3030');
+    for (const b of s.enemyShots) {
+      const [ax, az, bx, bz] = bulletAxis(b);
+      capsule(ax, az, bx, bz, b.hit, '#ff3030');
+    }
+    for (const sh of s.shots) {
+      const [ax, az, bx, bz] = needleSegment(sh);
+      capsule(ax, az, bx, bz, NEEDLE.r, '#00ffff');
+    }
+    for (const p of s.pickups) arc(p.x, p.z, p.radius, 0, Math.PI * 2, '#ffc65a', 20);
+    for (const bm of s.beams) {
+      const x0 = bm.x - bm.width / 2,
+        x1 = bm.x + bm.width / 2;
+      seg(x0, bm.fromZ, x0, 13.4, '#ff3030');
+      seg(x1, bm.fromZ, x1, 13.4, '#ff3030');
+      seg(x0, bm.fromZ, x1, bm.fromZ, '#ff3030');
+    }
+    if (s.soapRing) arc(s.soapRing.x, s.soapRing.z, s.soapRing.r, 0, Math.PI * 2, '#ffffff', 48);
+    arc(s.ship.x, s.ship.z, s.ship.radius, 0, Math.PI * 2, '#00ffff', 20);
+    arc(s.ship.x, s.ship.z, RULES.grazeRadius, 0, Math.PI * 2, '#00ffff', 40);
+    hbGeo.setDrawRange(0, n);
+    hbGeo.attributes.position.needsUpdate = true;
+    hbGeo.attributes.color.needsUpdate = true;
+  }
 
   // SOAP ring: a soap-film bubble (cyan rim, white sheen).
   const soap = new THREE.Group();
@@ -913,8 +1086,8 @@ export function createRenderer({ canvas, stage, settings }) {
     warning.renderOrder = 31;
     group.add(warning);
     // Visual size: the body slightly larger than the collision radius.
-    const bodyR = spec.parts.find((p) => p.type === 'sphere' || p.type === 'shell' || p.type === 'drop' || p.type === 'torus')?.r ?? 0.6;
-    const scale = (e.radius / bodyR) * (e.kind === 'boss' ? 0.95 : e.kind === 'mini' ? 0.92 : 0.95);
+    // The body sphere is drawn at exactly the collider radius (hitboxes.mjs).
+    const scale = enemyScale(e, spec);
     group.scale.setScalar(scale);
     const ud = { ...h, warning, pinkRing, scale, flash: 0, punch: 0, spec };
     if (e.kind === 'boss' && e.part === 'node') {
@@ -942,7 +1115,7 @@ export function createRenderer({ canvas, stage, settings }) {
   function addPickup(p) {
     const group = new THREE.Group();
     const icon = new THREE.Sprite(new THREE.SpriteMaterial({ map: pickupTextures[p.kind] || pickupTextures.mrna, transparent: true, depthWrite: false, toneMapped: false }));
-    icon.scale.set(1.05, 1.05, 1);
+    icon.scale.set(p.radius * 2, p.radius * 2, 1);
     group.add(icon, sprite(PALETTE.amber, 2.2, 0.35));
     group.userData = { icon };
     scene.add(group);
@@ -1061,8 +1234,8 @@ export function createRenderer({ canvas, stage, settings }) {
       ud.flash = Math.max(0, ud.flash - dt);
       ud.punch = Math.max(0, ud.punch - dt);
       const em = tele.get(e.id);
-      const bob = motion && e.kind !== 'boss' ? Math.sin(visualTime * 2 + (e.row || 0) + (e.col || 0)) * 0.06 : 0;
-      m.position.set(e.x, BULLET_Y + bob, e.z);
+      // Centred on the board plane: no bob, so the drawn body sits on its collider.
+      m.position.set(e.x, BULLET_Y, e.z);
       // Personality: spikes bristle before a cough, a sneezer swells 1.25x
       // while inhaling ("ah... ah..."), everything wobbles when hit.
       let sx = 1,
@@ -1164,17 +1337,14 @@ export function createRenderer({ canvas, stage, settings }) {
       const mesh = bullets[f];
       const n = counts[f]++;
       if (n >= MAXB) continue;
-      const vis = Math.max(b.vis ?? 0.26, minVis);
       const heading = Math.atan2(b.vx || 0, b.vz || 1e-6);
-      // Quad sizes are chosen so the drawn body matches the family's visual
-      // radius (each texture leaves a margin): drawn > hitbox, always.
-      if (f === 'droplet') placeBullet(mesh, n, b.x, b.z, heading, vis * 4.2, vis * 5.4, vis * 1);
-      else if (f === 'spike') placeBullet(mesh, n, b.x, b.z, heading, vis * 3.75, vis * 4.5, vis * 1);
-      else if (f === 'virion') placeBullet(mesh, n, b.x, b.z, (b.age || 0) * 1.6, vis * 2.2, vis * 2.2);
+      // Quads from hitboxes.bulletQuad: the drawn solid is the collider.
+      const q = quads[f];
+      if (f === 'virion') placeBullet(mesh, n, b.x, b.z, (b.age || 0) * 1.6, q.w, q.l);
       else if (f === 'glob') {
-        const wob = settings.effects() ? 1 + Math.sin((b.age || 0) * 7 + b.id) * 0.06 : 1;
-        placeBullet(mesh, n, b.x, b.z, 0, vis * 2.4 * wob, (vis * 2.4) / wob);
-      } else placeBullet(mesh, n, b.x, b.z, 0, vis * 3, vis * 3);
+        // The wobble is a slow shimmer of the glow only: the solid never changes size.
+        placeBullet(mesh, n, b.x, b.z, settings.effects() ? Math.sin((b.age || 0) * 3 + b.id) * 0.3 : 0, q.w, q.l);
+      } else placeBullet(mesh, n, b.x, b.z, COLLIDERS[f].half ? heading : 0, q.w, q.l);
       // REPLICATION: a bullet flashes white for 0.3 s before it splits.
       const flashing = b.splitAt && b.age > b.splitAt - 0.3 && Math.floor(visualTime * 20) % 2 === 0;
       mesh.setColorAt(n, flashing ? tmpColor.set('#9ffcff') : white.set('#ffffff'));
@@ -1208,9 +1378,11 @@ export function createRenderer({ canvas, stage, settings }) {
     let nn = 0;
     for (const shot of s.shots) {
       if (nn >= 220) break;
-      tmp.position.set(shot.x, BULLET_Y - 0.02, shot.z + 0.35);
-      tmp.rotation.set(0, Math.atan2(shot.vx, shot.vz), 0);
-      tmp.scale.set(0.2, 1, 0.95);
+      // Tip at the shot position, tail NEEDLE.length behind: the collider.
+      const v = Math.hypot(shot.vx, shot.vz) || 1;
+      tmp.position.set(shot.x - (shot.vx / v) * NEEDLE.length * 0.5, BULLET_Y - 0.02, shot.z - (shot.vz / v) * NEEDLE.length * 0.5);
+      tmp.rotation.set(0, Math.atan2(shot.vx, shot.vz) + Math.PI, 0);
+      tmp.scale.set((NEEDLE.r * 2) / 0.625, 1, NEEDLE.length);
       tmp.updateMatrix();
       needles.setMatrixAt(nn++, tmp.matrix);
     }
@@ -1234,7 +1406,7 @@ export function createRenderer({ canvas, stage, settings }) {
     for (const p of s.pickups) {
       live.add(p.id);
       const m = pickupMeshes.get(p.id) || addPickup(p);
-      m.position.set(p.x, 0.9, p.z);
+      m.position.set(p.x, BULLET_Y, p.z);
       // A death's mRNA strand blinks for its last second.
       m.visible = !(p.life && p.life - p.age < 1 && Math.floor(visualTime * 10) % 2);
     }
@@ -1390,7 +1562,8 @@ export function createRenderer({ canvas, stage, settings }) {
         return mesh;
       });
       const from = beam.fromZ ?? -8;
-      m.scale.set(beam.width * 0.85, 0.5, 13.4 - from);
+      // Drawn exactly as wide as the beam's hit rectangle.
+      m.scale.set(beam.width, 0.5, 13.4 - from);
       m.position.set(beam.x, BULLET_Y, (from + 13.4) / 2);
       m.material.opacity = 0.55 + Math.random() * 0.35;
     }
@@ -1433,12 +1606,12 @@ export function createRenderer({ canvas, stage, settings }) {
     fluidMat.emissiveIntensity = 0.6 + (tier - 1) * 0.2;
     shipLight.position.set(sh.x, 1.2, sh.z);
     // The hitbox dot sits in the barrel, always drawn on top.
-    const dotR = Math.max(RULES.shipRadius, minDot) * (sh.focus ? 1.15 : 1);
+    // The marker is exactly the collision core (0.2 u, >= 6 px everywhere).
+    const dotR = RULES.shipRadius;
     tmp.position.set(sh.x, BULLET_Y + 0.02, sh.z);
     tmp.rotation.set(0, 0, 0);
-    // The white disc in the dot texture spans 0.656 of the quad, so this makes
-    // the white dot exactly the collision core (or its minimum visible size).
-    tmp.scale.set(dotR * 3.05, 1, dotR * 3.05);
+    // The marker's outer edge spans 60/64 of the quad.
+    tmp.scale.set((dotR * 2 * 64) / 60, 1, (dotR * 2 * 64) / 60);
     tmp.updateMatrix();
     dot.setMatrixAt(0, tmp.matrix);
     dot.instanceMatrix.needsUpdate = true;
@@ -1456,6 +1629,8 @@ export function createRenderer({ canvas, stage, settings }) {
       o.position.set(sh.x + off[0], BULLET_Y + 0.1 + bob, sh.z + off[1]);
     });
     if (tier !== lastChainTier) lastChainTier = tier;
+    maskArc.visible = sh.powerups.mask > 0 && s.phase === 'playing';
+    maskArc.position.set(sh.x, BULLET_Y + 0.01, sh.z);
     const ring = s.soapRing;
     soap.visible = !!ring;
     if (ring) {
@@ -1530,10 +1705,7 @@ export function createRenderer({ canvas, stage, settings }) {
     // Minimum on-screen sizes (visual only; hit radii never change): the
     // smallest bullet >= 7 px at the far edge (5 px on narrow screens).
     const far = pxPerUnit(layout, h, [0, BULLET_Y, -12.5]);
-    const need = w < 480 ? 5 : 7;
-    minVis = need / 2 / far;
-    // The hitbox dot is drawn at least 6.4 px wide wherever the syringe can be.
-    minDot = 3.2 / pxPerUnit(layout, h, [0, BULLET_Y, RULES.moveMinZ]);
+    void far;
   }
   new ResizeObserver(resize).observe(stage);
   resize();
@@ -1581,6 +1753,12 @@ export function createRenderer({ canvas, stage, settings }) {
       raycaster.setFromCamera(ndc, camera);
       return raycaster.ray.intersectPlane(boardPlane, hitPoint) ? { x: hitPoint.x, z: hitPoint.z } : null;
     },
+    setHitboxes(on) {
+      hitboxesOn = !!on;
+    },
+    get hitboxes() {
+      return hitboxesOn;
+    },
     setTopBand(px) {
       if (px === topPx) return;
       topPx = px;
@@ -1610,6 +1788,7 @@ export function createRenderer({ canvas, stage, settings }) {
       syncTelegraphs(s);
       syncShip(s, dt);
       syncTwist(s, dt);
+      syncHitboxes(s);
       updateDebris(dt);
       fx.flash = Math.max(0, fx.flash - dt * 2.5);
       updateCamera(dt);
@@ -1638,8 +1817,8 @@ export function createRenderer({ canvas, stage, settings }) {
           bottom: Math.max(...corners.map((c) => c.pixelY)),
         },
         pxPerUnit: { far: pxPerUnit(layout, h, [0, BULLET_Y, -12.5]), near: pxPerUnit(layout, h, [0, BULLET_Y, 12]) },
-        hitboxPx: 2 * Math.max(RULES.shipRadius, minDot) * pxPerUnit(layout, h, [0, BULLET_Y, s.ship.z]),
-        minBulletPx: 2 * Math.max(0.17, minVis) * pxPerUnit(layout, h, [0, BULLET_Y, -12.5]),
+        hitboxPx: 2 * RULES.shipRadius * pxPerUnit(layout, h, [0, BULLET_Y, s.ship.z]),
+        minBulletPx: 2 * Math.min(...Object.values(COLLIDERS).map((c) => c.r)) * pxPerUnit(layout, h, [0, BULLET_Y, -12.5]),
         camera: { fov: layout.fov, position: layout.position, target: layout.target },
       };
       camera.position.copy(saved);

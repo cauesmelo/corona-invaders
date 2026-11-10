@@ -46,7 +46,8 @@ export function toFight(s, input = {}) {
   return s;
 }
 export const cardsOf = (type) => BOSSES[type].cards;
-export const bullet = (x, z, extra = {}) => ({ id: 9000 + Math.floor(Math.random() * 1e6), x, z, vx: 0, vz: 0, family: 'droplet', hit: 0.16, vis: 0.26, src: 'TEST', age: 0, ...extra });
+/** A still circle bullet (r 0.15) for placing at exact distances. */
+export const bullet = (x, z, extra = {}) => ({ id: 9000 + Math.floor(Math.random() * 1e6), x, z, vx: 0, vz: 0, family: 'aerosol', hit: 0.15, half: 0, vis: 0.15, src: 'TEST', age: 0, ...extra });
 
 /** Root-suite frame budget for one controller campaign (30 min of play). */
 export const FRAME_BUDGET = 60 * 1800;

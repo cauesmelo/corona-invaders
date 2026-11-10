@@ -26,6 +26,12 @@ import {
 } from './enemies.mjs';
 import { BOSSES, createBoss, updateBoss, damageBoss, bombBoss, bossStatus, voidCapture, bossVulnerable, bossIntangible } from './bosses.mjs';
 import { awardKill, breakChain, tickChain, chainMultiplier, addScore, r0Of, r0Bonus } from './scoring.mjs';
+import { sweptHit, bulletGap, needleSegment, pointSegDist2, segSegDist2, beamHits, NEEDLE, BODY_RADIUS } from './hitboxes.mjs';
+
+/** Enemy collider: a circle, or a capsule along x for elongated bodies
+ * (RNA WORM, BUDDER). */
+const enemyAxis = (e) => [e.x - (e.half || 0), e.z, e.x + (e.half || 0), e.z];
+const enemyPointDist = (e, x, z) => Math.sqrt(pointSegDist2(x, z, ...enemyAxis(e)));
 
 export const RULES = Object.freeze({ ...CORE_RULES, maxWaves: STAGE_COUNT });
 export { random, chainMultiplier, bossStatus, BOSSES, PRESETS, LIMITS, FAMILIES, DIFFICULTY };
@@ -396,6 +402,8 @@ function lose(s, cause) {
 
 function moveShip(s, input, dt) {
   const ship = s.ship;
+  ship.px = ship.x;
+  ship.pz = ship.z;
   for (const key of ['fireCooldown', 'antibodyCooldown', 'invulnerable']) ship[key] = Math.max(0, ship[key] - dt);
   for (const key of Object.keys(ship.powerups)) ship.powerups[key] = Math.max(0, ship.powerups[key] - dt);
   if (ship.respawn > 0) {
@@ -538,7 +546,8 @@ function updatePickups(s, dt) {
       p.z += RULES.pickupSpeed * dt;
       p.x = clamp(p.x + Math.sin(p.age * 2 + p.phase) * 0.4 * dt, -8.6, 8.6);
     }
-    if (Math.hypot(ship.x - p.x, ship.z - p.z) < p.radius + 0.4 && ship.respawn <= 0 && s.phase === 'playing') collectPickup(s, p);
+    // Caught when the drawn supply touches the drawn syringe body.
+    if (Math.hypot(ship.x - p.x, ship.z - p.z) < p.radius + BODY_RADIUS && ship.respawn <= 0 && s.phase === 'playing') collectPickup(s, p);
     if (p.age > (p.life ?? 14) || p.z > RULES.front) p.dead = true;
   }
   s.pickups = s.pickups.filter((p) => !p.dead);
@@ -618,7 +627,7 @@ function updateBursts(s, dt) {
     // Viruses only: no code path from a pop touches the syringe or bullets.
     for (const e of s.enemies) {
       if (!e.alive || e.harmless || e.kind === 'vesicle') continue;
-      if (Math.hypot(e.x - b.x, e.z - b.z) > b.radius + e.radius * 0.5) continue;
+      if (enemyPointDist(e, b.x, b.z) > b.radius + e.radius) continue;
       damageEnemy(s, e, 6 * hpRatio(s), 'burst');
     }
   }
@@ -630,10 +639,12 @@ function updateSoap(s, dt) {
   ring.t += dt;
   ring.r = RULES.bombRadius * Math.min(1, ring.t / RULES.bombGrow);
   const r2 = ring.r * ring.r;
-  cancelBullets(s, { reason: 'soap', filter: (b) => (b.x - ring.x) ** 2 + (b.z - ring.z) ** 2 < r2 });
+  void r2;
+  // Exactly what the drawn bubble touches: bullet solids and enemy bodies.
+  cancelBullets(s, { reason: 'soap', filter: (b) => bulletGap(b, ring.x, ring.z) < ring.r });
   for (const e of s.enemies) {
     if (!e.alive || e.kind === 'boss' || ring.hit.includes(e.id)) continue;
-    if ((e.x - ring.x) ** 2 + (e.z - ring.z) ** 2 > (ring.r + e.radius) ** 2) continue;
+    if (enemyPointDist(e, ring.x, ring.z) > ring.r + e.radius) continue;
     ring.hit.push(e.id);
     damageEnemy(s, e, RULES.bombDamage * hpRatio(s), 'soap');
   }
@@ -650,16 +661,22 @@ function updateShots(s, dt) {
       shot.dead = true;
       continue;
     }
+    // The needle is its drawn streak (tip = position, 0.9 u tail). The tail
+    // is longer than a substep's travel (0.28 u), so the test is swept.
+    const [ax, az, bx, bz] = needleSegment(shot);
     let done = false;
     for (const e of targets) {
-      if (!e.alive || (shot.x - e.x) ** 2 + (shot.z - e.z) ** 2 > (e.radius + shot.radius) ** 2) continue;
+      if (!e.alive) continue;
+      const reach = e.radius + NEEDLE.r;
+      const d2 = e.half ? segSegDist2(ax, az, bx, bz, ...enemyAxis(e)) : pointSegDist2(e.x, e.z, ax, az, bx, bz);
+      if (d2 > reach * reach) continue;
       shot.dead = done = true;
       damageEnemy(s, e, shot.damage ?? 1, 'shot');
       break;
     }
     if (done) continue;
     for (const b of shootable) {
-      if (b.dead || (shot.x - b.x) ** 2 + (shot.z - b.z) ** 2 > (b.hit + 0.18) ** 2) continue;
+      if (b.dead || pointSegDist2(b.x, b.z, ax, az, bx, bz) > (b.hit + NEEDLE.r) ** 2) continue;
       shot.dead = true;
       b.dead = true;
       awardKill(s, 50);
@@ -677,6 +694,9 @@ function updateHazards(s) {
   const ship = s.ship;
   const live = ship.respawn <= 0 && ship.dying <= 0;
   const mask = ship.powerups.mask > 0;
+  const r = ship.radius;
+  const sx0 = ship.px ?? ship.x,
+    sz0 = ship.pz ?? ship.z;
   for (const b of s.enemyShots) {
     if (b.dead) continue;
     if (b.life && b.age >= b.life) {
@@ -685,23 +705,27 @@ function updateHazards(s) {
     }
     if (!live) continue;
     const dx = b.x - ship.x,
-      dz = b.z - ship.z,
-      d2 = dx * dx + dz * dz;
+      dz = b.z - ship.z;
     const hit = b.hit ?? b.radius ?? 0.16;
-    const reach = hit + RULES.grazeRadius;
-    if (d2 > reach * reach) continue;
-    if (mask && (b.family === 'droplet' || b.family === 'aerosol' || b.family === 'spike') && d2 < (RULES.maskRadius + hit) ** 2 && dz < 0 && Math.abs(Math.atan2(dx, -dz)) < RULES.maskArc) {
+    const far = hit + (b.half || 0) + RULES.grazeRadius + 1;
+    if (dx * dx + dz * dz > far * far) continue;
+    const gap = bulletGap(b, ship.x, ship.z);
+    // MASK: the drawn 120 degree frontal arc absorbs droplets, aerosol and
+    // spikes (never globs, RNA or beams).
+    if (mask && (b.family === 'droplet' || b.family === 'aerosol' || b.family === 'spike') && gap < RULES.maskRadius && dz < 0 && Math.abs(Math.atan2(dx, -dz)) < RULES.maskArc) {
       b.dead = true;
       pushEvent(s, 'absorbed', { x: b.x, z: b.z });
       continue;
     }
-    if (d2 < (hit + ship.radius) ** 2) {
+    // Swept: the core's path and the bullet's path over this substep.
+    if (sweptHit(b, sx0, sz0, ship.x, ship.z, r)) {
       if (ship.invulnerable > 0) continue;
       b.dead = true;
       hurt(s, causeOf(s, b));
       continue;
     }
-    if (!b.grazed) {
+    // Graze: the bullet's solid edge entered the drawn 1.0 u ring.
+    if (!b.grazed && gap < RULES.grazeRadius) {
       b.grazed = true;
       s.grazes++;
       s.sector.grazes++;
@@ -718,15 +742,16 @@ function updateHazards(s) {
     }
   }
   for (const beam of s.beams) {
-    // Only the core dot counts, so a beam hits exactly when the dot is inside it.
-    if (live && Math.abs(ship.x - beam.x) < beam.width / 2 && ship.z > beam.fromZ)
+    // The core hits exactly when its circle overlaps the drawn beam.
+    if (live && beamHits(beam, ship.x, ship.z, r))
       hurt(s, { by: beam.src || 'VIRUS', what: 'SNEEZE JET', pattern: beam.pattern || 'SNEEZE JET', at: s.waveElapsed, stage: s.wave, code: getLevel(s.wave).code });
   }
   if (!live) return;
   for (const e of s.enemies) {
     if (!e.alive || e.harmless || e.kind === 'vesicle') continue;
-    const r = e.radius * 0.8 + ship.radius;
-    if ((ship.x - e.x) ** 2 + (ship.z - e.z) ** 2 < r * r) hurt(s, { by: e.label || 'VIRUS', what: 'CONTACT', pattern: null, at: s.waveElapsed, stage: s.wave, code: getLevel(s.wave).code });
+    if (e.kind === 'boss' && bossIntangible(s, e)) continue;
+    // Contact: the drawn body (spikes are decorative) against the core.
+    if (enemyPointDist(e, ship.x, ship.z) < e.radius + r) hurt(s, { by: e.label || 'VIRUS', what: 'CONTACT', pattern: null, at: s.waveElapsed, stage: s.wave, code: getLevel(s.wave).code });
   }
 }
 function updateBeams(s, dt) {
