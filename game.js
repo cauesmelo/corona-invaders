@@ -1541,6 +1541,10 @@ function tickAttract(dt) {
 // set explicit edge-case fixtures; normal play never writes model state directly.
 window.__game = {
   getState: () => snapshot(state),
+  /** QA: the run's stage list (root browser checks stay data-driven). */
+  levels: () => LEVELS.map((l) => ({ id: l.id, code: l.code, name: l.name, kind: l.kind, boss: l.boss || null, world: l.world, music: WORLDS[l.world - 1].music, zoom: WORLDS[l.world - 1].zoom })),
+  /** QA: ASSIST game speed (100/90/80/70%). */
+  speed: (v) => (v === undefined ? state.gameSpeed : setGameSpeed(state, v)),
   getAudio: () => ({ enabled: audio.enabled, context: audio.contextState }),
   start: () => beginPlay(() => startGame(state)),
   restart: () => {

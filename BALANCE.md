@@ -1,6 +1,64 @@
-# Corona Invaders: balance and evidence (revision five)
+# Corona Invaders: balance and evidence (v1.0)
 
-All numbers are from `core.mjs`, `patterns.mjs`, `levels.mjs` and `bosses.mjs`, and every measurement below was produced by `npm test` (or the same harness) on 2026-11-09. Tuning comes from the autopilot and a deliberately imperfect reactive player; no human playtest has confirmed it yet.
+## v1.0 evidence (2026-11-10, the 12-stage suite)
+
+Brief: `RESEARCH_V1.md`. Built on `main` from `189dfc7` (short syringe) to `50a40d3` (run rule). Every number below comes from `npm test` or `node tests/suite-audit.mjs` (the committed measurement: the 150 ms reactive player of `tests/reactive.mjs`, no SOAP, 99 vials so each stage runs to its end, the reference syringe at the stage's guaranteed power, 8 seeds 42/1/7/3/5/11/23/99). No human has played this suite yet; bots prove reachability and pressure, not fun.
+
+### The kit changes
+
+| Rule | v1.0 value | Why |
+| --- | --- | --- |
+| Syringe | 1.64 u long (was 5.1 u), 36.8 px at 960×640, tilt 10° (was 20°), every point inside the 1.0 u graze ring, core at the silhouette centroid (+0.016 u), muzzle at the drawn tip (z − 0.95), supply catcher = the 0.28 u barrel | The owner found the long syringe made the hitbox confusing |
+| Spray | step 4.25° (was 4°): 3 needles ±4.25° at L1–2, 5 needles ±8.5° from L3 (3.1 u of coverage at 10 u) | Focus trade-off; the inner pair still lands on a boss at 17.6 u |
+| Focused antibodies | ±0.75 u (was ±0.6), converging on the needle line 9 u ahead | Clear of the barrel; focus concentrates every needle |
+| INJECT | tip collider r 0.05 at 0.95 u; popcorn cured at once (×2 score), elites 10 × stageHp; reload 0.5 / 0.8 s; 60 ms hitstop | The signature verb |
+| Vials | +1 after a boss, none after a sample (was +1 per sample, full per world) | Defensive picks keep their value |
+| Credits | 3 on Normal, unlimited on Easy; a continue restarts the stage from its entry | No permadeath; the 1CC stamp is the expert target |
+| Card timeouts | max(25, round(1.6 × TTK)) (was 30 / 40) | A stalled card ends sooner |
+| BLOOM | HP 7 (was 16), open 1.8 s (was 1.5), closed 2.6–3.4 s (was 3.4–4.6) | A 16 HP bud field stalled 4-2 for two minutes for the referee |
+| HP hook | `levels.stageDps(stage)` = 24 / 24 / 30 / 42 by entry power; `stageHp(base, stage)` scales popcorn HP, card HP, SOAP and bursts | One function for the ADJUVANT draft to multiply |
+
+### The suite audit (8 seeds)
+
+| Stage | Time (s) | Peak | Mean alive | Spawn/s | Aimed / static / random | Speed median / max / static max / fan max / effective max | Quiet | Longest empty screen (s) | Longest stretch without a rest (s) | Near | Hits (mean / worst) |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1-1 FIRST CONTACT | 64 | 14 | 4.2 | 0.9 | 25 / 75 / 0 | 4.5 / 5.5 / 4.5 / — / 5.5 | 38% | 4.2 | 23 | 0.33 | 0.00 / 0 |
+| 1-2 GESUNDHEIT | 72 | 40 | 11.4 | 2.7 | 66 / 34 / 0 | 4.5 / 6.5 / 4.5 / 5.0 / 6.5 | 38% | 4.1 | 19 | 0.76 | 0.25 / 1 |
+| 1-3 ALPHA | 60 | 59 | 20.1 | 7.0 | 33 / 67 / 0 | 4.0 / 7.5 / 4.0 / 6.5 / 7.5 | 27% | 2.3 | 15 | 0.78 | 0.13 / 1 |
+| 2-1 DEEP BREATH | 70 | 29 | 7.5 | 1.6 | 34 / 62 / 4 | 4.5 / 6.5 / 4.5 / 5.5 / 8.5 | 32% | 5.3 | 20 | 0.52 | 0.25 / 1 |
+| 2-2 GAS EXCHANGE | 72 | 42 | 12.7 | 3.6 | 27 / 62 / 11 | 3.5 / 6.5 / 4.5 / 5.5 / 8.5 | 33% | 3.4 | 27 | 0.62 | 0.25 / 1 |
+| 2-3 BETA & GAMMA | 86 | 61 | 21.5 | 5.9 | 17 / 83 / 0 | 3.6 / 7.0 / 4.2 / 6.5 / 9.1 | 15% | 1.0 | 29 | 1.09 | 0.38 / 1 |
+| 3-1 CIRCULATION | 66 | 38 | 10.6 | 2.9 | 63 / 36 / 1 | 5.8 / 7.5 / 5.0 / 5.5 / 8.3 | 31% | 4.2 | 20 | 0.55 | 0.13 / 1 |
+| 3-2 SPLASHDOWN | 88 | 45 | 15.2 | 5.3 | 28 / 72 / 0 | 4.2 / 7.5 / 5.0 / 5.5 / 8.3 | 32% | 4.2 | 24 | 0.66 | 0.25 / 1 |
+| 3-3 DELTA | 91 | 67 | 23.9 | 7.1 | 34 / 66 / 0 | 4.0 / 7.5 / 4.0 / 6.0 / 9.1 | 19% | 2.8 | 22 | 1.18 | 1.00 / 2 |
+| 4-1 COPY ERROR | 71 | 42 | 8.5 | 2.4 | 49 / 51 / 0 | 5.1 / 8.0 / 5.0 / 7.0 / 8.0 | 29% | 5.1 | 26 | 0.68 | 0.88 / 2 |
+| 4-2 FULL BLOOM | 87 | 95 | 19.4 | 6.1 | 54 / 46 / 0 | 4.7 / 8.0 / 5.0 / 7.0 / 8.0 | 30% | 4.7 | 34 | 0.79 | 0.50 / 1 |
+| 4-3 OMICRON PRIME | 114 | 136 | 32.3 | 10.8 | 16 / 75 / 8 | 4.6 / 8.5 / 4.6 / 7.0 / 8.5 | 18% | 1.8 | 20 | 1.57 | 0.75 / 2 |
+
+- **Clean run:** 15.7 min of play (brief band 14–18).
+- **Ladders hold (T3):** near pressure and peaks rise strictly within every sector; each sector opens above the previous sector's opener and at most at the previous boss; the bosses rise strictly (near 0.78 < 1.09 < 1.18 < 1.57; peaks 59 < 61 < 67 < 136).
+- **Speed bands hold:** static fields ≤ 5.0 u/s, aimed fans ≤ 7.0 u/s, nothing over 9.1 u/s effective (the exhale and the current included).
+- **FAIR-150 (T4):** every stage cleared on every seed; worst seed ≤ 2 hits in sectors 1–2 and ≤ 2 in sectors 3–4; **0 forced hits** (for every reactive hit, the perfect-information autopilot replayed from a snapshot ≥ 0.5 s earlier, without SOAP, avoided it); **0 bullets** reach z ≥ 0 under 0.6 s after their telegraph started; the referee **never injected**. Every boss and midboss card still passes the per-card rule (`tests/curve.test.mjs`: mean ≤ 1.2 hits, worst ≤ 3, ≥ 3 of 5 starts with ≤ 1 hit), and every card ends by damage from at least 4 of 5 starts.
+- **Phantom overlaps (T7):** bullets overlapping the drawn syringe without touching the core: **4.0 per minute** with the v1.0 silhouette against **20.9** for the 5.1 u syringe on the same runs (19 %; the brief asked for ≤ 30 %), at most 6.1 in any stage.
+- **Drafts (T5):** a campaign emits exactly 11 `draft` events, boosted (`boss: true`) after stages 3, 6 and 9, none after 12.
+
+**Misses against the brief, recorded and held by `KNOWN_GAPS` in `tests/suite.test.mjs` (they may improve, never regress):**
+
+- Lengths: 1-1 64 s (band 65–75), 3-2 88 s (70–80), 4-2 87 s (70–80).
+- Hit ceilings: 1-2 0.25 (≤ 0.20), DELTA 1.00 (≤ 0.70), 4-1 0.88 (≤ 0.65).
+- Rests: the longest stretch without a 2.5 s rest exceeds 25 s in 2-2 (27), BETA & GAMMA (29), 4-1 (26) and 4-2 (34; MOTHER CELL's cards).
+- Mix and quiet: BETA & GAMMA aimed 17 % (≥ 20 %) and quiet 15 % (≥ 20 %); OMICRON aimed 16 %; 1-1 quiet 38 % (≥ 40 %).
+- The brief's absolute near and peak targets (±12 %) are not met: the shape (the sawtooth) holds, but sample pressure is lower than the table (for example 1-1 near 0.33 vs 0.25, 2-1 0.52 vs 0.50, 3-1 0.55 vs 0.75, 4-1 0.68 vs 1.00), and the bosses sit above it (ALPHA 0.78 vs 0.60). ALPHA is unchanged by design, so the table's absolute values were aspirational.
+
+### Focus and skill (tests/syringe.test.mjs, tests/movement-audit.test.mjs)
+
+- Focused / unfocused DPS on one 0.6 u target at 10 u: ×3.00 / ×4.03 / ×5.03 / ×7.05 at power 1–4 (brief: ≥ 1.5×).
+- D1 (one 0.55 u target at 9 u): ×1.00 / ×1.34 / ×2.35 at power 1 / 2 / 4.
+- D2 skill gradient: holding focus while lined up clears the four boss stages 16.2–17.0 % faster (seeds 42/1/7; target ≥ 15 %, was 14.7 %).
+
+## Revision five (historical: the 18-stage campaign)
+
+The sections below describe the 18-stage campaign before v1.0. The kit rows changed as listed above; the rest is kept as history.
 
 ## The kit
 
