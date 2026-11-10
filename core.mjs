@@ -89,7 +89,8 @@ export const RULES = Object.freeze({
   extends: Object.freeze([250000, 750000]),
   // Hitstop is capped at 120 ms in any rolling second.
   hitstopCap: 0.12,
-  transition: 1.8,
+  // The LAB REPORT between stages: 2.5 s, skippable after 0.5 s.
+  transition: 2.5,
   // 1/120 s substeps: the fastest enemy bullet (10 u/s) moves 0.083 u per
   // substep, well under the smallest bullet + core diameter (0.54 u), and a
   // needle (34 u/s) moves 0.28 u, under the smallest enemy radius.

@@ -55,7 +55,7 @@ test('every authored pattern parameter sits inside its preset LIMITS', () => {
 });
 
 test('every preset has a telegraph minimum (0.5 s aimed, 0.8 s fans, 1.0 s walls, 1.5 s beams); Easy adds 0.15 s', () => {
-  const minimum = { cough: 0.5, drip: 0.5, sneeze: 0.8, sniffle: 0.8, ring: 0.8, bloom: 0.8, aerosol: 0.8, strand: 0.8, replicate: 0.8, wall: 1, jet: 1.5, quarantine: 1 };
+  const minimum = { cough: 0.5, rain: 0.5, drip: 0.5, sneeze: 0.8, sniffle: 0.8, ring: 0.8, bloom: 0.8, aerosol: 0.8, strand: 0.8, replicate: 0.8, wall: 1, jet: 1.5, quarantine: 1 };
   assert.deepEqual(Object.keys(minimum).sort(), Object.keys(PRESETS).sort());
   for (const [preset, tele] of Object.entries(minimum)) {
     assert.equal(LIMITS[preset].tele, tele, preset);
@@ -123,7 +123,7 @@ test('fans and rings keep >= 0.5 u clear between neighbours 10 u from the source
 test('MUCUS WALL keeps a gap >= 2.0 u (2.8 u on Easy) and is solid elsewhere', () => {
   for (const [difficulty, need] of [['normal', 2], ['easy', 2.8]])
     for (let seed = 0; seed < 6; seed++) {
-      const s = quiet(13, { difficulty, seed: 100 + seed });
+      const s = quiet(9, { difficulty, seed: 100 + seed });
       s.ship.z = 11.8;
       const em = startPattern(s, 'wall', { x: 0, z: -11, params: { gaps: seed % 2 ? 2 : 1, gapWidth: 2.4, speed: 3.2 }, force: true });
       update(s, em.tele + 0.02);

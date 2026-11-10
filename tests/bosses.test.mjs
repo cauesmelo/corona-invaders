@@ -20,10 +20,10 @@ test('WHO Greek-letter variants only: ALPHA, BETA & GAMMA, DELTA, OMICRON PRIME 
   const names = Object.values(BOSSES).filter((b) => /^[A-Z]+ ?(& [A-Z]+|PRIME)?$/.test(b.name) && !b.mid).map((b) => b.name);
   assert.deepEqual(names, ['ALPHA', 'BETA & GAMMA', 'DELTA', 'OMICRON PRIME']);
   assert.ok(GREEK.test(BOSSES.lambda.name));
-  assert.deepEqual(LEVELS.filter((l) => l.kind === 'boss').map((l) => [l.code, l.boss]), [['1-4', 'alpha'], ['2-4', 'betagamma'], ['3-4', 'delta'], ['4-4', 'omicron']]);
+  assert.deepEqual(LEVELS.filter((l) => l.kind === 'boss').map((l) => [l.code, l.boss]), [['1-3', 'alpha'], ['2-3', 'betagamma'], ['3-3', 'delta'], ['4-3', 'omicron']]);
 });
 
-test('card HP = TTK x the guaranteed DPS there (24 at power 1-2, 30 at 3, 42 at 4; x0.85 Easy); phases time out at 30 s, cards at 40 s', () => {
+test('card HP = TTK x the guaranteed DPS there (24 at power 1-2, 30 at 3, 42 at 4; x0.85 Easy); timeouts max(25, round(1.6 x TTK))', () => {
   assert.deepEqual(RULES.powerDps, [24, 24, 30, 42]);
   for (const [type, def] of Object.entries(BOSSES)) {
     const s = cardArena(type, 0);
@@ -32,7 +32,7 @@ test('card HP = TTK x the guaranteed DPS there (24 at power 1-2, 30 at 3, 42 at 
     assert.equal(s.dpsRef, dps);
     def.cards.forEach((c, i) => {
       assert.equal(b.cards[i].hp, c.type === 'survival' ? 0 : Math.round(c.ttk * dps * RULES.cardHpScale), `${type} ${c.name}`);
-      assert.equal(b.cards[i].timeout, c.type === 'phase' ? 30 : c.type === 'card' ? 40 : c.duration);
+      assert.equal(b.cards[i].timeout, c.type === 'survival' ? c.duration : Math.max(25, Math.round(1.6 * c.ttk)), `${type} ${c.name} timeout`);
     });
     assert.equal(b.maxHp, b.cards.reduce((n, c) => n + c.hp, 0));
     const e = cardArena(type, 0, { difficulty: 'easy' });
@@ -275,7 +275,9 @@ test('OMICRON finale R0 > 1: neutralizing it reports CONTAINED', () => {
 
 test('midbosses: BIG SNEEZER, AEROSOL CLOUD, MOTHER CELL and LAMBDA appear in samples and drop mRNA', () => {
   const where = Object.fromEntries(LEVELS.flatMap((l) => (l.script || []).filter((st) => st.midboss).map((st) => [st.midboss, l.code])));
-  assert.deepEqual(where, { bigsneezer: '1-3', aerosolcloud: '2-2', mother: '3-2', lambda: '4-2' });
+  // v1.0 (RESEARCH_V1.md 2.4): BIG SNEEZER tests 1-2, LAMBDA moves before
+  // DELTA, MOTHER CELL moves into the cell.
+  assert.deepEqual(where, { bigsneezer: '1-2', aerosolcloud: '2-2', lambda: '3-2', mother: '4-2' });
   for (const type of Object.keys(where)) assert.ok(BOSSES[type].mid && BOSSES[type].cards.length <= 3);
   const s = running(1, HOME.bigsneezer);
   s.ship.invulnerable = 1e9;

@@ -1,70 +1,102 @@
-/** Authored campaign: four worlds (the infection route, in four rooms) and 18
- * stages, plus archetype stats. Runtime, tests and documentation all read
- * these definitions.
+/** The v1.0 run (RESEARCH_V1.md 2): 4 sectors x 3 stages, a zoom into the
+ * body under the lab's microscope. Each sector is two samples (the second
+ * ends in a midboss) and a boss; its twist runs on every stage of it. Each
+ * stage introduces exactly one idea in four beats: introduce safely,
+ * develop, twist, test, separated by rests of 2-3 s with at most 3 bullets
+ * alive. Runtime, tests (tests/suite.test.mjs, tests/suite-audit.mjs) and the
+ * documentation all read these definitions.
  *
  * A stage is a script of steps run in order:
- *   { group }    spawn a formation grid (it enters from the back and never
- *                descends past z = -4; the instant "breach" loss is retired)
+ *   { group }    a formation grid (enters from the back, never descends
+ *                past z = -4)
  *   { flight }   enemies flying a drawn Bezier path that cross and exit; an
  *                enemy that exits counts as escaped for the R0 meter
  *   { worms }    RNA WORMs weaving across the top, then exiting
  *   { puffs }    AEROSOL PUFFs drifting slowly across
  *   { vesicle }  a lipid bubble carrying a guaranteed mRNA supply
  *   { midboss }  a 1-3 card midboss (bosses.mjs)
+ *   { surge }    for a few seconds the choir fires twice as often
+ *   { verse }    what the formation choir sings: 'rain' (straight-down
+ *                droplets: static lanes), 'cough' (aimed) or 'alternate'
+ *   { tune }     per-archetype attack overrides for the following beats
+ *   { mutation } MUTATION timing ({ flash, every }) for the following beats
+ *   { hint }     a one-time PROTOCOL line (UI)
  *   { wait }     seconds; { until: 'thin', left } / { until: 'clear' }
  * A stage clears when its script has ended and nothing hostile is left.
  *
  * Formation row codes (back row first):
- *   m mini WILD TYPE   W WILD TYPE   N SNEEZER   U BUDDER   D DROPLET
- *   H HIJACKER         C INFECTED CELL           K HEAVY CROWN   B BLOOM
- * Every archetype debuts while only plain WILD TYPEs are on the board
- * (tests/model.test.mjs checks this on real campaign runs).
+ *   m mini WILD TYPE   W WILD TYPE   N SNEEZER   D DROPLET   K HEAVY CROWN
+ *   B BLOOM            (retired from the run, kept for v1.1 and tests:
+ *   U BUDDER, H HIJACKER, C INFECTED CELL)
  */
-export const WORLDS = Object.freeze([
-  { id: 1, name: 'AIRWAY', theme: 'airway', twist: null, boss: 'alpha' },
-  { id: 2, name: 'LUNGS', theme: 'lungs', twist: 'breath', boss: 'betagamma' },
-  { id: 3, name: 'BLOODSTREAM', theme: 'blood', twist: 'current', boss: 'delta' },
-  { id: 4, name: 'LAB / PETRI', theme: 'lab', twist: 'mutation', boss: 'omicron' },
-]);
+import { RULES } from './core.mjs';
+
+/** Sectors, one magnification step deeper each (RESEARCH_V1.md 5.1). `note`
+ * is the FIELD NOTE shown after the sector's boss; `music` the arrangement
+ * of the original march; `zoom` the microscope magnification. */
+export const PROLOGUE = 'SPECIMEN RECEIVED: AIRWAY. WILD-TYPE REPLICATION CONFIRMED. DISPATCH ONE SYRINGE.';
+export const WORLDS = Object.freeze(
+  [
+    { id: 1, name: 'AIRWAY', site: 'TRACHEA', zoom: 40, theme: 'airway', backdrop: 'trachea', music: 'airway', twist: null, boss: 'alpha', note: 'ALPHA NEUTRALIZED. DESCENDANTS DETECTED DEEPER: ALVEOLAR TISSUE. EXPECT TWINS.', assessment: 'AIRWAY LINING CLEARED.' },
+    { id: 2, name: 'LUNGS', site: 'ALVEOLI', zoom: 400, theme: 'lungs', backdrop: 'alveoli', music: 'lungs', twist: 'breath', boss: 'betagamma', note: 'VIRAL LOAD IN CIRCULATION. VARIANT DELTA IS TRAVELLING WITH THE FLOW.', assessment: 'BREATHING TISSUE STABILISED.' },
+    { id: 3, name: 'BLOODSTREAM', site: 'CAPILLARY', zoom: 4000, theme: 'blood', backdrop: 'capillary', music: 'blood', twist: 'current', boss: 'delta', note: 'SOURCE LOCATED: A REPLICATION FACTORY INSIDE ONE CELL. COPY ERRORS RISING.', assessment: 'CIRCULATION FILTERED.' },
+    { id: 4, name: 'THE CELL', site: 'CYTOPLASM', zoom: 40000, theme: 'cell', backdrop: 'cytoplasm', music: 'cell', twist: 'mutation', boss: 'omicron', note: 'OMICRON PRIME NEUTRALIZED. R0 < 1. SPECIMEN CONTAINED. REPORT FILED.', assessment: 'REPLICATION HALTED.' },
+  ].map((w) => Object.freeze(w)),
+);
+export const SECTORS = WORLDS;
 
 /** Archetypes: one job, one bullet family, one personality telegraph each.
- * HP is on the bullet-hell scale (the player deals ~24 effective DPS).
- * `attack` is an emitter preset from patterns.mjs. */
+ * HP is on the bullet-hell scale (the reference syringe deals ~24 effective
+ * DPS) and scales through stageHp. `attack` is an emitter preset from
+ * patterns.mjs; `byWorld` upgrades it per sector (more bullets, a second
+ * speed tier, never a new rule). Speeds follow RESEARCH_V1.md 2.3: static
+ * fields <= 5 u/s, aimed fans <= 7, aimed singles and stacks up to the
+ * sector's maximum. */
 export const ARCHETYPES = Object.freeze({
-  mini: { label: 'WILD TYPE', hp: 1, radius: 0.42, score: 50, attack: { preset: 'cough', params: { n: 1, speed: 5.2 } } },
-  wild: { label: 'WILD TYPE', hp: 3, radius: 0.6, score: 100, attack: { preset: 'cough', params: { n: 1, speed: 6.5 } }, byWorld: { 2: { n: 2, speed: 7 }, 3: { n: 2, spread: 14, speed: 7.5 }, 4: { n: 3, spread: 18, speed: 8 } } },
-  // Inhales (swells 1.25x for 0.8 s: "ah... ah..."), then sneezes an odd fan.
-  sneezer: { label: 'SNEEZER', hp: 10, radius: 0.8, score: 300, attack: { preset: 'sneeze', params: { n: 7, spread: 56, speeds: [4.5] } }, byWorld: { 2: { speeds: [4, 5.5] }, 3: { n: 9, speeds: [4, 5.5] }, 4: { n: 9, speeds: [4, 5.5, 7] } } },
-  // Buds two shootable VIRION bullets when it dies.
-  // Two lobes: a capsule collider along x (radius 0.62, half 0.28).
+  mini: { label: 'WILD TYPE', hp: 1, radius: 0.42, score: 50, attack: { preset: 'cough', params: { n: 1, speed: 5.5 } } },
+  // The choir's grunt. Sector 3-4 coughs are stacks (one line, 2-3 speeds).
+  wild: { label: 'WILD TYPE', hp: 3, radius: 0.6, score: 100, attack: { preset: 'cough', params: { n: 1, speed: 5.5 } }, byWorld: { 2: { n: 2, speed: 6.5 }, 3: { n: 2, speed: 7.5 }, 4: { n: 3, speed: 8 } } },
+  // Inhales (the crown bristles for 0.8-1.0 s), then sneezes an odd fan whose
+  // centre points at you: tap sideways out of it.
+  sneezer: { label: 'SNEEZER', hp: 10, radius: 0.8, score: 300, attack: { preset: 'sneeze', params: { n: 7, spread: 56, speeds: [4, 5], tele: 1 } }, byWorld: { 2: { speeds: [4, 5.5], tele: 0.8 }, 3: { n: 9, speeds: [4, 5.5] }, 4: { n: 9, speeds: [4, 5.5, 7] } } },
+  // Retired from the v1.0 run (its virions live on in MOTHER CELL's BUDDING).
   budder: { label: 'BUDDER', hp: 8, radius: 0.62, half: 0.28, score: 250, attack: { preset: 'cough', params: { n: 1, speed: 6.5 } }, byWorld: { 3: { n: 2 }, 4: { n: 3, spread: 20 } } },
-  // Weaves across the top leaving an RNA bead trail, then an RNA STRAND.
+  // Weaves across the top leaving an RNA bead trail, then an aimed RNA STRAND
+  // (you stream: move steadily and turn at the edge). Debuts in sector 2.
   // A helix tube crossing sideways: a capsule along x (radius 0.38, half 0.9).
-  worm: { label: 'RNA WORM', hp: 4, radius: 0.38, half: 0.9, score: 150, attack: { preset: 'strand', params: { n: 9, speed: 4.8, interval: 0.13, amp: 0.9, wavelength: 5 } }, byWorld: { 3: { n: 10 }, 4: { n: 12, amp: 1.1 } } },
-  // A ring of tiny virions that puffs slow mist.
-  puff: { label: 'AEROSOL PUFF', hp: 10, radius: 0.9, score: 300, attack: { preset: 'aerosol', params: { rate: 5, cone: 100, speed: [2.5, 4], duration: 1.6 } }, byWorld: { 3: { rate: 6 }, 4: { rate: 7 } } },
-  // Draws its dashed sneeze path for 0.8 s, dives, and splashes into a ring.
+  worm: { label: 'RNA WORM', hp: 4, radius: 0.38, half: 0.9, score: 150, attack: { preset: 'strand', params: { n: 8, speed: 4.8, interval: 0.13, amp: 0.8, wavelength: 5 } }, byWorld: { 3: { n: 10 }, 4: { n: 12, amp: 1.1 } } },
+  // A ring of tiny virions that mists slow random droplets (on the exhale
+  // only, in the lungs).
+  puff: { label: 'AEROSOL PUFF', hp: 10, radius: 0.9, score: 300, attack: { preset: 'aerosol', params: { rate: 5, cone: 100, speed: [2.5, 4], duration: 1.5 } }, byWorld: { 3: { rate: 6 }, 4: { rate: 6 } } },
+  // Draws its dashed path for 0.8 s, dives, and splashes into a ring.
   droplet: { label: 'DROPLET', hp: 4, radius: 0.55, score: 200, attack: { preset: 'ring', params: { n: 6, speed: 3.6, family: 'droplet' } }, byWorld: { 4: { n: 8 } } },
-  // Tethers a WILD TYPE for 1.5 s and turns it into a HEAVY CROWN.
+  // Retired from the v1.0 run: its "kill the converter first" lesson is
+  // MUTATION's flash. Kept for v1.1 (RESEARCH_V1.md 6).
   hijacker: { label: 'HIJACKER', hp: 6, radius: 0.55, score: 250, attack: null },
-  // Pops with a 2.2 u radius that damages viruses only, and chains.
+  // Retired from the v1.0 run (waits for v1.1).
   cell: { label: 'INFECTED CELL', hp: 6, radius: 0.8, score: 150, attack: null },
-  // Elite: fat spikes that break off as it loses HP. A stack of three spikes.
-  heavy: { label: 'HEAVY CROWN', hp: 14, radius: 0.85, score: 500, attack: { preset: 'cough', params: { n: 3, speed: 8, family: 'spike' } }, byWorld: { 4: { speed: 8.5 } } },
-  // Invulnerable while closed; opens for 1.5 s, firing a spike ring.
-  bloom: { label: 'BLOOM', hp: 16, radius: 0.85, score: 450, attack: { preset: 'ring', params: { n: 16, speed: 4.1, family: 'spike' } } },
+  // Elite, and MUTATION's product: fat spikes that break off as it loses HP.
+  heavy: { label: 'HEAVY CROWN', hp: 14, radius: 0.85, score: 500, attack: { preset: 'cough', params: { n: 3, speed: 8, family: 'spike' } } },
+  // Invulnerable while closed (INJECT pierces it); opens for 1.5 s, firing a ring.
+  // HP 7 (was 16): the reactive referee only hits it while open, so a 16 HP
+  // bud field stalled 4-2 for two minutes; INJECT is the fast answer.
+  bloom: { label: 'BLOOM', hp: 7, radius: 0.85, score: 450, attack: { preset: 'ring', params: { n: 16, speed: 4.1, family: 'spike' } } },
   // Drifts across the back carrying a supply; never fires.
   vesicle: { label: 'VESICLE', hp: 20, radius: 0.75, score: 800, attack: null },
-  // CULTURE CHECK target: harmless, flies drawn paths.
+  // Harmless practice target (score-attack extras, v1.1).
   virion: { label: 'VIRION', hp: 1, radius: 0.5, score: 100, attack: null },
 });
-/** An archetype's attack in a given world: later worlds upgrade the same
- * shape (more bullets, a second speed tier) rather than adding new rules. */
-export function attackFor(kind, world = 1) {
+/** INJECT classes (RESEARCH_V1.md 5.4): popcorn is cured on touch whatever
+ * its HP; elites take 10 x stageHp; everything else (bosses) is elite too. */
+export const ELITES = Object.freeze(new Set(['heavy', 'bloom', 'vesicle']));
+/** An archetype's attack in a sector: later sectors upgrade the same shape;
+ * `tune` (a script step) adjusts it for the following beats. */
+export function attackFor(kind, world = 1, tune = null) {
   const a = ARCHETYPES[kind];
   if (!a?.attack) return null;
   let params = { ...a.attack.params };
   for (let w = 2; w <= world; w++) if (a.byWorld?.[w]) params = { ...params, ...a.byWorld[w] };
+  if (tune?.[kind]) params = { ...params, ...tune[kind] };
   return { preset: a.attack.preset, params };
 }
 export const CODE_KIND = Object.freeze({ m: 'mini', W: 'wild', N: 'sneezer', U: 'budder', D: 'droplet', H: 'hijacker', C: 'cell', K: 'heavy', B: 'bloom' });
@@ -84,10 +116,13 @@ function bezier([p0, p1, p2, p3], steps = 28) {
 }
 const mirror = (pts) => pts.map(([x, z]) => [-x, z]);
 // Hostile flight paths enter from behind the back rim and exit at a side,
-// never dipping below z = -1 so flights stay out of the syringe's box.
+// never dipping below z = -1 (the top of the syringe's box is z = -3).
 const SWOOP = [[-8.2, -14.5], [-7, -1], [6, -2], [11, -9]];
 const ARC = [[-11, -6], [-4, -1.5], [4, -1.5], [11, -6]];
 const DROP = [[-3, -14.5], [-3, -3], [5, -4], [11.5, -10]];
+// LOW: a slow pass across the top of the box (z about -1.9 at its lowest),
+// inside the needle's reach from the top rows: 1-1's INJECT beat.
+const LOW = [[-11, -5.5], [-5, -0.6], [5, -0.6], [11, -5.5]];
 const PATHS = Object.freeze({
   swoopL: bezier(SWOOP),
   swoopR: bezier(mirror(SWOOP)),
@@ -95,413 +130,437 @@ const PATHS = Object.freeze({
   arcR: bezier(mirror(ARC)),
   dropL: bezier(DROP),
   dropR: bezier(mirror(DROP)),
+  lowL: bezier(LOW),
+  lowR: bezier(mirror(LOW)),
 });
 
 const grid = (rows, o = {}) => ({ group: { rows, spacing: 2.3, rowGap: 1.9, z: -11.2, sway: 1.1, frequency: 0.7, descent: 0.22, ...o } });
-const fly = (path, kind = 'wild', count = 6, o = {}) => ({ flight: { path, kind, count, interval: 0.32, speed: 6.5, fire: { preset: 'cough', params: { n: 1, speed: 6.5 }, at: 0.42 }, ...o } });
+const fly = (path, kind = 'wild', count = 6, o = {}) => ({ flight: { path, kind, count, interval: 0.32, speed: 6.5, fire: { preset: 'cough', params: { n: 1, speed: 5.5 }, at: 0.42 }, ...o } });
 const until = (what, left = 0) => ({ until: what, left });
-// A surge gives a stage its shape: for a few seconds the choir fires ~2x as
+// A surge gives a beat its peak: for a few seconds the choir fires ~2x as
 // often with one more singer (still inside the stage bullet cap).
 const surge = (seconds) => ({ surge: seconds });
 const wait = (seconds) => ({ wait: seconds });
+const verse = (kind) => ({ verse: kind });
+const tune = (o) => ({ tune: o });
+const hint = (id) => ({ hint: id });
+// A rest between beats: the board empties, the last bullets leave, then
+// 2.5 s with at most 3 alive (RESEARCH_V1.md 2.2: rests of 2-3 s).
+const rest = (seconds = 2.5) => [until('clear'), until('calm'), wait(seconds)];
 
-/** Per-world pressure. `choir`: seconds between formation volleys (slow when
- * the grid is full, fast when it thins) and how many front-row members fire
- * together. `maxBullets`: the stage cap for non-boss emitters (peak bullets on
- * screen, Normal; Easy is x0.6 through the per-emitter counts). */
-const W1 = { world: 1, choir: { interval: [1.8, 1.2], size: [2, 3] }, maxBullets: 45 };
-const W2 = { world: 2, choir: { interval: [1.45, 1], size: [3, 4] }, maxBullets: 70 };
-const W3 = { world: 3, choir: { interval: [1.15, 0.8], size: [3, 5] }, maxBullets: 95 };
-const W4 = { world: 4, choir: { interval: [0.95, 0.65], size: [4, 6] }, maxBullets: 120 };
+/** Per-sector pressure. `choir`: seconds between formation volleys (slow when
+ * the grid is full, fast when it thins) and how many front members sing
+ * together. `maxBullets`: the stage cap for non-boss emitters. `rain`: the
+ * straight-down verse's speed (static lanes, <= 5 u/s). */
+const S1 = { world: 1, choir: { interval: [1.8, 1.2], size: [2, 3] }, maxBullets: 40, rain: 4.5 };
+const S2 = { world: 2, choir: { interval: [1.45, 1], size: [3, 4] }, maxBullets: 60, rain: 4.5 };
+const S3 = { world: 3, choir: { interval: [1.15, 0.8], size: [3, 5] }, maxBullets: 85, rain: 5 };
+const S4 = { world: 4, choir: { interval: [0.95, 0.65], size: [4, 6] }, maxBullets: 110, rain: 5 };
 
+/** `introduces`: the archetypes, twists and boss-only ideas first seen in
+ * this stage (tests/suite.test.mjs T2). `intro`: the lab voice (<= 60
+ * characters, no exclamation marks). `protocol`: the stage's instruction. */
 export const LEVELS = Object.freeze(
   [
     {
-      ...W1,
+      ...S1,
       code: '1-1',
       name: 'FIRST CONTACT',
       kind: 'sample',
-      intro: { icon: 'wild', text: 'MOVE IN 2D. ONLY THE GLOWING CORE CAN BE HIT.' },
-      // Softer than the rest of world 1 (playtest: newcomers died to coughs).
-      choir: { interval: [2.5, 1.8], size: [1, 2] },
-      maxBullets: 30,
+      introduces: ['mini', 'wild', 'rain', 'inject'],
+      intro: { icon: 'wild', text: 'ONLY THE GLOWING DOSE CAN BE HIT. THE NEEDLE CURES.' },
+      protocol: 'READ THE LANES. SIDESTEP THE AIMED COUGHS.',
+      choir: { interval: [1.9, 1.3], size: [1, 1] },
+      maxBullets: 25,
+      silence: 3,
       script: [
-        // Homage: the original game's 4 x 15 grid of 60 mini coronas.
+        // Introduce (0-15 s): the original game's 4 x 15 grid of 60 mini
+        // coronas, 3 s of silence, then RAIN: straight-down droplets, static
+        // lanes 1.18 u apart that the formation's sway slides sideways.
+        verse('rain'),
         grid(Array(4).fill('mmmmmmmmmmmmmmm'), { spacing: 1.18, rowGap: 1.3, z: -12.6, sway: 0.5, frequency: 0.55, descent: 0.12 }),
-        wait(9),
-        fly('swoopL', 'wild', 5),
-        until('thin', 16),
-        grid(['W.W.W.W', '.W.W.W.']),
-        wait(6),
-        fly('swoopR', 'wild', 5),
-        until('thin', 2),
-        grid(['WWWWWWW', 'W.W.W.W']),
+        wait(8),
+        until('thin', 24),
+        // Develop (about 17-35 s): WILD TYPEs add aimed single coughs (the aim
+        // locks at the telegraph); the rain continues, about half and half.
+        verse('alternate'),
+        grid(['W.W.W.W'], { z: -7.4 }),
         wait(5),
-        fly('arcL', 'wild', 6),
-        until('clear'),
-        fly('arcR', 'wild', 6),
-        wait(1.6),
-        fly('swoopL', 'wild', 6),
+        grid(['.W.W.W.', 'W.W.W.W'], { z: -12.4, x: 0 }),
+        wait(5),
+        until('thin', 4),
+        ...rest(),
+        // Twist (about 37-52 s): two slow, low flights cross the top of the
+        // box within the needle's reach. Touch one with the needle: INJECT.
+        hint('inject'),
+        verse('rain'),
+        grid(['m.m.m.m.m.m.m.m'], { spacing: 1.18, z: -10.5 }),
+        fly('lowL', 'wild', 3, { speed: 3.4, interval: 1, fire: null }),
+        wait(6),
+        fly('lowR', 'wild', 3, { speed: 3.4, interval: 1, fire: null }),
+        wait(6),
+        verse('alternate'),
+        ...rest(),
+        // Test (about 54-75 s): a 7 + 7 WILD TYPE grid with up to three
+        // singers, plus a flight; a second grid joins half a column over.
+        grid(['WWWWWWW', 'WWWWWWW']),
+        wait(6),
+        fly('arcL', 'wild', 4),
+        wait(4),
+        grid(['W.W.W.W.W'], { z: -12.8, spacing: 2, x: 0 }),
+        surge(4),
+        until('thin', 2),
+        fly('arcR', 'wild', 4),
+        grid(['.W.W.W.W.'], { z: -12.8, spacing: 2 }),
         until('clear'),
       ],
     },
     {
-      ...W1,
+      ...S1,
       code: '1-2',
       name: 'GESUNDHEIT',
       kind: 'sample',
-      intro: { icon: 'sneezer', text: 'HOLD SHIFT: SLOWER MOVES, A STRONGER NEEDLE.' },
+      introduces: ['sneezer', 'vesicle', 'bigsneezer'],
+      intro: { icon: 'sneezer', text: 'THE ODD FAN AIMS ITS CENTRE AT YOU. TAP SIDEWAYS.' },
+      protocol: 'HOLD SHIFT TO FOCUS INSIDE A LANE.',
+      maxBullets: 42,
+      choir: { interval: [1.8, 1.25], size: [1, 2] },
       script: [
-        grid(['N...N', 'WWWWW'], { spacing: 2.6 }),
-        wait(5),
+        // Introduce: a lone SNEEZER behind a thin WILD TYPE row (raining, a
+        // known idea); one slow tier.
+        tune({ sneezer: { speeds: [4] } }),
+        verse('rain'),
+        grid(['...N...', 'W.W.W.W'], { spacing: 2.3 }),
+        wait(6),
+        grid(['.W.W.W.'], { z: -12.6 }),
+        until('clear'),
+        wait(2),
+        // Develop: two SNEEZERs alternate, tiers 4.0 / 5.0, over the WILD
+        // TYPEs' rain; the first VESICLE.
+        tune({}),
+        grid(['.N...N.', 'WWWWWWW']),
         { vesicle: { dir: 1 } },
-        until('thin', 2),
-        fly('arcL', 'wild', 5),
-        grid(['W.N.N.W', 'WWWWWWW']),
-        surge(5),
-        wait(6),
-        fly('swoopR', 'wild', 5),
-        until('thin', 3),
-        grid(['NWNWN', 'W.W.W']),
-        wait(4),
-        fly('arcR', 'wild', 6),
-        until('clear'),
-      ],
-    },
-    {
-      ...W1,
-      code: '1-3',
-      name: 'BUDDING',
-      kind: 'sample',
-      intro: { icon: 'budder', text: 'BUDDERS RELEASE VIRIONS. SHOOT THEM TOO.' },
-      script: [
-        grid(['U.U.U', 'WWWWW'], { spacing: 2.6 }),
-        wait(6),
-        fly('swoopL', 'wild', 5),
-        until('thin', 2),
-        grid(['UW.WU', 'WWWWWW']),
-        surge(5),
+        wait(7),
+        grid(['W.W.W.W'], { z: -12.8 }),
+        until('thin', 1),
+        ...rest(),
+        // Twist: SNEEZERs over dense mini RAIN; the fan's centre lands
+        // between lanes 1.18 u apart, so you focus inside a lane.
+        grid(['N.....N', 'mmmmmmmmmmmmm'], { spacing: 1.18, rowGap: 1.6 }),
         wait(5),
-        fly('arcR', 'wild', 5),
-        until('clear'),
+        surge(5),
+        grid(['...N...', 'm.m.m.m.m.m.m'], { spacing: 1.18, rowGap: 1.4, z: -12.8 }),
+        wait(5),
+        verse('alternate'),
+        ...rest(),
+        // Test: the midboss BIG SNEEZER (ACHOO).
         { midboss: 'bigsneezer' },
         until('clear'),
       ],
     },
     {
-      ...W1,
-      code: '1-4',
+      ...S1,
+      code: '1-3',
       name: 'ALPHA',
       kind: 'boss',
       boss: 'alpha',
-      intro: { icon: 'boss', text: 'ITS EYES NARROW BEFORE EVERY CARD.' },
+      introduces: ['alpha'],
+      intro: { icon: 'boss', text: 'NAMED CARDS. NEUTRALIZE EACH BEFORE ITS TIMER.' },
+      protocol: 'NO HIT AND NO SOAP SEQUENCES A CARD.',
     },
     {
-      ...W1,
-      code: 'B1',
-      name: 'CULTURE CHECK',
-      kind: 'bonus',
-      intro: { icon: 'bonus', text: 'HARMLESS VIRIONS. CURE THEM ALL.' },
-      maxBullets: 0,
-      // Every control point sits inside the rails, so harmless fliers never
-      // leave the board while they can still be shot.
+      ...S2,
+      code: '2-1',
+      name: 'DEEP BREATH',
+      kind: 'sample',
+      introduces: ['breath', 'puff'],
+      intro: { icon: 'breath', text: 'BULLETS SLOW ON THE INHALE AND RUSH ON THE EXHALE.' },
+      protocol: 'COMMIT ON THE INHALE.',
+      maxBullets: 52,
+      choir: { interval: [1.5, 1.1], size: [2, 3] },
       script: [
-        { flight: { path: bezier([[-8.6, -11], [-4, 5], [4, 5], [8.6, -11]]), kind: 'virion', count: 8, interval: 0.25, speed: 8, harmless: true } },
-        wait(4.4),
-        { flight: { path: bezier([[8.6, -11], [4, 5], [-4, 5], [-8.6, -11]]), kind: 'virion', count: 8, interval: 0.25, speed: 8, harmless: true } },
-        wait(4.4),
-        { flight: { path: bezier([[-8.6, -3], [-1, 7], [1, -12.5], [8.6, -3]]), kind: 'virion', count: 8, interval: 0.25, speed: 8, harmless: true } },
-        wait(4.4),
-        { flight: { path: bezier([[0, -12.5], [-8.6, 0], [8.6, 3], [0, -12.5]]), kind: 'virion', count: 8, interval: 0.25, speed: 8, harmless: true } },
-        wait(4.4),
-        { flight: { path: bezier([[-8.6, 1], [-3, -12], [3, -12], [8.6, 1]]), kind: 'virion', count: 4, interval: 0.25, speed: 8, harmless: true } },
-        { flight: { path: bezier([[8.6, 1], [3, -12], [-3, -12], [-8.6, 1]]), kind: 'virion', count: 4, interval: 0.25, speed: 8, harmless: true } },
+        // Introduce: a known grid, slow aimed coughs and rain, two full breaths.
+        tune({ wild: { n: 1, speed: 5.5 } }),
+        grid(['W.W.W.W', '.W.W.W.']),
+        wait(6),
+        grid(['WWWWWWW'], { z: -12.8 }),
+        until('thin', 2),
+        ...rest(),
+        // Develop: a SNEEZER pair over rain; fans released on the inhale
+        // bunch, then rush.
+        tune({}),
+        verse('rain'),
+        grid(['.N...N.', 'WWWWWWW']),
+        wait(7),
+        grid(['W.W.N.W.W'], { z: -12.8, spacing: 2 }),
+        until('thin', 1),
+        ...rest(),
+        // Twist: puffs drift in and mist only on the exhale (random fire,
+        // used sparingly).
+        grid(['W.W.W.W', '.W.W.W.']),
+        { puffs: [{ x: -11, z: -6.5, vx: 1.1 }, { x: 11, z: -8, vx: -1.1 }] },
+        wait(6),
+        grid(['WWWWWWW'], { z: -12.8 }),
+        wait(6),
+        ...rest(),
+        // Test: puffs, SNEEZERs and a grid, with a surge on one exhale.
+        verse('alternate'),
+        grid(['N.W.W.N', 'WWWWWWW']),
+        { puffs: [{ x: -11, z: -7, vx: 1 }] },
+        wait(6.5),
+        surge(4),
+        grid(['W.W.W.W'], { z: -12.8 }),
         until('clear'),
       ],
     },
     {
-      ...W2,
-      code: '2-1',
+      ...S2,
+      code: '2-2',
       name: 'GAS EXCHANGE',
       kind: 'sample',
-      intro: { icon: 'worm', text: 'RNA WORMS WEAVE AND STREAM. KEEP MOVING.' },
+      introduces: ['worm', 'aerosolcloud'],
+      intro: { icon: 'worm', text: 'RNA WORMS LAY AIMED STRANDS. STREAM, DO NOT STOP.' },
+      protocol: 'MOVE STEADILY. TURN AT THE EDGE.',
+      choir: { interval: [1.25, 0.9], size: [3, 5] },
       script: [
-        grid(['WWWWWWW', 'W.W.W.W']),
-        wait(3),
-        { worms: { count: 2, z: -8.5, dir: 1 } },
-        wait(6),
-        { worms: { count: 2, z: -9.5, dir: -1 } },
-        until('thin', 3),
-        grid(['N.N.N', 'WWWWWW']),
-        surge(6),
-        wait(4),
-        { worms: { count: 3, z: -9, dir: 1 } },
-        wait(5),
-        fly('swoopL', 'wild', 6),
-        until('thin', 2),
-        grid(['UWNWU', 'WWWWWWW']),
-        { worms: { count: 2, z: -8.5, dir: -1 } },
+        // Introduce: one worm crossing the top, thread drawn; nothing else fires.
+        { worms: { count: 1, z: -8.5, dir: 1 } },
+        wait(4.5),
+        { worms: { count: 1, z: -9.5, dir: -1 } },
         until('clear'),
-      ],
-    },
-    {
-      ...W2,
-      code: '2-2',
-      name: 'AEROSOL',
-      kind: 'sample',
-      intro: { icon: 'puff', text: 'AEROSOL PUFFS DRIFT AND SPRAY MIST.' },
-      script: [
-        grid(['W.W.W.W', 'WWWWWWW']),
         wait(2),
-        { puffs: [{ x: -11, z: -6.5, vx: 1.2 }, { x: 11, z: -8, vx: -1.2 }] },
-        wait(7),
-        fly('arcL', 'wild', 6),
-        until('thin', 2),
-        grid(['NWUWN', 'WWWWW'], { spacing: 2.6 }),
-        surge(6),
-        { vesicle: { dir: -1 } },
-        wait(5),
-        { puffs: [{ x: 11, z: -7, vx: -1.1 }] },
-        { worms: { count: 2, z: -9.5, dir: 1 } },
-        until('clear'),
+        // Develop: two worms crossing in opposite directions, plus rain.
+        verse('rain'),
+        grid(['W.W.W.W', '.W.W.W.']),
+        { worms: { count: 1, z: -8.5, dir: 1 } },
+        wait(3),
+        { worms: { count: 1, z: -9.5, dir: -1 } },
+        wait(4),
+        grid(['WWWWWWW'], { z: -12.8 }),
+        { worms: { count: 1, z: -9, dir: 1 } },
+        ...rest(),
+        grid(['W.W.N.W.W'], { z: -12.8, spacing: 2 }),
+        { worms: { count: 1, z: -8.5, dir: -1 } },
+        verse('alternate'),
+        ...rest(),
+        // Twist: strands launched on the exhale, with a SNEEZER.
+        grid(['...N...', 'WWWWWWW']),
+        { worms: { count: 2, z: -9, dir: 1, exhale: true } },
+        wait(6),
+        { worms: { count: 2, z: -8.5, dir: -1, exhale: true } },
+        ...rest(),
+        // Test: the midboss AEROSOL CLOUD (MIST) recalls 2-1's mist.
         { midboss: 'aerosolcloud' },
         until('clear'),
       ],
     },
     {
-      ...W2,
+      ...S2,
       code: '2-3',
-      name: 'DEEP BREATH',
-      kind: 'sample',
-      twist: 'breath',
-      intro: { icon: 'breath', text: 'BREATH: BULLETS SLOW ON THE INHALE, RUSH ON THE EXHALE.' },
-      script: [
-        grid(['NUNUN', 'WWWWWW']),
-        wait(4),
-        { worms: { count: 2, z: -9, dir: -1 } },
-        wait(5),
-        { puffs: [{ x: 11, z: -7, vx: -1.1 }] },
-        until('thin', 3),
-        grid(['UWNWU', 'WNWNW', 'WWWWW']),
-        surge(6),
-        wait(3),
-        fly('swoopR', 'wild', 6),
-        wait(5),
-        fly('swoopL', 'wild', 6),
-        { worms: { count: 2, z: -8.5, dir: 1 } },
-        until('thin', 2),
-        grid(['NNNNN', 'WWWWWWW']),
-        until('clear'),
-      ],
-    },
-    {
-      ...W2,
-      code: '2-4',
       name: 'BETA & GAMMA',
       kind: 'boss',
       boss: 'betagamma',
-      twist: 'breath',
-      intro: { icon: 'boss', text: 'TWINS SHARE ONE LOAD. HIT THE GLOWING NUCLEUS.' },
+      introduces: ['betagamma'],
+      intro: { icon: 'boss', text: 'TWINS SHARE ONE LOAD. ONLY THE GLOWING TWIN TAKES DAMAGE.' },
+      protocol: 'HIT THE GLOWING NUCLEUS.',
     },
     {
-      ...W3,
+      ...S3,
       code: '3-1',
       name: 'CIRCULATION',
       kind: 'sample',
-      twist: 'current',
-      intro: { icon: 'droplet', text: 'CURRENT PUSHES BULLETS SIDEWAYS. DROPLETS DIVE.' },
+      introduces: ['current'],
+      intro: { icon: 'current', text: 'CURRENT CARRIES EVERY BULLET. IT FLIPS ON A WARNING.' },
+      protocol: 'DODGE DOWNSTREAM.',
+      maxBullets: 80,
+      choir: { interval: [0.95, 0.7], size: [3, 5] },
       script: [
-        grid(['D.D.D.D', 'WWWWWWW']),
-        wait(5),
-        fly('dropL', 'wild', 5),
-        until('thin', 3),
-        grid(['DNDND', 'WWWWW', 'W.W.W']),
-        surge(7),
-        wait(4),
-        fly('dropR', 'wild', 5),
-        { worms: { count: 2, z: -9.5, dir: -1 } },
-        wait(5),
-        fly('swoopR', 'wild', 6),
-        until('thin', 3),
-        grid(['DUDUD', 'NWNWN']),
-        wait(3),
-        { puffs: [{ x: -11, z: -7, vx: 1.1 }] },
-        fly('swoopL', 'wild', 6),
-        wait(4),
-        { worms: { count: 2, z: -9, dir: 1 } },
-        until('thin', 2),
-        grid(['NDNDN', 'WWWWWWW']),
-        until('clear'),
-      ],
-    },
-    {
-      ...W3,
-      code: '3-2',
-      name: 'HIJACK',
-      kind: 'sample',
-      intro: { icon: 'hijacker', text: 'HIJACKERS ARMOR WILD TYPES. CUT THE TETHER.' },
-      script: [
-        grid(['W.H.W.H.W', 'WWWWWWWWW'], { spacing: 2 }),
+        // Introduce: rain under the current; the lanes lean and stay readable.
+        verse('rain'),
+        grid(['W.W.W.W', '.W.W.W.']),
         wait(6),
-        fly('arcL', 'wild', 6),
+        grid(['WWWWWWW'], { z: -12.8 }),
         until('thin', 2),
-        grid(['CWCWC', 'WCWCW'], { spacing: 2.4, rowGap: 1.7 }),
-        surge(7),
+        ...rest(),
+        // Develop: aimed coughs drift; the second VESICLE of the run.
+        verse('alternate'),
+        grid(['W.N.N.W', 'WWWWWWW']),
+        { vesicle: { dir: -1 } },
+        wait(7),
+        grid(['.W.W.W.W.', 'W.W.W.W.W'], { z: -12.8, spacing: 2 }),
+        until('thin', 2),
+        ...rest(),
+        // Twist: the flow flips mid-surge (at 30 s), and a worm streams across it.
+        grid(['.N.N.N.', 'WWWWWWW']),
         wait(4),
-        { worms: { count: 2, z: -9.5, dir: 1 } },
-        until('thin', 2),
-        grid(['HCDCH', 'WNWNW']),
+        surge(6),
+        { worms: { count: 1, z: -9, dir: 1 } },
         wait(4),
-        fly('swoopR', 'wild', 6),
-        until('thin', 2),
-        grid(['NWNWN', 'WDWDW']),
-        wait(3),
-        fly('arcR', 'wild', 6),
-        until('clear'),
-        { midboss: 'mother' },
+        grid(['W.W.W.W'], { z: -12.8 }),
+        ...rest(),
+        // Test: a mixed grid (WILD, SNEEZER, puffs) with flights.
+        grid(['N.W.W.N', 'WWWWWWW']),
+        { puffs: [{ x: 11, z: -7, vx: -1 }] },
+        wait(4),
+        fly('swoopL', 'wild', 5),
+        wait(4),
+        fly('swoopR', 'wild', 5),
+        grid(['W.W.W.W'], { z: -12.8 }),
         until('clear'),
       ],
     },
     {
-      ...W3,
-      code: '3-3',
-      name: 'VARIANT SURGE',
+      ...S3,
+      code: '3-2',
+      name: 'SPLASHDOWN',
       kind: 'sample',
-      twist: 'current',
-      intro: { icon: 'heavy', text: 'HEAVY CROWNS: WATCH THE SPIKES BREAK.' },
+      introduces: ['droplet', 'lambda'],
+      intro: { icon: 'droplet', text: 'DROPLETS DIVE AND SPLASH INTO A RING. SHOOT FIRST.' },
+      protocol: 'A DASHED PATH MEANS A DIVE.',
+      maxBullets: 80,
+      choir: { interval: [0.85, 0.6], size: [4, 6] },
       script: [
-        grid(['K...K...K', 'WWWWWWWWW'], { spacing: 2 }),
-        wait(5),
-        fly('swoopL', 'wild', 6),
-        wait(4),
-        { worms: { count: 2, z: -9.5, dir: 1 } },
-        until('thin', 3),
-        grid(['KDKDK', 'NWNWN', 'WWWWW']),
-        surge(7),
-        wait(3),
-        { worms: { count: 2, z: -9.5, dir: -1 } },
-        wait(4),
-        fly('dropR', 'wild', 6),
-        wait(4),
-        fly('dropL', 'wild', 6),
-        until('thin', 3),
-        grid(['KNKNK', 'DWDWD']),
-        { puffs: [{ x: 11, z: -7, vx: -1.1 }] },
-        wait(5),
-        fly('arcR', 'wild', 6),
+        // Introduce: single droplets from a sparse grid, long telegraph.
+        { dive: { telegraph: 1.2 } },
+        grid(['D.W.W.D', '.W.W.W.']),
+        wait(6),
+        grid(['W.W.W.W'], { z: -12.8 }),
         until('clear'),
-      ],
-    },
-    {
-      ...W3,
-      code: '3-4',
-      name: 'DELTA',
-      kind: 'boss',
-      boss: 'delta',
-      twist: 'current',
-      intro: { icon: 'boss', text: 'IT REALLY SPLITS. LANES GLOW BEFORE THEY FIRE.' },
-    },
-    {
-      ...W3,
-      code: 'B2',
-      name: 'SWAB TEST',
-      kind: 'bonus',
-      intro: { icon: 'bloom', text: 'BLOOMS ARE HARMLESS HERE. SHOOT ONLY OPEN BUDS.' },
-      maxBullets: 0,
-      timeLimit: 32,
-      script: [grid(['B.B.B.B', '.B.B.B.', 'B.B.B.B'], { spacing: 2.3, rowGap: 2.2, z: -11, sway: 0.6, descent: 0.1, harmless: true }), until('clear')],
-    },
-    {
-      ...W4,
-      code: '4-1',
-      name: 'AGAR',
-      kind: 'sample',
-      intro: { icon: 'bloom', text: 'BLOOMS OPEN, FIRE A RING, THEN CLOSE. WAIT FOR IT.' },
-      script: [
-        grid(['B..B..B', 'WWWWWWW']),
-        wait(5),
-        fly('arcR', 'wild', 6),
-        until('thin', 2),
-        grid(['BKBKB', 'WNWNW', 'WWWWW']),
-        surge(8),
-        wait(4),
-        { worms: { count: 2, z: -9.5, dir: -1 } },
-        wait(4),
-        fly('swoopL', 'wild', 6),
+        wait(2),
+        // Develop: droplet dives under choir coughs.
+        { dive: { telegraph: 0.8 } },
+        grid(['D.D.D.D', 'WWWWWWW']),
         until('thin', 3),
-        grid(['BNBNB', 'KWKWK']),
-        { puffs: [{ x: -11, z: -7, vx: 1.1 }] },
-        until('clear'),
-      ],
-    },
-    {
-      ...W4,
-      code: '4-2',
-      name: 'MUTATION',
-      kind: 'sample',
-      twist: 'mutation',
-      intro: { icon: 'mutation', text: 'MUTATION: A FLASHING VIRUS UPGRADES ITS ATTACK.' },
-      script: [
-        grid(['WNWNW', 'UWUWU', 'WWWWW']),
-        wait(5),
-        fly('swoopR', 'wild', 6),
-        until('thin', 3),
-        grid(['KDKDK', 'CWCWC']),
-        surge(8),
-        { worms: { count: 2, z: -9, dir: -1 } },
+        ...rest(),
+        grid(['.W.W.W.', 'D.....D'], { z: -12.8 }),
+        until('thin', 1),
+        ...rest(),
+        // Twist: a droplet lands upstream; its splash ring drifts onto you.
+        grid(['D.N.N.D', 'WWWWWWW']),
         wait(4),
-        { puffs: [{ x: 11, z: -7, vx: -1.1 }] },
-        until('clear'),
+        surge(5),
+        ...rest(),
+        // Test: the midboss LAMBDA, moved before DELTA (a safe preview of
+        // DELTA's LANE SNEEZE).
         { midboss: 'lambda' },
         until('clear'),
       ],
     },
     {
-      ...W4,
-      code: '4-3',
-      name: 'OUTBREAK',
+      ...S3,
+      code: '3-3',
+      name: 'DELTA',
+      kind: 'boss',
+      boss: 'delta',
+      introduces: ['delta'],
+      intro: { icon: 'boss', text: 'IT SPLITS. LANES GLOW BEFORE THEY FIRE.' },
+      protocol: 'READ THE LANE, THEN THE HALVES.',
+    },
+    {
+      ...S4,
+      code: '4-1',
+      name: 'COPY ERROR',
       kind: 'sample',
-      twist: 'mutation',
-      intro: { icon: 'r0', text: 'KEEP R0 BELOW 1: STOP THE FLIGHTS ESCAPING.' },
+      introduces: ['mutation', 'heavy'],
+      intro: { icon: 'mutation', text: 'A FLASH MEANS AN UPGRADE. CURE IT FIRST.' },
+      protocol: 'A FLASHING WILD TYPE BECOMES A HEAVY CROWN.',
+      maxBullets: 95,
+      choir: { interval: [1.05, 0.75], size: [3, 5] },
       script: [
-        grid(['NKNKN', 'DWDWD', 'WWWWW']),
-        wait(3),
-        fly('swoopL', 'wild', 6),
-        wait(3),
-        fly('swoopR', 'wild', 6),
-        until('thin', 4),
-        { puffs: [{ x: -11, z: -7, vx: 1.2 }] },
-        fly('dropR', 'wild', 6),
-        wait(4),
-        fly('dropL', 'wild', 6),
+        // Introduce: one mutation at a time (1.2 s flash) on a sparse grid;
+        // the HEAVY CROWN it produces fires slowly.
+        { mutation: { flash: 1.2, every: 4.5 } },
+        tune({ heavy: { speed: 6 } }),
+        verse('rain'),
+        grid(['W.W.W.W', '.W.W.W.']),
+        wait(6),
+        grid(['W.W.W.W'], { z: -12.8 }),
+        until('clear'),
+        wait(2),
+        // Develop: a mutation every 3.2 s on a fuller grid; spike stacks at 8.
+        { mutation: { flash: 0.8, every: 3.2 } },
+        tune({}),
+        grid(['WWWWWWW', 'W.W.W.W']),
         until('thin', 2),
-        grid(['UHUHU', 'WCWCW', 'WWWWW']),
-        surge(8),
-        { worms: { count: 3, z: -9.5, dir: 1 } },
-        fly('arcL', 'wild', 6),
+        ...rest(),
+        grid(['.W.W.W.', 'W.W.W.W'], { z: -12.8 }),
+        until('thin', 1),
+        ...rest(),
+        // Twist: a SNEEZER mutates into a 9-way, 3-tier fan (misdirection),
+        // over rain.
+        verse('rain'),
+        grid(['N.....N', 'WWWWWWW']),
+        wait(5),
+        surge(4),
+        ...rest(),
+        // Test: a dense mixed grid with flights.
+        grid(['N.W.W.N', 'WWWWWWW', 'W.W.W.W']),
+        wait(5),
+        fly('swoopR', 'wild', 5),
         wait(4),
-        fly('arcR', 'wild', 6),
-        until('thin', 2),
-        grid(['KBKBK', 'NWNWN']),
+        fly('swoopL', 'wild', 5),
+        until('thin', 3),
+        grid(['W.N.N.W', 'WWWWWWW'], { z: -12.8 }),
         until('clear'),
       ],
     },
     {
-      ...W4,
-      code: '4-4',
+      ...S4,
+      code: '4-2',
+      name: 'FULL BLOOM',
+      kind: 'sample',
+      introduces: ['bloom', 'mother'],
+      intro: { icon: 'bloom', text: 'BLOOMS OPEN, FIRE A RING, CLOSE. WAIT, OR INJECT.' },
+      protocol: 'THE NEEDLE PIERCES A CLOSED BUD.',
+      maxBullets: 105,
+      choir: { interval: [0.8, 0.55], size: [4, 6] },
+      script: [
+        // Introduce: one bloom alone, a small slow ring (B2's safe intro).
+        tune({ bloom: { n: 10, speed: 3.5 } }),
+        grid(['...B...'], { z: -9 }),
+        wait(5),
+        grid(['W.W.W.W'], { z: -12.8 }),
+        until('clear'),
+        wait(2),
+        // Develop: a bloom field with a coughing grid (the rings are static).
+        tune({}),
+        verse('cough'),
+        grid(['N..B..N', 'WWWWWWW']),
+        wait(6),
+        grid(['W.W.W.W'], { z: -12.8 }),
+        until('thin', 1),
+        ...rest(),
+        // Twist: blooms mutate, and their rings upgrade.
+        grid(['B.....B', 'WWWWWWW', 'W.N.N.W']),
+        wait(5),
+        surge(4),
+        ...rest(),
+        // Test: the midboss MOTHER CELL: BUDDING, LYSIS, CELL BURST.
+        verse('alternate'),
+        { midboss: 'mother' },
+        until('clear'),
+      ],
+    },
+    {
+      ...S4,
+      code: '4-3',
       name: 'OMICRON PRIME',
       kind: 'boss',
       boss: 'omicron',
-      intro: { icon: 'boss', text: 'CHOOSE WHICH SPIKE NODE DIES FIRST.' },
+      introduces: ['omicron'],
+      intro: { icon: 'boss', text: 'ITS MUTATIONS ARE ITS PHASES. CHOOSE A NODE.' },
+      protocol: 'R0 BELOW 1 CONTAINS THE SPECIMEN.',
     },
-  ].map((level, index) =>
-    Object.freeze({
+  ].map((level, index) => {
+    const world = WORLDS[level.world - 1];
+    return Object.freeze({
       ...level,
       id: index + 1,
-      twist: level.twist ?? null,
-      worldEnd: level.kind === 'boss' && /-4$/.test(level.code),
-    }),
-  ),
+      // The twist runs on every stage of its sector, bosses included.
+      twist: world.twist,
+      worldEnd: level.kind === 'boss',
+    });
+  }),
 );
 
 export { PATHS };
@@ -510,3 +569,24 @@ export function getLevel(stage) {
   return LEVELS[Math.max(0, Math.min(LEVELS.length - 1, stage - 1))];
 }
 export const getWorld = (stage) => WORLDS[getLevel(stage).world - 1];
+
+/** mRNA strands needed for power levels 1-4 (RESEARCH_CARDS.md 2.8, A5 kept):
+ * L2 by 1-2, L3 by 2-2, L4 by 3-2, from the midbosses and VESICLEs. */
+export const POWER_STEPS = Object.freeze([0, 1, 3, 5]);
+export const powerOf = (mrna) => POWER_STEPS.filter((t) => mrna >= t).length;
+/** Guaranteed power on arrival: every VESICLE and midboss mRNA earlier in
+ * the run, converted through POWER_STEPS. */
+export function entryPower(stage) {
+  let n = 0;
+  for (const level of LEVELS.slice(0, stage - 1)) for (const st of level.script || []) if (st.vesicle || st.midboss) n++;
+  return powerOf(n);
+}
+/** The HP hook (RESEARCH_V1.md A4 / RESEARCH_CARDS.md 5.3): the expected
+ * effective DPS at a stage's entry. Every HP path reads it: popcorn HP, boss
+ * and midboss card HP and SOAP / burst damage. The card draft multiplies it
+ * by its expected potency; patterns never scale. */
+export function stageDps(stage) {
+  return RULES.powerDps[entryPower(stage) - 1];
+}
+/** Base HP (or base damage defined against HP) scaled for a stage. */
+export const stageHp = (base, stage) => (base * stageDps(stage)) / RULES.referenceDps;

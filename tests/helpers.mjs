@@ -1,6 +1,6 @@
 /** Shared test fixtures. Fixtures only arrange a starting situation; every
  * outcome is then produced by the real update() rules. */
-import { createState, selectStage, update, LEVELS } from '../model.mjs';
+import { createState, selectStage, update, LEVELS, bossHome } from '../model.mjs';
 import { createBoss, BOSSES } from '../bosses.mjs';
 import { spawnGroup } from '../enemies.mjs';
 import { chooseInput } from './controller.mjs';
@@ -27,7 +27,7 @@ export function group(s, rows, opts = {}) {
   return s.enemies.filter((e) => e.alive);
 }
 /** Stage that hosts each boss type (bosses and midbosses). */
-export const HOME = Object.freeze({ alpha: 4, betagamma: 9, delta: 13, omicron: 18, bigsneezer: 3, aerosolcloud: 7, mother: 11, lambda: 16 });
+export const HOME = Object.freeze(Object.fromEntries(Object.keys(BOSSES).map((type) => [type, bossHome(type)])));
 /** One boss card alone in its arena (the MUTATION LAB rule: it ends when the
  * card ends). Many vials, so a whole card can be measured. */
 export function cardArena(type, card = 0, { seed = 7, x = 0, difficulty = 'normal', health = 99 } = {}) {

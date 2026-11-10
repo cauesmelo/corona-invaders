@@ -15,19 +15,23 @@
  * one archetype fire their family together.
  */
 import { RULES, clamp, random, nextId, pushEvent, addTelegraph } from './core.mjs';
-import { ARCHETYPES, CODE_KIND, PATHS, attackFor } from './levels.mjs';
+import { ARCHETYPES, CODE_KIND, PATHS, attackFor as baseAttack, stageHp } from './levels.mjs';
 import { startPattern, emitterBusy, gateAllows } from './patterns.mjs';
 import { spawnBullet } from './bullets.mjs';
 
 const ENTER_TIME = 1.4;
+// The dive's dashed path shows 0.8 s (1.2 s in 3-2's introduce beat).
 const DIVE_TELEGRAPH = 0.8;
+/** The stage's current attack for an archetype: sector upgrades plus the
+ * script's `tune` overrides for the running beat. */
+const attackFor = (kind, world, s) => baseAttack(kind, world, s?.sector?.tune);
 const DIVE_SPEED = 9;
 const PUDDLE_TIME = 1.6; // max wait for the gate before a puddle evaporates
 
 export function makeEnemy(s, kind, x, z, extra = {}) {
   const a = ARCHETYPES[kind];
-  const hpScale = (s.difficulty === 'easy' ? 0.85 : 1) * ((s.dpsRef ?? RULES.referenceDps) / RULES.referenceDps);
-  const hp = Math.max(1, Math.round(a.hp * hpScale));
+  // One HP route: levels.stageHp (the draft's hook), x0.85 on Easy.
+  const hp = Math.max(1, Math.round(stageHp(a.hp, s.wave ?? 1) * (s.difficulty === 'easy' ? 0.85 : 1)));
   return {
     id: `s${s.wave}-${kind}-${nextId(s)}`,
     kind,
@@ -78,7 +82,9 @@ export function spawnGroup(s, def, index, { enter = true } = {}) {
     [...line].forEach((code, col) => {
       const kind = CODE_KIND[code];
       if (!kind) return;
-      const x = (col - (cols - 1) / 2) * (def.spacing ?? 2.3),
+      // `x` shifts a whole grid (a reinforcement offset half a column from
+      // the grid it joins, so bodies never stack).
+      const x = (col - (cols - 1) / 2) * (def.spacing ?? 2.3) + (def.x ?? 0),
         z = z0 + row * rowGap;
       const e = makeEnemy(s, kind, x, z, {
         id: `s${s.wave}-g${index}-${row}-${col}`,
@@ -153,25 +159,28 @@ const budgetOk = (s, level, extra = 0) => stageBullets(s) + extra <= (level.maxB
 
 /** Start an archetype's attack through the overlap gate and the bullet budget. */
 function attack(s, e, level, override) {
-  const a = override || attackFor(e.kind, level.world);
+  const a = override || attackFor(e.kind, level.world, s);
   if (!a || e.harmless) return null;
   if (!budgetOk(s, level, 6)) return null;
   return startPattern(s, a.preset, { ownerId: e.id, params: a.params, src: e.label, tier: e.tier, spawnRadius: e.radius * 0.8 });
 }
 
 const CHOIR_KINDS = new Set(['mini', 'wild', 'sneezer', 'budder', 'heavy']);
+const RAIN_KINDS = new Set(['mini', 'wild']);
 const isFormation = (e) => e.alive && e.mode === 'formation' && e.group >= 0;
 
 /** The formation choir: every interval, 2-4 front-row members of one archetype
  * fire together. Only the front-most enemy of each column may be chosen. */
 export function scheduleChoir(s, level, dt) {
-  if (!level.choir) return;
+  // A `choir` script step retunes the stage's choir for the following beats.
+  const choir = s.sector?.choir || level.choir;
+  if (!choir) return;
   s.choirClock -= dt;
   if (s.choirClock > 0) return;
   const members = s.enemies.filter((e) => isFormation(e) && !e.harmless);
   const total = Math.max(1, s.enemies.filter((e) => e.group >= 0 && e.mode !== 'flight').length);
   const k = 1 - members.length / total;
-  const [slow, fast] = level.choir.interval;
+  const [slow, fast] = choir.interval;
   const surging = s.sector.surge > 0;
   s.choirClock = (slow + (fast - slow) * k) * (surging ? 0.5 : 1);
   if (!budgetOk(s, level, 8)) {
@@ -189,19 +198,34 @@ export function scheduleChoir(s, level, dt) {
   if (!ready.length) return;
   const kinds = [...new Set(ready.map((e) => e.kind))].sort();
   const kind = kinds[Math.floor(random(s) * kinds.length)];
-  if (!gateAllows(s, attackFor(kind, level.world).preset)) {
+  // RAIN, the Invaders verse (RESEARCH_V1.md 3.3): WILD TYPEs drop single
+  // droplets straight down (static lanes; only CURRENT drifts them). In the
+  // 'alternate' verse volleys alternate rain and the aimed cough.
+  const sec = s.sector;
+  let sung = null;
+  if (RAIN_KINDS.has(kind)) {
+    const v = sec.verse || 'alternate';
+    const rain = v === 'rain' || (v === 'alternate' && !sec.verseFlip);
+    sung = rain ? { preset: 'rain', params: { speed: level.rain ?? 4.5 } } : null;
+  }
+  const preset = sung ? sung.preset : attackFor(kind, level.world, s).preset;
+  if (!gateAllows(s, preset)) {
     s.choirClock = 0.3;
     return;
   }
+  if (RAIN_KINDS.has(kind) && (sec.verse || 'alternate') === 'alternate') sec.verseFlip = !sec.verseFlip;
   const pool = ready.filter((e) => e.kind === kind);
-  const [lo, hi] = level.choir.size;
+  const [lo, hi] = choir.size;
   // Big shooters (sneezer, heavy) sing alone or in pairs (alone in world 1):
   // their fans are wide.
   const cap = kind === 'sneezer' || kind === 'heavy' ? (level.world === 1 ? 1 : 2) : hi;
   let count = Math.min(pool.length, cap + (surging ? 1 : 0), lo + Math.floor(random(s) * (hi - lo + 1)) + (surging ? 1 : 0));
+  // A rain verse is twice as many singers: one droplet each makes a lane,
+  // so lanes are cheap where a cough stack is three bullets.
+  if (sung) count = Math.min(pool.length, count * 2);
   while (count-- > 0 && pool.length) {
     const e = pool.splice(Math.floor(random(s) * pool.length), 1)[0];
-    attack(s, e, level);
+    attack(s, e, level, sung);
   }
 }
 
@@ -217,6 +241,7 @@ export function scheduleDives(s, level, dt) {
   const e = ready[Math.floor(random(s) * ready.length)];
   e.mode = 'aim';
   e.modeTime = 0;
+  e.diveTele = s.sector?.dive?.telegraph ?? DIVE_TELEGRAPH;
   // The dive lands 4 u in front of where the syringe was: never on it.
   e.target = [clamp(s.ship.x, -7.8, 7.8), clamp(s.ship.z - 4.5, -2.5, 6.5)];
   e.escapable = true;
@@ -243,7 +268,7 @@ function updateDroplet(s, e, level, dt) {
   e.modeTime += dt;
   if (e.mode === 'aim') {
     [e.x, e.z] = slotPosition(s, e);
-    if (e.modeTime >= DIVE_TELEGRAPH) {
+    if (e.modeTime >= (e.diveTele ?? DIVE_TELEGRAPH)) {
       e.mode = 'dive';
       e.modeTime = 0;
     }
@@ -257,7 +282,7 @@ function updateDroplet(s, e, level, dt) {
   } else if (e.mode === 'puddle') {
     // The landed droplet wobbles (ring telegraph) and can still be shot.
     if (!e.splash) {
-      e.splash = startPattern(s, 'ring', { ownerId: e.id, params: attackFor('droplet', level.world).params, src: e.label, tier: e.tier, spawnRadius: 0.3 });
+      e.splash = startPattern(s, 'ring', { ownerId: e.id, params: attackFor('droplet', level.world, s).params, src: e.label, tier: e.tier, spawnRadius: 0.3 });
       if (!e.splash && e.modeTime > PUDDLE_TIME) escape(s, e);
     } else if (e.splash.state !== 'tele') {
       // It splashed: the infection spread (counts toward R0).
@@ -304,7 +329,7 @@ function updateHijacker(s, e, dt) {
 }
 
 /** Bloom: closed -> opening (0.8 s ring telegraph) -> open 1.5 s -> closed. */
-export const BLOOM_OPEN = 1.5;
+export const BLOOM_OPEN = 1.8;
 function updateBloom(s, e, level, dt) {
   const b = e.bud;
   b.timer -= dt;
@@ -323,7 +348,7 @@ function updateBloom(s, e, level, dt) {
     pushEvent(s, 'bloom-open', { id: e.id, x: e.x, z: e.z });
   } else if (b.state === 'open' && b.timer <= 0) {
     b.state = 'closed';
-    b.timer = e.harmless ? 1.6 + ((e.col * 0.7) % 1.2) : 3.4 + random(s) * 1.2;
+    b.timer = e.harmless ? 1.6 + ((e.col * 0.7) % 1.2) : 2.6 + random(s) * 0.8;
   }
 }
 
@@ -348,10 +373,17 @@ export function spawnFlight(s, def, index) {
   return e;
 }
 
+/** True while the BREATH cycle (6 s: warn 0-1, inhale 1-2.5, exhale 2.5-4)
+ * is between `from` and `to` seconds. */
+const breathPhase = (s, from, to) => {
+  const c = (s.waveElapsed ?? 0) % 6;
+  return c >= from && c < to;
+};
 export function spawnWorm(s, def, i) {
   const dir = def.dir ?? 1;
   const e = makeEnemy(s, 'worm', -dir * (10.8 + i * 2.6), def.z ?? -9, {
     mode: 'worm',
+    exhale: !!def.exhale,
     dir,
     z0: def.z ?? -9,
     phase: i * 1.3,
@@ -380,18 +412,38 @@ export function spawnVesicle(s, def) {
   return e;
 }
 
-/** MUTATION twist (world 4): every 3.2 s one plain formation member flashes
- * for 0.8 s (hue shift), then upgrades its pattern one tier. */
+/** MUTATION twist (sector 4), one rule: a flash means an upgrade
+ * (RESEARCH_V1.md 2.2, 4-1). Every 3.2 s one plain formation member flashes
+ * for 0.8 s (1.2 s in the introduce beat), then mutates unless it is cured
+ * first: a WILD TYPE becomes a HEAVY CROWN (the elite: its collider grows to
+ * the HEAVY radius, its HP to the HEAVY's stage HP); anything else fires one
+ * tier up, clamped to LIMITS. A mutating virus never sings in the choir, so a
+ * virus cured during its flash never fires. Formation members only: bosses
+ * are unaffected. */
 export function scheduleMutation(s, level, dt) {
   if (level.twist !== 'mutation') return;
   s.mutationClock -= dt;
   if (s.mutationClock > 0) return;
-  s.mutationClock = 3.2;
-  const pool = s.enemies.filter((e) => isFormation(e) && !e.tier && !e.mutating && ARCHETYPES[e.kind].attack && !e.harmless);
+  const m = s.sector?.mutation || {};
+  s.mutationClock = m.every ?? 3.2;
+  const pool = s.enemies.filter((e) => isFormation(e) && !e.tier && !e.mutating && !e.mutated && ARCHETYPES[e.kind].attack && !e.harmless);
   if (!pool.length) return;
   const e = pool[Math.floor(random(s) * pool.length)];
-  e.mutating = 0.8;
-  pushEvent(s, 'mutating', { id: e.id, x: e.x, z: e.z });
+  e.mutating = m.flash ?? 0.8;
+  e.mutateFlash = e.mutating;
+  pushEvent(s, 'mutating', { id: e.id, x: e.x, z: e.z, flash: e.mutating });
+}
+function mutate(s, e) {
+  e.mutating = 0;
+  if (e.kind === 'wild') {
+    const a = ARCHETYPES.heavy,
+      hp = Math.max(1, Math.round(stageHp(a.hp, s.wave ?? 1) * (s.difficulty === 'easy' ? 0.85 : 1)));
+    Object.assign(e, { kind: 'heavy', label: a.label, hp, maxHp: hp, radius: a.radius, mutated: true });
+    pushEvent(s, 'mutated', { id: e.id, x: e.x, z: e.z, into: 'heavy', kind: 'heavy' });
+    return;
+  }
+  e.tier = 1;
+  pushEvent(s, 'mutated', { id: e.id, x: e.x, z: e.z, into: e.kind, kind: e.kind });
 }
 
 /** Advances every non-boss actor. Boss parts are positioned by bosses.mjs. */
@@ -400,11 +452,7 @@ export function updateEnemies(s, level, dt) {
     if (!e.alive || e.kind === 'boss' || e.mode === 'minion') continue;
     const ox = e.x,
       oz = e.z;
-    if (e.mutating > 0 && (e.mutating -= dt) <= 0) {
-      e.mutating = 0;
-      e.tier = 1;
-      pushEvent(s, 'mutated', { id: e.id, x: e.x, z: e.z });
-    }
+    if (e.mutating > 0 && (e.mutating -= dt) <= 0) mutate(s, e);
     if (e.mode === 'flight') {
       e.dist += e.speed * dt;
       const p = pathAt(resolvePath(e.flightPath), e.dist);
@@ -423,18 +471,22 @@ export function updateEnemies(s, level, dt) {
       // drift that still hurts): it fences the top of the board, never the box.
       if ((e.trailClock -= dt) <= 0 && Math.abs(e.x) < 8.6) {
         e.trailClock = 0.3;
-        spawnBullet(s, { x: e.x, z: e.z + 0.3, angle: 0, speed: 0.6, family: 'rna', src: e.label, pattern: 'BEAD TRAIL', life: 1.5, owner: e.id });
+        spawnBullet(s, { x: e.x, z: e.z + 0.3, angle: 0, speed: 0.6, family: 'rna', src: e.label, pattern: 'BEAD TRAIL', life: 1.5, owner: e.id, gram: 'static' });
       }
-      if ((e.attackClock -= dt) <= 0 && Math.abs(e.x) < 7.5) {
-        e.attackClock = attack(s, e, level, { preset: 'strand', params: { ...attackFor('worm', level.world).params, aimShip: true } }) ? 3.6 : 0.4;
+      // `exhale` worms (2-2's twist) launch strands timed to land on the rush.
+      if ((e.attackClock -= dt) <= 0 && Math.abs(e.x) < 7.5 && (!e.exhale || breathPhase(s, 1.6, 1.85))) {
+        e.attackClock = attack(s, e, level, { preset: 'strand', params: { ...attackFor('worm', level.world, s).params, aimShip: true } }) ? 3.6 : 0.4;
       }
       if (Math.abs(e.x) > 11.5 && Math.sign(e.x) === e.dir) escape(s, e);
     } else if (e.mode === 'drift') {
       e.age += dt;
       e.x += e.vx * dt;
       e.z = e.z0 + Math.sin(e.age * 0.9) * 0.5;
-      if (e.kind === 'puff' && (e.attackClock -= dt) <= 0 && Math.abs(e.x) < 7.5)
-        e.attackClock = attack(s, e, level, { preset: 'aerosol', params: { ...attackFor('puff', level.world).params, aimShip: true } }) ? 2.8 : 0.4;
+      // In the lungs a puff mists only on the exhale: its 0.8 s telegraph
+      // starts at the end of the inhale, so the spray rides the rush.
+      const lungs = s.twist?.kind === 'breath';
+      if (e.kind === 'puff' && (e.attackClock -= dt) <= 0 && Math.abs(e.x) < 7.5 && (!lungs || breathPhase(s, 1.65, 1.8)))
+        e.attackClock = attack(s, e, level, { preset: 'aerosol', params: { ...attackFor('puff', level.world, s).params, aimShip: true } }) ? (lungs ? 4.5 : 2.8) : lungs ? 0.02 : 0.4;
       if (Math.abs(e.x) > 11.5 && Math.sign(e.x) === Math.sign(e.vx)) {
         e.alive = false;
         e.escaped = true;

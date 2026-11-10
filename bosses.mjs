@@ -16,6 +16,7 @@
  */
 import { RULES, clamp, random, pushEvent, requestHitstop, diff } from './core.mjs';
 import { makeEnemy } from './enemies.mjs';
+import { stageDps } from './levels.mjs';
 import { startPattern, clearEmitters } from './patterns.mjs';
 import { cancelBullets } from './bullets.mjs';
 import { awardKill, refreshChainFromBoss, chainMultiplier, addScore } from './scoring.mjs';
@@ -46,12 +47,14 @@ export const BOSSES = Object.freeze({
     body: 'twins',
     radius: 1.45,
     cards: [
-      phase('PING-PONG', 18, [P('drip', { n: 8, speed: 7.5 }, 1.4, { from: 'alt' })], { move: 'twins' }),
-      card('CROSS INFECTION', 24, [P('sneeze', { n: 7, spread: 54, speeds: [4.2], angle: 0.42 }, 1.7, { from: 'B' }), P('sneeze', { n: 7, spread: 54, speeds: [4.2], angle: -0.42 }, 1.7, { from: 'G' })], { move: 'corners' }),
+      // v1.0 retune (RESEARCH_V1.md 2.2): lighter opening streams that stay
+      // under 9.5 u/s on the exhale (7.0 x 1.3 = 9.1); a denser lattice.
+      phase('PING-PONG', 18, [P('drip', { n: 6, speed: 7 }, 1.5, { from: 'alt' })], { move: 'twins' }),
+      card('CROSS INFECTION', 24, [P('sneeze', { n: 9, spread: 60, speeds: [4.2], angle: 0.42 }, 3.4, { from: 'B' }), P('sneeze', { n: 9, spread: 60, speeds: [4.2], angle: -0.42 }, 3.4, { from: 'G' })], { move: 'corners' }),
       // The tracker overhead lays slow rings; the aimed cough comes from the
       // mirror twin on the far side, so the aimed shot is always diagonal.
-      card('MIRROR STRAIN', 24, [P('cough', { n: 3, spread: 22, speed: 6.5 }, 1.9, { from: 'B' }), P('ring', { n: 10, speed: 3.5 }, 2.3, { from: 'G', at: 0.7 })], { move: 'mirror', nucleus: 5 }),
-      card('DOUBLE HELIX', 20, [P('strand', { n: 7, speed: 4.2, amp: 0.7, wavelength: 5, angle: 0.3 }, 1.8, { from: 'B' }), P('strand', { n: 7, speed: 4.2, amp: 0.7, wavelength: 5, angle: -0.3, phase: Math.PI }, 1.8, { from: 'G', at: 0.9 }), P('sniffle', { n: 6, spread: 44, speed: 4.6 }, 3.8, { from: 'near', at: 1.2 })], { move: 'orbit' }),
+      card('MIRROR STRAIN', 24, [P('cough', { n: 3, spread: 22, speed: 6.5 }, 1.7, { from: 'B' }), P('ring', { n: 24, speed: 3.5 }, 1.2, { from: 'G', at: 0.7 })], { move: 'mirror', nucleus: 5 }),
+      card('DOUBLE HELIX', 20, [P('strand', { n: 6, speed: 4.2, amp: 0.7, wavelength: 5, angle: 0.3 }, 2.4, { from: 'B' }), P('strand', { n: 6, speed: 4.2, amp: 0.7, wavelength: 5, angle: -0.3, phase: Math.PI }, 2.4, { from: 'G', at: 1.2 }), P('sniffle', { n: 6, spread: 44, speed: 4.6 }, 5.5, { from: 'near', at: 1.2 })], { move: 'orbit' }),
     ],
   },
   // W3: a delta-seamed crown that really splits in two.
@@ -61,14 +64,19 @@ export const BOSSES = Object.freeze({
     body: 'delta',
     radius: 2,
     cards: [
-      phase('TRIANGULATE', 18, [P('sniffle', { n: 6, spread: 40, speed: 5 }, 0.9, { from: 'vertex' })], { move: 'sway' }),
-      card('LANE SNEEZE', 22, [P('jet', { width: 2, at: 'owner' }, 2.8), P('sneeze', { n: 7, spread: 50, speeds: [4.5, 6] }, 2.8, { at: 1.6 })], { move: 'track' }),
-      card('HALVES', 24, [P('ring', { n: 14, speed: 4 }, 1.3, { from: 'alt' }), P('cough', { n: 2, speed: 7 }, 2, { from: 'near', at: 0.8 })], { move: 'halves', split: true }),
-      card('BLOOD RUSH', 18, [P('wall', { gaps: 1, gapWidth: 2.4, speed: 3.2 }, 4), P('cough', { n: 1, speed: 7 }, 2.6, { from: 'near', at: 1.3 })], { move: 'halves', rush: true }),
-      card('Δ CASCADE', 20, [P('replicate', { n: 3, spread: 40, speed: 3.4, maxGen: 2, splitEvery: 1.1 }, 1.7, { from: 'alt' })], { move: 'halves' }),
+      phase('TRIANGULATE', 18, [P('sniffle', { n: 6, spread: 40, speed: 5.5 }, 0.75, { from: 'vertex' }), P('ring', { n: 16, speed: 3.6 }, 2.4, { at: 1.2 })], { move: 'sway' }),
+      card('LANE SNEEZE', 22, [P('jet', { width: 2, at: 'owner' }, 2.8), P('sneeze', { n: 9, spread: 56, speeds: [4.5, 6] }, 2, { at: 1.6 })], { move: 'track' }),
+      // v1.0 retune upward (peak 33 -> about 100): denser HALVES rings, walls
+      // every 3 s, four CASCADE seeds.
+      card('HALVES', 24, [P('ring', { n: 24, speed: 4 }, 0.8, { from: 'alt' }), P('cough', { n: 2, speed: 7 }, 1.3, { from: 'near', at: 0.8 })], { move: 'halves', split: true }),
+      // 3.5 s walls (were 4): every 3 s left the reactive referee no time to
+      // aim between gaps, and the card timed out (1.6 x TTK).
+      card('BLOOD RUSH', 9, [P('wall', { gaps: 1, gapWidth: 2.4, speed: 3.2 }, 3.5), P('cough', { n: 2, speed: 7.5 }, 1.8, { from: 'near', at: 1.3 })], { move: 'halves', rush: true }),
+      card('Δ CASCADE', 20, [P('replicate', { n: 4, spread: 48, speed: 3.4, maxGen: 2, splitEvery: 1.1 }, 1.5, { from: 'alt' }), P('cough', { n: 2, speed: 7.5 }, 2.2, { from: 'near', at: 1 })], { move: 'halves' }),
     ],
   },
-  // W4 finale. Its "mutations" are its phases.
+  // W4 finale. Its "mutations" are its phases. Aimed fans stay <= 7 u/s;
+  // only CORONA FLARE's stack (one line) reaches 8.5 (RESEARCH_V1.md 2.3).
   omicron: {
     name: 'OMICRON PRIME',
     color: '#a8ff3c',
@@ -80,18 +88,19 @@ export const BOSSES = Object.freeze({
         // Was 35 s against a 30 s phase timeout: it could never be cleared.
         20,
         [
-          P('cough', { n: 3, spread: 24, speed: 7.5 }, 1.4, { from: 'node:cough' }),
+          P('cough', { n: 3, spread: 24, speed: 7 }, 1.4, { from: 'node:cough' }),
           P('ring', { n: 18, speed: 3.9, family: 'spike' }, 1.9, { from: 'node:ring', at: 0.8 }),
-          P('bloom', { n: 7, interval: 0.28, rotate: 13, speed: 4, duration: 2.4 }, 3.6, { from: 'node:bloom', at: 1.6 }),
+          // v1.0: 2.0 s blooms (were 2.4) keep the finale's peak <= 130.
+          P('bloom', { n: 7, interval: 0.28, rotate: 13, speed: 4, duration: 2 }, 3.6, { from: 'node:bloom', at: 1.6 }),
           P('drip', { n: 8, speed: 7.8 }, 2.2, { from: 'node:drip', at: 2.4 }),
         ],
         { move: 'sway', nodes: true },
       ),
       card('SNEEZE STORM', 25, [P('aerosol', { rate: 8, cone: 110, speed: [2.6, 4.4], duration: 3, lanes: 2 }, 3.2), P('cough', { n: 3, spread: 22, speed: 7 }, 1.5, { at: 1.2 })], { move: 'sway' }),
-      card('MUTATION SPIRAL', 25, [P('bloom', { n: 7, interval: 0.22, rotate: 13, speed: 4.6, duration: 2.4, dir: 1 }, 3.1, { alternate: true }), P('bloom', { n: 7, interval: 0.22, rotate: 13, speed: 4.6, duration: 2.4, dir: -1 }, 3.1, { alternate: true }), P('cough', { n: 3, spread: 20, speed: 7.5 }, 1.7, { at: 0.8 })], { move: 'still' }),
+      card('MUTATION SPIRAL', 25, [P('bloom', { n: 7, interval: 0.22, rotate: 13, speed: 4.6, duration: 2.4, dir: 1 }, 3.1, { alternate: true }), P('bloom', { n: 7, interval: 0.22, rotate: 13, speed: 4.6, duration: 2.4, dir: -1 }, 3.1, { alternate: true }), P('cough', { n: 3, spread: 20, speed: 7 }, 1.7, { at: 0.8 })], { move: 'still' }),
       { name: 'QUARANTINE', type: 'survival', ttk: 0, duration: 15, patterns: [P('ring', { n: 20, speed: 3.8, family: 'spike' }, 1.3, { at: 1 }), P('aerosol', { rate: 6, cone: 90, speed: [2.6, 3.6], duration: 1.6 }, 2.2, { at: 1.6 })], move: 'still', quarantine: true },
-      card('CORONA FLARE', 20, [P('ring', { n: 24, speed: 4.6, family: 'spike', gaps: 2 }, 1.4), P('cough', { n: 3, spread: 18, speed: 8 }, 1.2, { at: 1 })], { move: 'sway' }),
-      card('R0 > 1', 25, [P('replicate', { n: 5, spread: 70, speed: 3.5, maxGen: 2, splitEvery: 1 }, 1.3), P('cough', { n: 3, spread: 16, speed: 7.5 }, 1.6, { at: 1 })], { move: 'sway', finale: true }),
+      card('CORONA FLARE', 20, [P('ring', { n: 24, speed: 4.6, family: 'spike', gaps: 2 }, 1.4), P('cough', { n: 3, speed: 8.5 }, 1.2, { at: 1 })], { move: 'sway' }),
+      card('R0 > 1', 25, [P('replicate', { n: 5, spread: 70, speed: 3.5, maxGen: 2, splitEvery: 1 }, 1.3), P('cough', { n: 3, spread: 16, speed: 7 }, 1.6, { at: 1 })], { move: 'sway', finale: true }),
     ],
   },
   // Midbosses (1-3 cards, 20-40 s total TTK).
@@ -101,7 +110,7 @@ export const BOSSES = Object.freeze({
     color: '#12ce5d',
     body: 'sneezer',
     radius: 1.7,
-    cards: [card('ACHOO!', 20, [P('sneeze', { n: 9, spread: 60, speeds: [4, 5.5], reps: 2, repGap: 0.5, tele: 1 }, 3.6), P('cough', { n: 1, speed: 6.5 }, 2, { at: 1.6 })], { move: 'sway' })],
+    cards: [card('ACHOO!', 20, [P('sneeze', { n: 9, spread: 60, speeds: [4, 5], reps: 2, repGap: 0.5, tele: 1 }, 3.8), P('cough', { n: 1, speed: 6.5 }, 2.8, { at: 1.6 })], { move: 'sway' })],
   },
   aerosolcloud: {
     name: 'AEROSOL CLOUD',
@@ -109,7 +118,9 @@ export const BOSSES = Object.freeze({
     color: '#1fc9a4',
     body: 'cloud',
     radius: 1.8,
-    cards: [card('MIST', 22, [P('aerosol', { rate: 7, cone: 120, speed: [2.5, 4], duration: 2.5 }, 3.2), P('ring', { n: 12, speed: 3.5, family: 'droplet' }, 2.6, { at: 1.4 })], { move: 'sway' })],
+    // Random fire stays a minority (<= 15%): a slower mist plus a ring and an
+    // aimed cough.
+    cards: [card('MIST', 22, [P('aerosol', { rate: 5, cone: 110, speed: [2.5, 4], duration: 2 }, 3.4), P('ring', { n: 14, speed: 3.5, family: 'droplet' }, 2.2, { at: 1.4 }), P('cough', { n: 3, speed: 6.5 }, 1.6, { at: 0.8 })], { move: 'sway' })],
   },
   mother: {
     name: 'MOTHER CELL',
@@ -118,9 +129,9 @@ export const BOSSES = Object.freeze({
     body: 'mother',
     radius: 2,
     cards: [
-      phase('BUDDING', 12, [P('ring', { n: 8, speed: 2.8, family: 'virion' }, 2.2), P('cough', { n: 2, speed: 7 }, 1.6, { at: 0.8 })], { move: 'sway' }),
-      card('LYSIS', 14, [P('replicate', { n: 4, spread: 70, speed: 3.2, maxGen: 2, splitEvery: 1.2 }, 2.4)], { move: 'sway' }),
-      card('CELL BURST', 14, [P('ring', { n: 18, speed: 4, reps: 3, interval: 1, alternate: true, family: 'droplet' }, 4), P('ring', { n: 6, speed: 2.6, family: 'virion' }, 4, { at: 2, share: true })], { move: 'still' }),
+      phase('BUDDING', 8, [P('ring', { n: 12, speed: 2.8, family: 'virion' }, 2), P('cough', { n: 3, speed: 7.5 }, 1, { at: 0.8 })], { move: 'sway' }),
+      card('LYSIS', 10, [P('replicate', { n: 5, spread: 70, speed: 3.2, maxGen: 2, splitEvery: 1.2 }, 1.5), P('ring', { n: 12, speed: 3.5 }, 2.6, { at: 1 })], { move: 'sway' }),
+      card('CELL BURST', 10, [P('ring', { n: 18, speed: 4, reps: 3, interval: 1, alternate: true, family: 'droplet' }, 4), P('ring', { n: 6, speed: 2.6, family: 'virion' }, 4, { at: 2, share: true }), P('cough', { n: 3, speed: 8 }, 1.1, { at: 1 })], { move: 'still' }),
     ],
   },
   lambda: {
@@ -136,7 +147,7 @@ export const BOSSES = Object.freeze({
       // The jet locks on where you stood at telegraph start (not on LAMBDA's
       // own column), and LAMBDA mirrors you 3 u aside: its only damage spot is
       // never inside the beam (playtest: the hardest card in the game).
-      card('MIRROR', 20, [P('jet', { width: 1.8, at: 'ship' }, 2.4), P('ring', { n: 18, speed: 4.2 }, 1.6, { at: 1.3 })], { move: 'mirror1' }),
+      card('MIRROR', 20, [P('jet', { width: 1.8, at: 'ship' }, 2.4), P('ring', { n: 20, speed: 4.2 }, 1, { at: 1.3 }), P('cough', { n: 2, speed: 7 }, 1.8, { at: 0.9 })], { move: 'mirror1' }),
     ],
   },
 });
@@ -146,7 +157,10 @@ export const INTRO = 1.5;
 // Seated below the reserved top band so the VIRAL LOAD bar never covers a boss.
 const BOSS_Z = -7.2;
 
-const timeoutFor = (c) => (c.type === 'survival' ? c.duration : c.type === 'phase' ? RULES.phaseTimeout : RULES.cardTimeout);
+/** Card timeouts: max(25, round(1.6 x TTK)) s (RESEARCH_V1.md 3.13), so a
+ * stalled card ends sooner and a boss's worst-case length is bounded.
+ * Survival cards last their fixed duration. */
+export const timeoutFor = (c) => (c.type === 'survival' ? c.duration : Math.max(25, Math.round(1.6 * c.ttk)));
 /** Card HP: TTK x reference DPS (x0.85 on Easy). */
 export const cardHp = (c, hpScale = 1, dps = RULES.referenceDps) => (c.type === 'survival' ? 0 : Math.round(c.ttk * dps * hpScale * RULES.cardHpScale));
 
@@ -185,7 +199,8 @@ function makePart(s, part, radius, extra = {}) {
 export function createBoss(s, type, { startCard = 0, world = 1 } = {}) {
   const def = BOSSES[type];
   const hpScale = diff(s).hp;
-  const hps = def.cards.map((c) => cardHp(c, hpScale, s.dpsRef ?? RULES.referenceDps));
+  // Card HP reads the same hook as popcorn HP (levels.stageDps).
+  const hps = def.cards.map((c) => cardHp(c, hpScale, stageDps(s.wave ?? 1)));
   const cards = def.cards.map((c, i) => ({ ...c, hp: hps[i], floor: hps.slice(i + 1).reduce((a, b) => a + b, 0), timeout: timeoutFor(c) }));
   const maxHp = hps.reduce((a, b) => a + b, 0);
   const b = {

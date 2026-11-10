@@ -1,6 +1,6 @@
 /** Renderer-independent Corona Invaders: a syringe bullet hell against
- * coronavirus variants. Four worlds, 18 samples, four variant bosses and four
- * midbosses. All randomness is the explicit seeded stream in state; no DOM or
+ * coronavirus variants. The v1.0 run: 4 sectors x 3 stages (two samples and
+ * a boss each), four variant bosses and four midbosses. All randomness is the explicit seeded stream in state; no DOM or
  * Three.js imports, so tests and the browser run exactly this code.
  *
  * Player kit (RESEARCH_BULLET_HELL.md 3 and 6): 2D movement in the lower 60%
@@ -9,7 +9,7 @@
  * mRNA power levels 1-4 with antibody options, in-place respawn.
  */
 import { RULES as CORE_RULES, DIFFICULTY, diff, clamp, random, nextId, pushEvent, requestHitstop, aimAngle } from './core.mjs';
-import { LEVELS, WORLDS, ARCHETYPES, STAGE_COUNT, getLevel, getWorld } from './levels.mjs';
+import { LEVELS, WORLDS, ARCHETYPES, STAGE_COUNT, getLevel, getWorld, POWER_STEPS, powerOf, entryPower, stageDps, stageHp, PROLOGUE } from './levels.mjs';
 import { FAMILIES, spawnBullet, updateBullets, cancelBullets, normalizeBullet } from './bullets.mjs';
 import { updateEmitters, clearEmitters, PRESETS, LIMITS } from './patterns.mjs';
 import {
@@ -35,15 +35,11 @@ const enemyPointDist = (e, x, z) => Math.sqrt(pointSegDist2(x, z, ...enemyAxis(e
 
 export const RULES = Object.freeze({ ...CORE_RULES, maxWaves: STAGE_COUNT });
 export { random, chainMultiplier, bossStatus, BOSSES, PRESETS, LIMITS, FAMILIES, DIFFICULTY };
-export { LEVELS, WORLDS, ARCHETYPES, STAGE_COUNT, getLevel, getWorld };
+export { LEVELS, WORLDS, ARCHETYPES, STAGE_COUNT, getLevel, getWorld, POWER_STEPS, powerOf, entryPower, stageDps, stageHp, PROLOGUE };
 
 export const PICKUP_KINDS = Object.freeze(['mrna', 'booster', 'mask', 'soap', 'vial']);
 const PLAYING = ['playing', 'transition'];
 
-/** mRNA strands needed for power levels 1-4. The syringe reaches L2 in world 1,
- * L3 in world 2 and L4 in world 3 through guaranteed supplies alone. */
-export const POWER_STEPS = Object.freeze([0, 1, 3, 5]);
-export const powerOf = (mrna) => POWER_STEPS.filter((t) => mrna >= t).length;
 function setPower(ship, level) {
   ship.power = Math.max(1, Math.min(RULES.maxPower, level));
   ship.mrna = POWER_STEPS[ship.power - 1];
@@ -72,8 +68,9 @@ function freshShip(s, power = 1) {
  * sector first and only then restores the random stream. */
 function setupSector(s, stage, { card = null } = {}) {
   const level = getLevel(stage);
-  // Time-to-kill stays put as power grows: HP scales with the guaranteed DPS.
-  s.dpsRef = RULES.powerDps[entryPower(stage) - 1];
+  // Time-to-kill stays put as power grows: HP scales with the expected DPS
+  // (levels.stageDps, the draft's hook).
+  s.dpsRef = stageDps(stage);
   Object.assign(s, {
     wave: stage,
     stageId: stage,
@@ -94,7 +91,8 @@ function setupSector(s, stage, { card = null } = {}) {
     twistOverride: null,
     bulletCap: level.maxBullets ?? 60,
     stageBullets: 0,
-    choirClock: 1.6,
+    // 1-1 opens with 3 s of silence (RESEARCH_V1.md 2.2).
+    choirClock: level.silence ?? 1.6,
     diveClock: 3,
     mutationClock: 2.5,
     r0: 0,
@@ -117,6 +115,14 @@ function setupSector(s, stage, { card = null } = {}) {
     grazes: 0,
     bombs: 0,
     seen: [],
+    // Script state for the running beat (levels.mjs vocabulary).
+    verse: 'alternate',
+    verseFlip: false,
+    tune: null,
+    mutation: null,
+    dive: null,
+    choir: null,
+    injections: 0,
   };
   if (level.kind === 'boss') {
     const b = createBoss(s, level.boss, { world: level.world, startCard: card ?? 0 });
@@ -124,7 +130,7 @@ function setupSector(s, stage, { card = null } = {}) {
   }
 }
 
-export function createState({ seed = 0x51a7c0de, stage = 1, difficulty = 'normal' } = {}) {
+export function createState({ seed = 0x51a7c0de, stage = 1, difficulty = 'normal', drafts = false } = {}) {
   seed = seed >>> 0 || 0x51a7c0de;
   stage = clamp(Math.floor(stage) || 1, 1, STAGE_COUNT);
   const s = {
@@ -174,6 +180,10 @@ export function createState({ seed = 0x51a7c0de, stage = 1, difficulty = 'normal
     medals: {},
     extendsGiven: [],
     chain: { count: 0, timer: 0, best: 0 },
+    // Draft hook: off until the ADJUVANT draft fills it (enterDraft).
+    drafts: !!drafts,
+    draft: null,
+    vialBonus: 0,
     events: [],
   };
   s.ship = freshShip(s);
@@ -209,7 +219,7 @@ export function openMenu(s) {
 }
 export function newRun(s, seed = s.seed) {
   const { unlockedStage, difficulty } = s;
-  Object.assign(s, createState({ seed, difficulty }), { phase: 'playing', unlockedStage });
+  Object.assign(s, createState({ seed, difficulty, drafts: s.drafts }), { phase: 'playing', unlockedStage });
   return s;
 }
 /** Retry the sample checkpoint: full vials, the entry score, power and RNG
@@ -220,7 +230,7 @@ export function restartGame(s, { assist = false, easy = false } = {}) {
     { seed, unlockedStage, failures, medals, practice } = s;
   const difficulty = easy && failures >= 3 ? 'easy' : s.difficulty;
   const useAssist = assist && failures >= 3;
-  Object.assign(s, createState({ seed, stage: checkpoint.stage, difficulty }), {
+  Object.assign(s, createState({ seed, stage: checkpoint.stage, difficulty, drafts: s.drafts }), {
     phase: 'playing',
     unlockedStage,
     failures,
@@ -247,22 +257,13 @@ export function restartGame(s, { assist = false, easy = false } = {}) {
 export function selectStage(s, stage) {
   if (!Number.isInteger(stage) || stage < 1 || stage > s.unlockedStage || stage > STAGE_COUNT) return false;
   const { unlockedStage, medals, difficulty } = s;
-  Object.assign(s, createState({ seed: s.seed, stage, difficulty }), { phase: 'playing', unlockedStage, medals });
+  Object.assign(s, createState({ seed: s.seed, stage, difficulty, drafts: s.drafts }), { phase: 'playing', unlockedStage, medals });
   // A sample started from the tray begins with the power the campaign
   // guarantees on arrival, so it is never harder than playing through.
   setPower(s.ship, entryPower(stage));
   s.sector.entryPower = s.ship.power;
   s.checkpoint = makeCheckpoint(s);
   return true;
-}
-/** PRACTICE (any cleared sample) and the MUTATION LAB (any card already seen):
- * one vial, R restarts at once, nothing unlocks or changes medals. */
-/** Guaranteed power on arrival: every VESICLE and midboss mRNA earlier in the
- * campaign, converted through POWER_STEPS. */
-export function entryPower(stage) {
-  let n = 0;
-  for (const level of LEVELS.slice(0, stage - 1)) for (const st of level.script || []) if (st.vesicle || st.midboss) n++;
-  return powerOf(n);
 }
 /** Home stage of a boss or midboss type. */
 export function bossHome(type) {
@@ -287,7 +288,7 @@ export function startPractice(s, stage, { card = null, boss = null } = {}) {
   const type = boss || level.boss;
   if (card !== null && (!type || !BOSSES[type]?.cards[card] || bossHome(type) !== stage)) return false;
   const { unlockedStage, medals, difficulty, seed } = s;
-  Object.assign(s, createState({ seed, stage, difficulty }), { phase: 'playing', unlockedStage, medals });
+  Object.assign(s, createState({ seed, stage, difficulty, drafts: s.drafts }), { phase: 'playing', unlockedStage, medals });
   s.practice = { stage, card, boss: card !== null ? type : null, result: null };
   setPower(s.ship, entryPower(stage));
   s.sector.entryPower = s.ship.power;
@@ -636,7 +637,7 @@ function damageEnemy(s, e, amount, source) {
 
 /** Damage that is defined against base HP (cell pops, SOAP) scales with the
  * same ratio as enemy HP, so "kills popcorn" stays true in every world. */
-const hpRatio = (s) => (s.dpsRef ?? RULES.referenceDps) / RULES.referenceDps;
+const hpRatio = (s) => stageHp(1, s.wave ?? 1);
 function updateBursts(s, dt) {
   const ready = [];
   for (const b of s.bursts) if ((b.timer -= dt) <= 0) ready.push(b);
@@ -819,6 +820,8 @@ function scriptCondition(s, step) {
   if (step.until === 'clear')
     return !s.sector.flights.length && !s.enemies.some(hostile) && (!s.boss || s.boss.state === 'defeated');
   if (step.until === 'thin') return s.enemies.filter((e) => hostile(e) && e.group >= 0).length <= (step.left ?? 0);
+  // A rest starts once at most 3 bullets are still alive.
+  if (step.until === 'calm') return s.enemyShots.length <= 3;
   return true;
 }
 function noteSpawn(s, kind) {
@@ -847,6 +850,9 @@ function runScript(s, level, dt) {
       if (!scriptCondition(s, st)) return;
     } else if (st.group) {
       spawnGroup(s, st.group, s.groups.length);
+      // A new grid sings soon after it settles (1.4 s entry), so a rest never
+      // becomes a 6 s lull.
+      s.choirClock = Math.min(s.choirClock, 1.6);
       for (const code of st.group.rows.join('')) noteSpawn(s, code);
     } else if (st.flight) {
       sec.flights.push({ def: st.flight, spawned: 0, t: 0 });
@@ -855,6 +861,12 @@ function runScript(s, level, dt) {
     else if (st.puffs) for (const p of st.puffs) spawnPuff(s, p);
     else if (st.vesicle) spawnVesicle(s, st.vesicle);
     else if (st.midboss) createBoss(s, st.midboss, { world: level.world });
+    else if (st.verse) sec.verse = st.verse;
+    else if (st.tune) sec.tune = Object.keys(st.tune).length ? st.tune : null;
+    else if (st.mutation) sec.mutation = st.mutation;
+    else if (st.dive) sec.dive = st.dive;
+    else if (st.choir) sec.choir = st.choir;
+    else if (st.hint) pushEvent(s, 'hint', { id: st.hint });
     else if (st.surge) {
       sec.surge = st.surge;
       pushEvent(s, 'surge', { seconds: st.surge });
@@ -940,20 +952,46 @@ function finishSector(s, level) {
     pushEvent(s, 'won', { score: s.score });
     return;
   }
+  // LAB REPORT (2.5 s, skippable) after a sample; after a boss the FIELD
+  // NOTE waits for a deliberate press. Vials (RESEARCH_V1.md 2.1): a boss
+  // clear restores 1, a sample clear none (so defensive picks matter).
   s.phase = 'transition';
   s.transition = RULES.transition;
   s.transitionHold = !!level.worldEnd;
   s.holdTime = 0;
-  s.pendingHeal = level.worldEnd ? 'full' : 'one';
-  if (level.worldEnd) pushEvent(s, 'report', { world: level.world });
+  s.pendingHeal = level.kind === 'boss' ? 'boss' : 'none';
+  if (level.worldEnd) pushEvent(s, 'report', { world: level.world, note: WORLDS[level.world - 1].note });
+}
+
+/** The draft hook (RESEARCH_V1.md A1, RESEARCH_CARDS.md 2.2): after every
+ * cleared stage but the last, the model emits
+ * `draft { stage, boss, sequenced, cards, vesicleBonus }`. With `s.drafts`
+ * off (until the ADJUVANT draft lands) it continues at once. With it on, the
+ * phase becomes 'draft': update() returns early as on pause (presses are
+ * dropped) until the UI resolves it with endDraft(s). */
+function enterDraft(s) {
+  const level = getLevel(s.wave);
+  const cards = s.medals[s.wave]?.cards ?? [];
+  const draft = { stage: s.wave, code: level.code, boss: level.kind === 'boss', sequenced: cards.filter((c) => c.neutralized).length, cards: cards.length, vesicleBonus: false };
+  s.draft = draft;
+  pushEvent(s, 'draft', draft);
+  if (!s.drafts) return endDraft(s);
+  s.phase = 'draft';
+}
+export function endDraft(s) {
+  if (!s.draft) return false;
+  s.draft = null;
+  beginNextSector(s);
+  return true;
 }
 
 function beginNextSector(s) {
   const heal = s.pendingHeal;
   setupSector(s, s.wave + 1);
   s.phase = 'playing';
-  const max = diff(s).health;
-  s.health = heal === 'full' ? Math.max(s.health, max) : Math.max(s.health, Math.min(max, s.health + 1));
+  const max = diff(s).health + (s.vialBonus || 0);
+  if (heal === 'boss') s.health = Math.max(s.health, Math.min(max, s.health + 1));
+  else if (heal === 'full') s.health = Math.max(s.health, max);
   s.lives = s.health;
   s.ship.invulnerable = 1.2;
   s.ship.bombs = Math.max(s.ship.bombs, diff(s).bombs);
@@ -968,10 +1006,16 @@ function substep(s, dt, input) {
   updatePickups(s, dt);
   updateAntigens(s, dt);
   if (s.phase === 'transition') {
+    s.holdTime += dt;
     if (s.transitionHold) {
-      s.holdTime += dt;
       if (s.confirmQueued && s.holdTime >= 0.6) s.transitionHold = false;
-    } else if ((s.transition -= dt) <= 0) beginNextSector(s);
+    } else if (s.confirmQueued && s.holdTime >= 0.5) s.transition = 0;
+    if (!s.transitionHold && (s.transition -= dt) <= 0) {
+      s.confirmQueued = false;
+      s.bombQueued = false;
+      enterDraft(s);
+      return;
+    }
     s.confirmQueued = false;
     // Documented rule: a SOAP press between samples is ignored (it may have
     // been the press that released the LAB REPORT). It never carries into

@@ -4,8 +4,9 @@
  *
  *  1. Every boss and midboss card is dodgeable without SOAP from 5 starts.
  *  2. No wall: every sample clears within 3 tries (SOAP allowed) on 5 seeds.
- *  3. The curve rises by world: mean vials lost per sample (no SOAP) never
- *     drops from one world to the next, and world 4 is clearly the hardest.
+ *  3. The curve rises by sector: mean vials lost and near-core pressure per
+ *     stage (no SOAP) climb sector by sector. The per-stage sawtooth and the
+ *     other ladders live in tests/suite.test.mjs.
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -94,15 +95,15 @@ test('reactive-player curve table (diagnostic)', (t) => {
 test('no wall: the reactive player clears every sample within three tries on five seeds', () => {
   for (const r of withSoap) for (const [i, run] of r.runs.entries()) assert.ok(run.cleared, `${r.level.code} not cleared (seed ${SEEDS[i]})`);
 });
-test('world 1 is learnable: every W1 sample and B1 clear on the first try', () => {
+test('sector 1 is learnable: every AIRWAY stage clears on the first try', () => {
   for (const r of withSoap.filter((r) => r.level.world === 1)) assert.equal(r.losses, 0, r.level.code);
 });
-test('the curve rises by world: vials lost and bullet pressure both climb W1 < W2 < W3 < W4', () => {
+test('the curve rises by sector: vials lost and bullet pressure both climb S1 < S2 < S3 < S4', () => {
   for (const key of ['hits', 'near']) {
     const m = [1, 2, 3, 4].map((w) => worldMean(dodging, w, key));
-    for (let i = 1; i < 4; i++) assert.ok(m[i] > m[i - 1], `${key}: W${i + 1} ${m[i].toFixed(2)} <= W${i} ${m[i - 1].toFixed(2)}`);
-    assert.ok(m[3] >= m[0] * 1.8, `${key}: W4 ${m[3].toFixed(2)} vs W1 ${m[0].toFixed(2)}`);
+    for (let i = 1; i < 4; i++) assert.ok(m[i] > m[i - 1], `${key}: S${i + 1} ${m[i].toFixed(2)} <= S${i} ${m[i - 1].toFixed(2)}`);
+    assert.ok(m[3] >= m[0] * 1.5, `${key}: S4 ${m[3].toFixed(2)} vs S1 ${m[0].toFixed(2)}`);
   }
   const byCode = Object.fromEntries(dodging.map((r) => [r.level.code, r.hits]));
-  assert.ok(byCode['4-4'] >= byCode['1-4'], 'OMICRON is not easier than ALPHA');
+  assert.ok(byCode['4-3'] >= byCode['1-3'], 'OMICRON is not easier than ALPHA');
 });

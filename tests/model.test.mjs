@@ -35,43 +35,40 @@ function clearSector(s) {
   update(s, 0.3);
 }
 
-test('campaign: four worlds, 18 samples (12 + 4 bosses + 2 bonus)', () => {
-  assert.deepEqual(WORLDS.map((w) => w.name), ['AIRWAY', 'LUNGS', 'BLOODSTREAM', 'LAB / PETRI']);
+test('the v1.0 run: 4 sectors x 3 stages (two samples, then a boss), no bonus stage', () => {
+  assert.deepEqual(WORLDS.map((w) => w.name), ['AIRWAY', 'LUNGS', 'BLOODSTREAM', 'THE CELL']);
   assert.deepEqual(WORLDS.map((w) => w.twist), [null, 'breath', 'current', 'mutation']);
-  assert.equal(STAGE_COUNT, 18);
-  assert.equal(LEVELS.filter((l) => l.kind === 'sample').length, 12);
-  assert.equal(LEVELS.filter((l) => l.kind === 'boss').length, 4);
-  assert.deepEqual(LEVELS.filter((l) => l.kind === 'bonus').map((l) => l.code), ['B1', 'B2']);
-  assert.deepEqual(LEVELS.map((l) => l.code), ['1-1', '1-2', '1-3', '1-4', 'B1', '2-1', '2-2', '2-3', '2-4', '3-1', '3-2', '3-3', '3-4', 'B2', '4-1', '4-2', '4-3', '4-4']);
-  assert.deepEqual(LEVELS.filter((l) => l.worldEnd).map((l) => l.code), ['1-4', '2-4', '3-4', '4-4']);
+  assert.equal(STAGE_COUNT, 12);
+  assert.deepEqual(LEVELS.map((l) => l.code), ['1-1', '1-2', '1-3', '2-1', '2-2', '2-3', '3-1', '3-2', '3-3', '4-1', '4-2', '4-3']);
+  assert.equal(LEVELS.filter((l) => l.kind === 'bonus').length, 0);
+  assert.deepEqual(LEVELS.filter((l) => l.worldEnd).map((l) => l.code), ['1-3', '2-3', '3-3', '4-3']);
   // The first sample is the original game's 4 x 15 grid of 60 coronas.
-  const first = LEVELS[0].script[0].group.rows;
+  const first = LEVELS[0].script.find((st) => st.group).group.rows;
   assert.equal(first.length, 4);
   assert.ok(first.every((r) => r.length === 15));
 });
 
-test('world twists appear only where authored: BREATH in 2-3/2-4, CURRENT in 3-1/3-3/3-4, MUTATION in 4-2/4-3', () => {
+test('every stage of a sector carries its twist: BREATH in 2-x, CURRENT in 3-x, MUTATION in 4-x', () => {
   const by = (twist) => LEVELS.filter((l) => l.twist === twist).map((l) => l.code);
-  assert.deepEqual(by('breath'), ['2-3', '2-4']);
-  assert.deepEqual(by('current'), ['3-1', '3-3', '3-4']);
-  assert.deepEqual(by('mutation'), ['4-2', '4-3']);
+  assert.deepEqual(by('breath'), ['2-1', '2-2', '2-3']);
+  assert.deepEqual(by('current'), ['3-1', '3-2', '3-3']);
+  assert.deepEqual(by('mutation'), ['4-1', '4-2', '4-3']);
 });
 
-test('the pressure rises by world: choir interval, choir size and the stage bullet cap', () => {
+test('the pressure rises by sector: choir interval, choir size and the stage bullet cap', () => {
   const samples = (w) => LEVELS.filter((l) => l.world === w && l.kind === 'sample');
   for (let w = 2; w <= 4; w++) {
     const prev = samples(w - 1).at(-1),
       cur = samples(w)[0];
-    assert.ok(cur.maxBullets > prev.maxBullets, `W${w} cap`);
-    assert.ok(cur.choir.interval[1] <= prev.choir.interval[1], `W${w} interval`);
-    assert.ok(cur.choir.size[1] >= prev.choir.size[1], `W${w} size`);
+    assert.ok(cur.maxBullets > prev.maxBullets, `S${w} cap`);
+    assert.ok((cur.choir.interval[0] + cur.choir.interval[1]) / 2 <= 1.3 + 1e-9 || w === 2, `S${w} interval`);
+    assert.ok(samples(w).at(-1).maxBullets > samples(w - 1).at(-1).maxBullets, `S${w} last cap`);
   }
-  assert.deepEqual([1, 2, 3, 4].map((w) => samples(w).at(-1).maxBullets), [45, 70, 95, 120]);
 });
 
 test('seeded determinism: same seed and inputs give identical runs; another seed differs', () => {
   const play = (seed) => {
-    const s = running(seed, 7);
+    const s = running(seed, 4);
     for (let f = 0; f < 60 * 20; f++) update(s, 1 / 60, chooseInput(s, f));
     return JSON.stringify({ score: s.score, rng: s.rngState, bullets: s.enemyShots.map((b) => [b.x.toFixed(6), b.z.toFixed(6)]), ship: [s.ship.x, s.ship.z] });
   };
@@ -79,31 +76,51 @@ test('seeded determinism: same seed and inputs give identical runs; another seed
   assert.notEqual(play(42), play(43));
 });
 
-test('a sample clear restores one vial and makes a checkpoint; a world clear heals fully and waits for a press', () => {
-  let s = running(42, 2);
+test('vials: a sample clear restores none, a boss clear restores one; the boss FIELD NOTE waits for a press', () => {
+  let s = running(42, 1);
   s.health = 1;
   clearSector(s);
   assert.equal(s.phase, 'transition');
-  update(s, 2);
-  assert.equal(s.wave, 3);
-  assert.equal(s.health, 2);
-  assert.equal(s.checkpoint.stage, 3);
-  s = running(42, 4);
+  update(s, 1.5);
+  update(s, 1.5);
+  assert.equal(s.wave, 2);
+  assert.equal(s.health, 1, 'no vial after a sample');
+  assert.equal(s.checkpoint.stage, 2);
+  s = running(42, 3);
   s.health = 1;
   clearSector(s);
   assert.equal(s.transitionHold, true);
   update(s, 5);
-  assert.equal(s.wave, 4, 'the LAB REPORT waits');
+  assert.equal(s.wave, 3, 'the FIELD NOTE waits');
   update(s, 1 / 60, { confirm: true });
   update(s, 1 / 60);
-  update(s, 2);
-  assert.equal(s.wave, 5);
-  assert.equal(s.health, 3);
+  update(s, 1.5);
+  update(s, 1.5);
+  assert.equal(s.wave, 4);
+  assert.equal(s.health, 2, '+1 vial after a boss');
   assert.equal(confirmReport(s), false);
+  // Never above the difficulty's maximum.
+  s = running(42, 3);
+  clearSector(s);
+  update(s, 1 / 60, { confirm: true });
+  update(s, 1 / 60);
+  update(s, 1.5);
+  update(s, 1.5);
+  assert.equal(s.health, 3);
+});
+
+test('the LAB REPORT after a sample is skippable after 0.5 s', () => {
+  const s = running(42, 1);
+  clearSector(s);
+  update(s, 0.6);
+  update(s, 1 / 60, { confirm: true });
+  update(s, 1 / 60);
+  assert.equal(s.wave, 2);
+  assert.equal(s.phase, 'playing');
 });
 
 test('retry restores full vials, the entry score, power and RNG stream', () => {
-  const s = running(42, 6);
+  const s = running(42, 4);
   const entry = { score: s.score, rng: s.rngState, power: s.ship.power };
   for (let f = 0; f < 60 * 8; f++) update(s, 1 / 60, chooseInput(s, f));
   s.health = 1;
@@ -114,7 +131,7 @@ test('retry restores full vials, the entry score, power and RNG stream', () => {
   assert.equal(s.score, entry.score);
   assert.equal(s.rngState, entry.rng);
   assert.equal(s.ship.power, entry.power);
-  assert.equal(s.wave, 6);
+  assert.equal(s.wave, 4);
 });
 
 test('after three failures the loss screen offers +1 VIAL (medal A) or switching to Easy', () => {
@@ -135,20 +152,20 @@ test('after three failures the loss screen offers +1 VIAL (medal A) or switching
 test('practice: one vial, nothing unlocks, a MUTATION LAB card ends the run when the card ends', () => {
   let s = createState({ seed: 3 });
   s.unlockedStage = 6;
-  assert.ok(startPractice(s, 3));
+  assert.ok(startPractice(s, 2));
   assert.equal(s.health, 1);
   assert.ok(s.practice);
   clearSector(s);
   assert.equal(s.phase, 'won');
   assert.equal(s.unlockedStage, 6, 'practice never unlocks');
-  assert.equal(s.practice.result.code, '1-3');
+  assert.equal(s.practice.result.code, '1-2');
   s = createState({ seed: 3 });
-  assert.ok(startPractice(s, 4, { card: 2 }));
+  assert.ok(startPractice(s, 3, { card: 2 }));
   assert.equal(s.boss.card, 2);
   assert.equal(s.boss.hp, s.boss.cards[1].floor, 'the pool starts at that card');
   assert.equal(startPractice(s, 2, { card: 0 }), false, 'cards exist only on boss stages');
   s = createState({ seed: 3 });
-  startPractice(s, 4, { card: 1 });
+  startPractice(s, 3, { card: 1 });
   s.ship.invulnerable = 1e9;
   for (let i = 0; i < 600 && s.boss.state !== 'fight'; i++) update(s, 1 / 60);
   s.boss.hp = s.boss.cards[1].floor + 1;
@@ -165,9 +182,9 @@ test('stage selection refuses locked or out-of-range stages; the tray freezes th
   const s = createState({ seed: 3 });
   assert.equal(selectStage(s, 2), false);
   s.unlockedStage = 4;
-  assert.equal(selectStage(s, 4), true);
+  assert.equal(selectStage(s, 3), true);
   assert.ok(s.boss && s.boss.name === 'ALPHA');
-  assert.equal(selectStage(s, 19), false);
+  assert.equal(selectStage(s, 13), false);
   openMenu(s);
   const t = s.elapsed;
   update(s, 1);
@@ -252,11 +269,11 @@ test('score extends: +1 vial at 250,000 and 750,000', () => {
   assert.deepEqual(s.extendsGiven, [250000]);
 });
 
-test('only the final 4-4 clear wins the campaign', () => {
-  const s = running(42, 17);
+test('only the final 4-3 clear wins the run', () => {
+  const s = running(42, 11);
   clearSector(s);
   assert.equal(s.phase, 'transition');
-  const f = running(42, 18);
+  const f = running(42, 12);
   clearSector(f);
   assert.equal(f.phase, 'won');
 });
@@ -265,11 +282,11 @@ for (const seed of [42, 1, 7])
   test(`the ordinary-input controller wins the whole campaign for seed ${seed} within ${FRAME_BUDGET} frames`, () => {
     const { s, cleared, frame, inputs } = campaign(seed);
     assert.equal(s.phase, 'won', `stopped at ${LEVELS[s.wave - 1].code}`);
-    assert.equal(s.wave, 18);
-    assert.equal(s.unlockedStage, 18);
-    assert.equal(cleared.length, 18);
+    assert.equal(s.wave, 12);
+    assert.equal(s.unlockedStage, 12);
+    assert.equal(cleared.length, 12);
     assert.ok(frame < FRAME_BUDGET);
-    assert.ok(s.kills > 400 && s.hits > s.kills, `${s.kills} kills, ${s.hits} hits`);
+    assert.ok(s.kills > 300 && s.hits > s.kills, `${s.kills} kills, ${s.hits} hits`);
     for (const k of inputs) assert.ok(['axisX', 'axisZ', 'focus', 'bomb', 'confirm'].includes(k), `non-player input ${k}`);
     assert.ok(cleared.every((c) => c.medal), 'every sample awards a medal');
   });

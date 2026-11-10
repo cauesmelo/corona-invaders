@@ -503,6 +503,8 @@ function authoredUses() {
       if (w === 4) out.push({ where: `${kind} W4 mutated`, preset: a.preset, params: upgradeParams(a.preset, { ...PRESETS[a.preset].defaults, ...a.params }, 1) });
     }
   for (const level of LEVELS) for (const st of level.script || []) if (st.flight?.fire) out.push({ where: `${level.code} flight`, ...st.flight.fire });
+  // RAIN is the choir's straight-down verse at the stage's rain speed.
+  for (const level of LEVELS) if (level.rain) out.push({ where: `${level.code} rain`, preset: 'rain', params: { speed: level.rain } });
   for (const [type, def] of Object.entries(BOSSES))
     def.cards.forEach((c) => {
       c.patterns.forEach((p) => out.push({ where: `${type} ${c.name}`, preset: p.preset, params: p.params, boss: true }));
@@ -576,7 +578,7 @@ test('D2: a player who holds focus while lined up clears boss samples faster, wi
     expert = 0,
     cleared = 0;
   for (const seed of [42, 1, 7])
-    for (const stage of [4, 9, 13, 18])
+    for (const stage of LEVELS.filter((l) => l.kind === 'boss').map((l) => l.id))
     for (const skilled of [false, true]) {
       const s = running(seed, stage);
       const p = createReactive({ phase: seed % 5, bombs: true });
@@ -591,7 +593,7 @@ test('D2: a player who holds focus while lined up clears boss samples faster, wi
       else base += f;
     }
   const gain = 1 - expert / base;
-  t.diagnostic(`boss samples 1-4, 2-4, 3-4, 4-4 (seeds 42, 1, 7): ${(base / 60).toFixed(0)} s -> ${(expert / 60).toFixed(0)} s, ${(gain * 100).toFixed(1)} % faster`);
+  t.diagnostic(`boss stages 1-3, 2-3, 3-3, 4-3 (seeds 42, 1, 7): ${(base / 60).toFixed(0)} s -> ${(expert / 60).toFixed(0)} s, ${(gain * 100).toFixed(1)} % faster`);
   assert.equal(cleared, 24, 'both players clear: the technique is optional');
   // Target 15 %; WARN band from 11.25 % (MOVEMENT_AUDIT.md D2).
   assert.ok(gain >= 0.1125, `${gain}`);

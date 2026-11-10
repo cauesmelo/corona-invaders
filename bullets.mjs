@@ -137,6 +137,9 @@ export function updateBullets(s, dt) {
       b.x += (b.vx + drift) * step;
       b.z += b.vz * step;
     }
+    // FAIR-150 rule 4: a replicating bullet that has passed within 2 u of the
+    // core never changes course again (a split could turn a child onto it).
+    if (b.splitAt && s.ship && (b.x - s.ship.x) ** 2 + (b.z - s.ship.z) ** 2 < 4) b.splitAt = 0;
     if (b.splitAt && b.age >= b.splitAt) {
       b.dead = true;
       const speed = Math.hypot(b.vx, b.vz);

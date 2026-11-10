@@ -137,10 +137,13 @@ export function chooseInput(s, frame = 0) {
       let risk = 0,
         firstHit = Infinity;
       let px = ship.x,
-        pz = ship.z;
+        pz = ship.z,
+        gx = ship.x,
+        gz = ship.z;
       for (let k = 0; k < T.length; k++) {
         px = clampX(ship.x + dx * v * T[k]);
         pz = clampZ(ship.z + dz * v * T[k]);
+        if (k === 2) [gx, gz] = [px, pz];
         const P = pos[k];
         for (let i = 0; i < near.length; i++) {
           let ex = P[i][0] - px,
@@ -169,9 +172,12 @@ export function chooseInput(s, frame = 0) {
         }
       }
       // Edge pressure: corners trap; keep some room to the sides and bottom.
-      const room = Math.min(px - MINX, MAXX - px, MAXZ - pz);
+      // Goal and edge are judged 0.18 s ahead (the next decision), not at the
+      // end of the look-ahead: a full-speed 0.42 s overshoot into the wall
+      // used to stop it ever lining up a virus in an edge column.
+      const room = Math.min(gx - MINX, MAXX - gx, MAXZ - gz);
       if (room < 1.2) risk += (1.2 - room) * 1.5;
-      const goal = Math.abs(px - goalX) * 0.22 + Math.abs(pz - goalZ) * 0.08 + (boss && speedIndex ? -0.15 : 0);
+      const goal = Math.abs(gx - goalX) * 0.22 + Math.abs(gz - goalZ) * 0.08 + (boss && speedIndex ? -0.15 : 0);
       const total = risk + goal;
       if (total < pickRisk) {
         pickRisk = total;

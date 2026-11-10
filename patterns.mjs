@@ -26,6 +26,8 @@ const DEG = Math.PI / 180;
  * degrees, times in s, widths in u. */
 export const LIMITS = Object.freeze({
   cough: { tele: 0.5, n: [1, 3], speed: [5, 9], spread: [0, 30], minGap: 0.5 },
+  // RAIN: one droplet per singer, straight down (a static lane).
+  rain: { tele: 0.5, n: [1, 1], speed: [4, 5.5] },
   sneeze: { tele: 0.8, n: [7, 11], odd: true, spread: [50, 70], speed: [4, 7], reps: [1, 3], repGap: [0.3, 0.6], minGap: 0.5 },
   sniffle: { tele: 0.8, n: [6, 10], even: true, spread: [40, 60], speed: [4, 6.5], minGap: 0.5 },
   ring: { tele: 0.8, n: [6, 24], speed: [2.5, 5], interval: [0.8, 1.5], reps: [1, 12], gaps: [0, 2], minGap: 0.5 },
@@ -38,7 +40,8 @@ export const LIMITS = Object.freeze({
   // threat in the game shown less than 1.5 s ahead).
   jet: { tele: 1.5, width: [1.6, 2.4], live: [0.5, 0.5] },
   strand: { tele: 0.8, n: [6, 16], speed: [4, 6], amp: [0.6, 1.2], wavelength: [4, 6], interval: [0.1, 0.16] },
-  replicate: { tele: 0.8, n: [1, 6], speed: [3, 4], maxGen: [1, 3], splitAngle: [25, 25], splitEvery: [0.9, 2] },
+  // Splits at most once per second (FAIR-150 rule 4), after a 0.3 s flash.
+  replicate: { tele: 0.8, n: [1, 6], speed: [3, 4], maxGen: [1, 3], splitAngle: [25, 25], splitEvery: [1, 2] },
   quarantine: { tele: 1, half: [3.5, 3.5], duration: [5, 20] },
 });
 
@@ -75,15 +78,19 @@ export function upgradeParams(preset, params, tier = 0) {
 export function liveFamilies(s) {
   const set = new Set();
   // The QUARANTINE box is a set piece (soft walls), not a bullet family.
-  for (const em of s.emitters) if (em.state !== 'done' && em.preset !== 'quarantine') set.add(em.preset);
+  for (const em of s.emitters) if (em.state !== 'done' && em.preset !== 'quarantine') set.add(FAMILY_OF[em.preset] || em.preset);
   return set;
 }
+/** RAIN is the choir's second verse of the COUGH family: lanes and aimed
+ * coughs from one formation count as one family for the overlap gate (so a
+ * choir singing both never locks a BLOOM or a splash ring out). */
+const FAMILY_OF = { rain: 'cough' };
 /** Overlap gate: a new family may start only while fewer than 2 (Easy: 1)
  * families are live, and never next to another aimed family. A family that is
  * already live may be joined (a choir of WILD TYPEs coughing together). */
 export function gateAllows(s, preset) {
   const set = liveFamilies(s);
-  if (set.has(preset)) return true;
+  if (set.has(FAMILY_OF[preset] || preset)) return true;
   if (set.size >= diff(s).overlap) return false;
   if (PRESETS[preset].aimed) for (const p of set) if (PRESETS[p].aimed) return false;
   return true;
@@ -113,8 +120,26 @@ function bullet(s, em, angle, speed, extra = {}) {
     pattern: em.label,
     boss: em.boss,
     owner: em.ownerId,
+    // Grammar tag (RESEARCH_V1.md 3.1) and the warning it had: the suite
+    // audit sums bullets by grammar and checks FAIR-150's lead time.
+    gram: em.grammar,
+    tele: em.tele,
+    // A fan (several angles) vs a single, stack or stream: the speed band
+    // differs (aimed fans <= 7 u/s; singles and stacks may reach the max).
+    fan: em.fan,
     ...extra,
   });
+}
+/** A preset's grammar for one emission: 'aimed' (forces movement), 'static'
+ * (shapes it) or 'random'. Fixed-angle fans and owner-lane jets are static. */
+function grammarOf(preset, p) {
+  if (preset === 'rain' || preset === 'ring' || preset === 'bloom' || preset === 'wall') return 'static';
+  if (preset === 'aerosol') return 'random';
+  if (preset === 'strand') return p.aimShip ? 'aimed' : 'static';
+  if (preset === 'replicate') return p.aimShip === false ? 'static' : 'aimed';
+  if (preset === 'sneeze' && p.angle !== undefined) return 'static';
+  if (preset === 'jet') return p.at === 'ship' ? 'aimed' : 'static';
+  return 'aimed';
 }
 
 /** Pattern presets. `start` runs at telegraph start (aim locks here), `tick`
@@ -137,6 +162,18 @@ export const PRESETS = Object.freeze({
         const k = i - (em.n - 1) / 2;
         bullet(s, em, em.aim + k * step, step ? em.p.speed : em.p.speed * (1 - 0.13 * i));
       }
+      em.state = 'done';
+    },
+  },
+  // RAIN: the choir's straight-down verse. Angle 0, so only the CURRENT
+  // drifts it; a front-of-column singer makes one static lane.
+  rain: {
+    family: 'droplet',
+    label: 'RAIN',
+    defaults: { n: 1, speed: 4.5 },
+    start() {},
+    tick(s, em) {
+      bullet(s, em, 0, em.p.speed);
       em.state = 'done';
     },
   },
@@ -269,7 +306,7 @@ export const PRESETS = Object.freeze({
       const spacing = 2 * f.hit + 0.24;
       for (let x = -RULES.halfWidth + 0.3; x <= RULES.halfWidth - 0.3; x += spacing) {
         if (em.gapList.some((g) => Math.abs(x - g.x) < g.width / 2 + f.hit)) continue;
-        spawnBullet(s, { x, z: em.z, angle: 0, speed: em.p.speed * em.speedScale, family: em.family, src: em.src, pattern: em.label, boss: em.boss, owner: em.ownerId, wall: em.id, gaps: em.gapList });
+        spawnBullet(s, { x, z: em.z, angle: 0, speed: em.p.speed * em.speedScale, family: em.family, src: em.src, pattern: em.label, boss: em.boss, owner: em.ownerId, wall: em.id, gaps: em.gapList, gram: 'static', tele: em.tele });
       }
       em.state = 'done';
     },
@@ -408,6 +445,8 @@ export function startPattern(s, preset, { ownerId = null, x = 0, z = -6, params 
     timer: 0,
     t: 0,
     emitted: 0,
+    grammar: grammarOf(preset, p),
+    fan: ['sneeze', 'sniffle'].includes(preset) || ((preset === 'cough' || preset === 'replicate') && (p.n ?? 1) > 1 && (p.spread ?? 0) > 0),
   };
   em.timer = em.tele;
   if (ownerId && !origin(s, em)) return null;
