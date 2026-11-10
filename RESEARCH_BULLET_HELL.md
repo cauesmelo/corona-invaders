@@ -497,6 +497,21 @@ This revises the earlier "popcorn stays faceless" call (§4.1, §11): the user a
 - **Busy mix.** It peaked at −24.1 dBFS before and −4.4 dBFS after, with 0 samples at or above 0.99.
 - **README "Villains with personality"** has the footprint, face and frame-time numbers. The drawn footprint stays at 91.6–100.0% of the collider, the worst face is 0.29 px inside its silhouette, and SwiftShader frame medians are 16.7 ms before and after.
 
+### 12.5 Second round: away from cartoon (2026-11-10, later the same day)
+
+**The user's feedback (translated):** "Regular viruses don't need little faces. For the bosses it's okay as long as they have some personality. And make it more 3D: you're pulling the style toward cartoon again. I don't want a cartoon style, I want 3D."
+
+**What changed:**
+
+- **Faces.** The face decals, speech bubbles, popcorn voice blips and boss babble are gone.
+- **Regular viruses** keep only 3D form and motion.
+- **Bosses** carry menace as geometry: slanted almond sockets sunk into the membrane, with glowing slit cores whose light follows the mood. This keeps the "eyes narrow before an attack" telegraph as light instead of drawn lids. Bosses growl their lines, and the lines type into the HUD.
+- **Materials** move toward an electron-microscopy render: a membrane bump, a fresnel rim, glossier surfaces and a lit grey boss sphere.
+
+**What did not change:** the steep camera (pitch 64–74°, which keeps bullets readable; revision three's low angle had more depth but distorted the play field, §3.3), the palette meanings, the colliders and the gameplay.
+
+**Rule kept:** detail is spent where it can be afforded. Denser popcorn geometry halved the 60-virus choir's frame rate on SwiftShader, so only bosses got it.
+
 ## Sources
 
 Read directly: [Boghog's bullet hell 101](https://shmups.wiki/library/Boghog's_bullet_hell_shmup_101) · [Sparen DDSG A3](https://sparen.github.io/ph3tutorials/ddsga3.html) · [Sparen DDSG A4](https://sparen.github.io/ph3tutorials/ddsga4.html) · [shmups.wiki Touhou](https://shmups.wiki/library/Unknwn/Touhou) · [The 1-pixel collision box](https://significant-bits.com/the-1-pixel-collision-box) · [Nomad's design sins](https://nomadsreviews.co.uk/post/design-sins-and-pet-peeves-in-shoot-em-ups) · [Undertale battle deep dive](https://www.gamedeveloper.com/design/game-design-deep-dive-i-undertale-i-s-action-based-rpg-battles) · [Nex Machina design](https://www.gamedeveloper.com/design/how-housemarque-designed-the-vibrant-bullet-hell-scape-of-i-nex-machina-i-) · Wikipedia: [Ikaruga](https://en.wikipedia.org/wiki/Ikaruga), [Mushihimesama](https://en.wikipedia.org/wiki/Mushihimesama), [Enter the Gungeon](https://en.wikipedia.org/wiki/Enter_the_Gungeon) · [BMJ blog on COVID visuals](https://blogs.bmj.com/covid-19/2020/04/22/make-covid-19-visuals-gross/).

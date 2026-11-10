@@ -56,7 +56,7 @@ A stage is a script: formation grids that enter from the back and stop at z = �
 
 ## Bosses and mutation cards
 
-Grey-white CDC-style spheres with variant-green club spikes and an expressive face (personality.mjs: eyes narrow before an attack; a taunt at each card start; README "Villains with personality"). One VIRAL LOAD pool; card HP = round(TTK × the reference DPS there × 0.7), with 24 the DPS at ALPHA, so every card ends by damage well inside its timeout (tested). Normal phases time out at 30 s, cards at 40 s; survival cards last their duration. Each card start cancels bullets into antigen tokens and holds 1.5 s with the name tape. A card is **NEUTRALIZED** (index × 10,000 × world, ×0.5 on Easy) if it ends by damage with no hit and no SOAP. Bosses move at most 3 u/s during cards. Only a boss's body sphere takes needles; its spikes are decoration.
+Lit grey CDC-style spheres with variant-green club spikes and glowing pits sunk into the membrane (no drawn face). The pits flare before an attack, and the boss types a taunt into the HUD at each card start (README "Villains with personality, in 3D"). One VIRAL LOAD pool; card HP = round(TTK × the reference DPS there × 0.7), with 24 the DPS at ALPHA, so every card ends by damage well inside its timeout (tested). Normal phases time out at 30 s, cards at 40 s; survival cards last their duration. Each card start cancels bullets into antigen tokens and holds 1.5 s with the name tape. A card is **NEUTRALIZED** (index × 10,000 × world, ×0.5 on Easy) if it ends by damage with no hit and no SOAP. Bosses move at most 3 u/s during cards. Only a boss's body sphere takes needles; its spikes are decoration.
 
 | Boss | Cards (type, TTK s) | Gimmick |
 | --- | --- | --- |
