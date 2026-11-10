@@ -16,10 +16,24 @@ import { fileURLToPath } from 'node:url';
 import { playHumanRun, PROFILES } from './humans.mjs';
 import { LEVELS, WORLDS } from '../model.mjs';
 
-/** §2.2 (Normal). [lo, hi]; null = not banded. */
+/** §2.2 (Normal). [lo, hi]; null = not banded.
+ *
+ * Revision seven changed four bands that contradicted their own siblings
+ * (BALANCE.md "Final bands"); every other number is §2.2's:
+ *   - casual full clear 55-75% -> 85-97%: with mean continues 1.0-2.0 and a
+ *     1CC of 10-25% (both kept), a continue count that is Poisson-like gives
+ *     85-97% fully cleared; 55-75% would need about 2.6 continues and a 1CC
+ *     near 7%.
+ *   - casual S1 vials 0.2-1.0 -> 0.05-1.0 and S3 cleared 75-92% -> 90-100%:
+ *     the calm start is the owner's own request (the first-timer's 1.5-4.0
+ *     in the same sector still holds), and a casual with 3 credits clears a
+ *     sector it reaches unless it spends them all there.
+ *   - first-timer S2 vials 2-5 -> 3-9: a lost attempt costs 3 vials and a run
+ *     has about 2 credits left after AIRWAY, so "S2 cleared 30-60%" forces
+ *     about half the runs through a 3-vial failed attempt first. */
 export const SECTOR_BANDS = Object.freeze({
-  firstTimer: { vials: [[1.5, 4.0], [2.0, 5.0], null, null], cleared: [[0.7, 1], [0.3, 0.6], [0.1, 0.35], null], full: [0.05, 0.2], continues: [2.5, 3.0], oneCredit: [0, 0.02], clean: [0, 0] },
-  casual: { vials: [[0.2, 1.0], [1.6, 3.2], [2.5, 4.4], [3.4, 5.7]], cleared: [[0.98, 1], [0.9, 1], [0.75, 0.92], null], full: [0.55, 0.75], continues: [1.0, 2.0], oneCredit: [0.1, 0.25], clean: [0, 0.01] },
+  firstTimer: { vials: [[1.5, 4.0], [3.0, 9.0], null, null], cleared: [[0.7, 1], [0.3, 0.6], [0.1, 0.35], null], full: [0.05, 0.2], continues: [2.5, 3.0], oneCredit: [0, 0.02], clean: [0, 0] },
+  casual: { vials: [[0.05, 1.0], [1.6, 3.2], [2.5, 4.4], [3.4, 5.7]], cleared: [[0.98, 1], [0.9, 1], [0.9, 1], null], full: [0.85, 0.97], continues: [1.0, 2.0], oneCredit: [0.1, 0.25], clean: [0, 0.01] },
   expert: { vials: [[0, 0.3], [0.5, 1.3], [0.9, 2.0], [1.3, 2.7]], cleared: [[1, 1], [0.98, 1], [0.95, 1], null], full: [0.9, 1], continues: [0.2, 0.7], oneCredit: [0.45, 0.7], clean: [0, 0.08] },
 });
 /** §2.3 stage bands: vials lost per run reaching the stage, all attempts. */

@@ -45,6 +45,16 @@ Beats are separated by rests: `until('clear')`, then `until('calm')` (at most 3 
 | **4-2 FULL BLOOM** | The BLOOM: wait for the window, or INJECT the closed bud | One bloom alone (a 10-spike ring at 3.5 u/s), then a row | A bloom among SNEEZERs over a coughing grid | Blooms mutate and their rings upgrade; then a bloom row | Midboss **MOTHER CELL** (BUDDING → LYSIS → CELL BURST) |
 | **4-3 OMICRON PRIME** | Its mutations are its phases | SPIKE CROWN → SNEEZE STORM → MUTATION SPIRAL → QUARANTINE → CORONA FLARE → R0 > 1 | | | |
 
+### Revision seven: skill shows in patterns (2026-11-10; numbers in BALANCE.md "Where skill shows")
+
+The proxies showed that density, speed and HP move the casual and the expert together, and that a curved aimed stream is what separates them (casual vials from RNA strands 3-6x the expert's, from lanes and jets 1-2x). So the stage scripts now spend their pressure where skill matters:
+
+- **1-1 and 1-2 are a game, not a block of targets:** PEEL divers (above) on top of the rain and the aimed coughs. Speeds stay calm (5.5 u/s, a 1.2 s announced line).
+- **Snake beats** in 3-1 (second grid of the develop beat, two worms in the twist), 3-2 (the twist beat, a worm, two dives in the air), 4-1 (the develop beat, two worms in the twist) and 4-2 (the twist beat). One or two singers per volley, never the whole choir.
+- **Bosses:** DELTA runs the CURRENT on every card and flips it per card (TRIANGULATE and HALVES one way, LANE SNEEZE and Δ CASCADE the other, period 10-12 s with the 2 s warning), HALVES / TRIANGULATE / Δ CASCADE carry a snake, Δ CASCADE and OMICRON's R0 > 1 split less (the replicating bullets hurt the expert more than the casual: 19 vs 12 vials); MOTHER CELL's BUDDING and OMICRON's SNEEZE STORM and R0 > 1 carry a snake, and SNEEZE STORM's random mist is cut from 8 to 6 per second (random fire did not separate casual from expert: 11 vs 14 vials from the mist alone before the snake).
+- **A wall's gap under a CURRENT** is launched where the known flow schedule brings it (`core.mjs flowAt`), and the gap list follows the flow with the bullets. BLOOD RUSH's 6 s flights at 1.6 u/s could carry a gap off the board; the F1 replay found it (1 forced hit in 192 runs).
+- Sector openers 3-1, 3-2, 4-1, 4-2 carry +10% bullets per attack; 4-2's choir and MOTHER CELL are tighter (choir 0.72-0.5 s, cadence x0.8); ALPHA is unchanged except the COUGH COUGH fan (6.8 u/s, every 0.9 s): the S1 exam stays a lesson.
+
 ### Cut and moved (RESEARCH_V1.md 2.4)
 
 - **Cut from the run:** 1-3 BUDDING, 3-2 HIJACK, 3-3 VARIANT SURGE, 4-3 OUTBREAK, B1 CULTURE CHECK and B2 SWAB TEST. BUDDER, HIJACKER and INFECTED CELL stay in `ARCHETYPES` (for v1.1 and their unit tests) but no stage spawns them.
@@ -57,7 +67,9 @@ Beats are separated by rests: `until('clear')`, then `until('calm')` (at most 3 
 
 - `verse`: what the formation choir sings. `'rain'` (a front-of-column WILD TYPE drops one droplet straight down, angle 0; a rain volley has twice as many singers, since a lane is one bullet), `'cough'` (aimed) or `'alternate'` (the default: volleys alternate). Rain and cough count as one pattern family in the overlap gate, so a singing choir never locks a bloom or a splash ring out.
 - `tune`: per-archetype attack overrides for the following beats (an introduce beat's slower tier).
-- `mutation: { flash, every }`, `dive: { telegraph }`, `choir: { interval, size }` and `hint` (a one-time PROTOCOL line).
+- `mutation: { flash, every }`, `dive: { telegraph, every, max }` (revision seven: `every: [lo, hi]` seconds and `max` droplets in the air at once; the default stays one at a time every 3.5-5 s), `choir: { interval, size }` and `hint` (a one-time PROTOCOL line).
+- `divers: { every, max, tele, speed }` (revision seven, PEEL): every `every` seconds a front-most grid member leaves its slot on a straight line through the column the syringe stands in now, extended to the bottom edge. A dashed path is on screen from the first frame; the diver bristles in its slot for `tele` seconds (1.2) and then dives at `speed` (5.5 u/s). One sidestep of about 1.1 u clears it; the INJECT tip cures it on contact (popcorn), so standing still in the line is also an answer. Contact is a hit; a diver that gets through counts as escaped for R0. `{ divers: { off: true } }` stops it. Used in 1-1 (every 5-7 s, then 6-8 s) and the first beat of 1-2.
+- `tune` may swap the preset: `tune({ wild: { preset: 'strand', n: 7, speed: 4.4, amp: 0.7, wavelength: 5, interval: 0.12, aimShip: true } })` is the RNA SNAKE (`SNAKE` in `levels.mjs`): WILD TYPEs sing a curved aimed bead stream for that beat. Paired with `choir({ size: [1, 2] })` and `verse('cough')` so one or two singers fire it, and reset with `tune({})` plus the stage's own `choir` afterwards.
 - `grid({ x })` shifts a reinforcement half a column so bodies never stack.
 
 ## Archetypes in the v1.0 run (one job, one family, one telegraph)
