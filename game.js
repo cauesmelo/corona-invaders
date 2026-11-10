@@ -108,7 +108,7 @@ const store = {
 };
 const settings = { effects: () => store.effects === 'full' && !reducedMotionQuery.matches };
 
-const state = createState({ seed: freshSeed(), difficulty: store.difficulty, adjuvants: true });
+const state = createState({ seed: freshSeed(), difficulty: store.difficulty, drafts: true });
 state.unlockedStage = store.unlocked;
 const cabinet = $('.cabinet'),
   stage = $('#stage'),
@@ -286,7 +286,7 @@ function savedRun() {
   const data = load(KEYS.run, null);
   if (!data) return null;
   // Validate on a scratch state: a corrupt save hides RESUME and never throws.
-  return resumeRun(createState({ adjuvants: true }), data) ? data : null;
+  return resumeRun(createState({ drafts: true }), data) ? data : null;
 }
 function noteCard(s, ev) {
   if (!s.boss) return;
@@ -1022,7 +1022,7 @@ function openFormulate({ resampled = false } = {}) {
   const motion = settings.effects();
   fPanel.dataset.motion = motion ? 'full' : 'reduced';
   $('#formulate-live').textContent = offerSummary(run);
-  if (!resampled) audio.event({ type: 'draft' }, state);
+  // The tray sound plays from the model's own 'draft' event (handleEvents).
   // The reveal: slides rise 90 ms apart, then flip left to right; a
   // legendary glows 0.5 s before its flip (the centrifuge spin-up). Any press
   // after 0.4 s completes it. Reduced motion: instant, one sound per tier.
