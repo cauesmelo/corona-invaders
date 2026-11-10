@@ -683,6 +683,12 @@ export function choose(run, offer, policy, ctx, rng = { rng: (run.seed ^ 0x2545f
     if (policy === 'offense') return after.potency * 100 + TIER_RANK[CARD[id].tier];
     if (policy === 'defense') return hitsEstimate(after, ctx.difficulty) * 100 + after.potency;
     if (policy === 'rarest') return TIER_RANK[CARD[id].tier] * 10 + coin();
+    // Line synergy (the expert proxy, RESEARCH_DIFFICULTY §2.1): build one
+    // line toward its capstone, then rarer, then more potent.
+    if (policy === 'synergy') {
+      const c = CARD[id];
+      return linePicks(run.deck, c.line) * 4 + (synergyOf(run.deck, id) ? 3 : 0) + TIER_RANK[c.tier] + (after.potency - kitOf(run.deck, kctx).potency) * 10;
+    }
     return 0;
   };
   let best = 0,
