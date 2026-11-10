@@ -1,645 +1,555 @@
-/** Boss encounters built on mechanics rather than bullet count.
+/** Variant bosses and midbosses with named MUTATION cards (our spell cards).
  *
- * Every boss has one "viral load" pool (b.hp) shown in the HUD. Phase floors cap
- * damage so a phase can never be skipped by one burst of hits; crossing a floor
- * starts a 1.0-1.1 s transition with 120 ms hitstop and a one-line attack name.
- * Parts with local HP (Delta halves, Mother sacs, Omega nodes) also drain the
- * pool, so the bar always equals the sum the player still has to remove.
+ * One VIRAL LOAD pool per boss (b.hp, shown in the HUD). Each card owns a
+ * slice of it: card HP = TTK x 24 (the reference effective DPS), so boss length
+ * is set by time-to-kill, never by sponge HP. A card's floor caps damage, so a
+ * card can never be skipped by one burst. Each card has a timeout (normal
+ * phases 30 s, cards 40 s): when it runs out the boss moves on and no
+ * NEUTRALIZED bonus is paid. Survival cards (OMICRON's QUARANTINE) last a fixed
+ * time and ignore damage.
  *
- * Attacks run as data-driven steps: telegraph -> fire -> optional punish window.
- * Big attacks (beams, rings, the Mother's opening) always telegraph >= 0.8 s and
- * are followed by a >= 1.0 s punish window; small volleys warn for 0.65 s. All
- * of them are dodgeable without the shield (see tests/bosses.test.mjs).
+ * Every card start cancels the bullets on screen (they become antigen tokens),
+ * clears emitters, slides in the name tape and holds 1.5 s before the first
+ * pattern telegraph. During a card bosses move at most 3 u/s.
  *
- * Movement advances only through b.moveT, which pauses during stalls. A stalled
- * boss therefore resumes from the same point: no phase change teleports it.
+ * WHO Greek-letter variant names only (no places, no people).
  */
-import { RULES, clamp, random, nextId, pushEvent, aimAngle, fireBullet, addTelegraph, requestHitstop } from './core.mjs';
-import { ARCHETYPES } from './levels.mjs';
+import { RULES, clamp, random, pushEvent, requestHitstop, diff } from './core.mjs';
 import { makeEnemy } from './enemies.mjs';
-import { awardKill, refreshChainFromBoss, chainMultiplier } from './scoring.mjs';
+import { startPattern, clearEmitters } from './patterns.mjs';
+import { cancelBullets } from './bullets.mjs';
+import { awardKill, refreshChainFromBoss, chainMultiplier, addScore } from './scoring.mjs';
+
+const P = (preset, params, every, o = {}) => ({ preset, params, every, ...o });
+const card = (name, ttk, patterns, o = {}) => ({ name, type: 'card', ttk, patterns, ...o });
+const phase = (name, ttk, patterns, o = {}) => ({ name, type: 'phase', ttk, patterns, ...o });
 
 export const BOSSES = Object.freeze({
-  delta: { name: 'DELTA', hp: 60, floors: [28, 0], phases: ['WHOLE', 'HALVES'] },
-  mother: { name: 'MOTHER CELL', hp: 80, floors: [50, 20, 0], phases: ['SACS', 'OPEN CORE', 'BURSTER RING'] },
-  echo: { name: 'ECHO', hp: 48, floors: [32, 16, 0], phases: ['TRACKING', 'MIRROR', 'TWIN NUCLEUS'] },
-  omega: { name: 'OMEGA PRIME', hp: 104, floors: [72, 20, 0], phases: ['CROWN', 'CORONA FLARE', 'FULL BLOOM'] },
+  // W1 tutorial boss. Its eyes narrow before each attack.
+  alpha: {
+    name: 'ALPHA',
+    color: '#12ce5d',
+    body: 'crown',
+    radius: 2,
+    cards: [
+      phase('COUGH COUGH', 18, [P('cough', { n: 3, spread: 28, speed: 7 }, 0.8), P('ring', { n: 12, speed: 3.5, family: 'droplet' }, 2, { at: 0.9 })], { move: 'sway' }),
+      card('FIRST SNEEZE', 22, [P('sneeze', { n: 9, spread: 60, speeds: [4, 5.5], reps: 2, repGap: 0.5, tele: 1 }, 3.4)], { move: 'sway' }),
+      card('SPIKE BLOOM', 22, [P('bloom', { n: 7, interval: 0.38, rotate: 11, speed: 3.8, duration: 6 }, 7.2, { alternate: true })], { move: 'still' }),
+      card('CORONA', 18, [P('ring', { n: 20, speed: 4, reps: 4, interval: 1.1, family: 'droplet' }, 5), P('cough', { n: 1, speed: 7.5 }, 2.2, { at: 1.6 })], { move: 'sway' }),
+    ],
+  },
+  // W2 twins on one pool. ECHO's twin-nucleus rule lives on in MIRROR STRAIN.
+  betagamma: {
+    name: 'BETA & GAMMA',
+    color: '#1fc9a4',
+    color2: '#8fd23a',
+    body: 'twins',
+    radius: 1.45,
+    cards: [
+      phase('PING-PONG', 18, [P('drip', { n: 8, speed: 7.5 }, 1.4, { from: 'alt' })], { move: 'twins' }),
+      card('CROSS INFECTION', 24, [P('sneeze', { n: 7, spread: 54, speeds: [4.2], angle: 0.42 }, 1.7, { from: 'B' }), P('sneeze', { n: 7, spread: 54, speeds: [4.2], angle: -0.42 }, 1.7, { from: 'G' })], { move: 'corners' }),
+      card('MIRROR STRAIN', 24, [P('cough', { n: 3, spread: 26, speed: 6 }, 2, { from: 'G' }), P('ring', { n: 12, speed: 3.5 }, 2.6, { from: 'B', at: 0.7 })], { move: 'mirror', nucleus: 5 }),
+      card('DOUBLE HELIX', 20, [P('strand', { n: 8, speed: 4.4, amp: 0.8, wavelength: 5, angle: 0.3 }, 1.7, { from: 'B' }), P('strand', { n: 8, speed: 4.4, amp: 0.8, wavelength: 5, angle: -0.3, phase: Math.PI }, 1.7, { from: 'G', at: 0.85 }), P('sniffle', { n: 6, spread: 44, speed: 4.6 }, 3.4, { from: 'near', at: 1.2 })], { move: 'orbit' }),
+    ],
+  },
+  // W3: a delta-seamed crown that really splits in two.
+  delta: {
+    name: 'DELTA',
+    color: '#c6e04a',
+    body: 'delta',
+    radius: 2,
+    cards: [
+      phase('TRIANGULATE', 18, [P('sniffle', { n: 6, spread: 40, speed: 5 }, 0.9, { from: 'vertex' })], { move: 'sway' }),
+      card('LANE SNEEZE', 22, [P('jet', { width: 2, at: 'owner' }, 2.8), P('sneeze', { n: 7, spread: 50, speeds: [4.5, 6] }, 2.8, { at: 1.6 })], { move: 'track' }),
+      card('HALVES', 24, [P('ring', { n: 14, speed: 4 }, 1.3, { from: 'alt' }), P('cough', { n: 2, speed: 7 }, 2, { from: 'near', at: 0.8 })], { move: 'halves', split: true }),
+      card('BLOOD RUSH', 24, [P('wall', { gaps: 1, gapWidth: 2.4, speed: 3.2 }, 3.4), P('cough', { n: 1, speed: 7 }, 2.6, { from: 'near', at: 1.3 })], { move: 'halves', rush: true }),
+      card('Δ CASCADE', 20, [P('replicate', { n: 3, spread: 40, speed: 3.4, maxGen: 2, splitEvery: 1.1 }, 1.7, { from: 'alt' })], { move: 'halves' }),
+    ],
+  },
+  // W4 finale. Its "mutations" are its phases.
+  omicron: {
+    name: 'OMICRON PRIME',
+    color: '#a8ff3c',
+    body: 'omicron',
+    radius: 2.2,
+    cards: [
+      phase(
+        'SPIKE CROWN',
+        35,
+        [
+          P('cough', { n: 3, spread: 24, speed: 7.5 }, 1.4, { from: 'node:cough' }),
+          P('ring', { n: 18, speed: 3.9, family: 'spike' }, 1.9, { from: 'node:ring', at: 0.8 }),
+          P('bloom', { n: 7, interval: 0.28, rotate: 13, speed: 4, duration: 2.4 }, 3.6, { from: 'node:bloom', at: 1.6 }),
+          P('drip', { n: 8, speed: 7.8 }, 2.2, { from: 'node:drip', at: 2.4 }),
+        ],
+        { move: 'sway', nodes: true },
+      ),
+      card('SNEEZE STORM', 25, [P('aerosol', { rate: 8, cone: 110, speed: [2.6, 4.4], duration: 3, lanes: 2 }, 3.2), P('ring', { n: 16, speed: 3.8, family: 'spike' }, 2, { at: 1.2 })], { move: 'sway' }),
+      card('MUTATION SPIRAL', 25, [P('bloom', { n: 7, interval: 0.24, rotate: 13, speed: 4.3, duration: 2.4, dir: 1 }, 3.3, { alternate: true }), P('bloom', { n: 7, interval: 0.24, rotate: 13, speed: 4.3, duration: 2.4, dir: -1 }, 3.3, { alternate: true })], { move: 'still' }),
+      { name: 'QUARANTINE', type: 'survival', ttk: 0, duration: 15, patterns: [P('ring', { n: 20, speed: 3.8, family: 'spike' }, 1.3, { at: 1 }), P('aerosol', { rate: 6, cone: 90, speed: [2.6, 3.6], duration: 1.6 }, 2.2, { at: 1.6 })], move: 'still', quarantine: true },
+      card('CORONA FLARE', 20, [P('ring', { n: 24, speed: 4.4, family: 'spike', gaps: 2 }, 1.6), P('cough', { n: 3, spread: 18, speed: 7.5 }, 1.3, { at: 1 })], { move: 'sway' }),
+      card('R0 > 1', 25, [P('replicate', { n: 4, spread: 66, speed: 3.3, maxGen: 2, splitEvery: 1 }, 1.4), P('cough', { n: 2, speed: 7.5 }, 1.8, { at: 1 })], { move: 'sway', finale: true }),
+    ],
+  },
+  // Midbosses (1-3 cards, 20-40 s total TTK).
+  bigsneezer: {
+    name: 'BIG SNEEZER',
+    mid: true,
+    color: '#12ce5d',
+    body: 'sneezer',
+    radius: 1.7,
+    cards: [card('ACHOO!', 20, [P('sneeze', { n: 9, spread: 60, speeds: [4, 5.5], reps: 2, repGap: 0.5, tele: 1 }, 3.6), P('cough', { n: 1, speed: 6.5 }, 2, { at: 1.6 })], { move: 'sway' })],
+  },
+  aerosolcloud: {
+    name: 'AEROSOL CLOUD',
+    mid: true,
+    color: '#1fc9a4',
+    body: 'cloud',
+    radius: 1.8,
+    cards: [card('MIST', 22, [P('aerosol', { rate: 7, cone: 120, speed: [2.5, 4], duration: 2.5 }, 3.2), P('ring', { n: 12, speed: 3.5, family: 'droplet' }, 2.6, { at: 1.4 })], { move: 'sway' })],
+  },
+  mother: {
+    name: 'MOTHER CELL',
+    mid: true,
+    color: '#e6e8ee',
+    body: 'mother',
+    radius: 2,
+    cards: [
+      phase('BUDDING', 12, [P('ring', { n: 8, speed: 2.8, family: 'virion' }, 2.2), P('cough', { n: 2, speed: 7 }, 1.6, { at: 0.8 })], { move: 'sway' }),
+      card('LYSIS', 14, [P('replicate', { n: 4, spread: 70, speed: 3.2, maxGen: 2, splitEvery: 1.2 }, 2.4)], { move: 'sway' }),
+      card('CELL BURST', 14, [P('ring', { n: 18, speed: 4, reps: 3, interval: 1, alternate: true, family: 'droplet' }, 4), P('ring', { n: 6, speed: 2.6, family: 'virion' }, 4, { at: 2, share: true })], { move: 'still' }),
+    ],
+  },
+  lambda: {
+    name: 'LAMBDA',
+    mid: true,
+    color: '#c6e04a',
+    body: 'lambda',
+    radius: 1.6,
+    cards: [
+      phase('TRACKING', 16, [P('sniffle', { n: 8, spread: 50, speed: 5 }, 1.5), P('drip', { n: 8, speed: 7.5 }, 2.4, { at: 1.2 })], { move: 'track' }),
+      card('MIRROR', 20, [P('jet', { width: 1.8, at: 'owner' }, 2.6), P('ring', { n: 16, speed: 4 }, 1.9, { at: 1.3 })], { move: 'mirror1' }),
+    ],
+  },
 });
-const INTRO = 1.2;
-const AIM3 = Object.freeze([-0.14, 0, 0.14]);
-const SPREAD5 = Object.freeze([-0.36, -0.18, 0, 0.18, 0.36]);
-// Ring bullets are slower than volleys so the gaps can be reached (macro-dodge).
-const RING_SPEED = 9.4;
-const RING_ANGLES = Object.freeze(Array.from({ length: 17 }, (_, i) => -0.72 + i * 0.09));
-// Six boss-minion slots on one row in front of the boss.
-const MINION_X = Object.freeze([-6.5, -3.9, -1.3, 1.3, 3.9, 6.5]);
-const MINION_Z = -3.2;
+export const BOSS_TYPES = Object.freeze(Object.keys(BOSSES));
+const INTRO = 1.5;
+const BOSS_Z = -8;
 
-const beam = (name, extra) => ({
-  name,
-  attack: 'beam',
-  at: 'ship',
-  width: 2,
-  tele: 1,
-  active: 0.35,
-  punish: 1.2,
-  stall: true,
-  expose: true,
-  gap: 0.6,
-  ...extra,
-});
-const volley = (name, from, offsets, extra) => ({ name, attack: 'volley', from, offsets, tele: 0.65, gap: 0.8, ...extra });
-
-/** Step scripts per boss and phase. `requires` skips a step whose part is dead:
- * destroying an Omega node really removes its attack. */
-export const SCRIPTS = Object.freeze({
-  delta: [
-    // AIMED DOUBLE: two shots down one line, so any sidestep dodges both. The
-    // lane beam comes out of Delta itself: stand under it and you must move.
-    [
-      volley('AIMED DOUBLE', 'whole', [0, 0], { stagger: 1.3 }),
-      volley('AIMED DOUBLE', 'whole', [0, 0], { stagger: 1.3 }),
-      beam('LANE BEAM', { at: 'part', from: 'whole', tele: 1.1 }),
-    ],
-    [
-      { name: 'STUNNED', attack: 'none', tele: 0, punish: 1.2, stall: true, expose: true, gap: 0.4, once: true },
-      volley('SPLIT SPREAD', 'half:L', [-0.2, 0, 0.2], { gap: 0.55, requires: 'half:L' }),
-      volley('SPLIT SPREAD', 'half:R', [-0.2, 0, 0.2], { gap: 0.55, requires: 'half:R' }),
-      volley('SPLIT SPREAD', 'half:L', [-0.2, 0, 0.2], { gap: 0.55, requires: 'half:L' }),
-      volley('SPLIT SPREAD', 'half:R', [-0.2, 0, 0.2], { gap: 0.55, requires: 'half:R' }),
-      beam('TWIN BEAM', { at: 'parts', from: 'half', width: 1.8 }),
-    ],
-  ],
-  // World-2 boss: a step up from Delta (ramp check in tests/curve.test.mjs).
-  mother: [
-    [volley('CORE PULSE', 'core', AIM3, { gap: 1.7 })],
-    [
-      volley('OPENING', 'core', SPREAD5, { tele: 0.8, glow: true, punish: 2, open: true, stall: true, gap: 0.6 }),
-      volley('CORE PULSE', 'core', AIM3, { gap: 1.2 }),
-    ],
-    [
-      volley('OPENING', 'core', SPREAD5, { tele: 0.8, glow: true, punish: 2, open: true, stall: true, gap: 0.9 }),
-      volley('CORE PULSE', 'core', AIM3, { gap: 1.3 }),
-    ],
-  ],
-  // Echo's eye opens BEFORE it attacks: the safe punish window comes while no
-  // bullets are in the air, then the plate closes and the attack is warned.
-  echo: [
-    [
-      { name: 'EYE OPEN', attack: 'none', tele: 0, punish: 1.5, open: true, gap: 0 },
-      // 1.8 s gap > the volley's ~1.6 s flight to the ship row, so the next
-      // open eye never overlaps incoming Echo fire.
-      volley('ECHO VOLLEY', 'echo:A', [-0.12, 0, 0.12], { gap: 1.8 }),
-    ],
-    [
-      { name: 'MIRROR HOLD', attack: 'none', tele: 0, punish: 2, open: true, stall: true, gap: 0 },
-      beam('MIRROR GLARE', { at: 'part', from: 'echo:A', tele: 1, punish: 0, expose: false, gap: 0.6 }),
-      volley('MIRROR VOLLEY', 'echo:A', AIM3, { gap: 1.8 }),
-    ],
-    [volley('TWIN VOLLEY', 'nucleus', [-0.12, 0, 0.12], { gap: 1.6, swap: true })],
-  ],
-  omega: [
-    // Crown: one node attacks at a time with >= 1.0 s gaps (was 0.8; playtest:
-    // P1 overlapped too much). The beam glows for 1.1 s from its node.
-    [
-      volley('NODE: AIMED', 'node:aimed', AIM3, { requires: 'node:aimed', gap: 1 }),
-      volley('NODE: SPREAD', 'node:spread', SPREAD5, { requires: 'node:spread', gap: 1 }),
-      beam('NODE: BEAM', { from: 'node:beam', requires: 'node:beam', tele: 1.1, punish: 1, expose: false, gap: 1.2 }),
-      { name: 'NODE: SPAWN', attack: 'spawn', from: 'node:spawn', requires: 'node:spawn', minion: 'diver', tele: 0.65, gap: 1.2 },
-    ],
-    [
-      { name: 'CORONA FLARE', attack: 'ring', from: 'core', tele: 1, stall: true, shielded: true, punish: 1.5, expose: true, gap: 0.4 },
-      volley('AIMED TRIPLE', 'core', AIM3, { gap: 0.5 }),
-      volley('CORONA SPREAD', 'core', SPREAD5, { gap: 0.9 }),
-    ],
-    [
-      { name: 'CORONA FLARE', attack: 'ring', from: 'core', tele: 1, stall: true, shielded: true, punish: 1.2, expose: true, gap: 0.4 },
-      volley('AIMED TRIPLE', 'core', AIM3, { gap: 0.5 }),
-      beam('LANE BEAM', { punish: 1 }),
-      { name: 'SPAWN', attack: 'spawn', from: 'core', minion: 'diver', tele: 0.65, gap: 0.5 },
-      volley('SPREAD', 'core', SPREAD5, { gap: 0.8 }),
-    ],
-  ],
-});
+const timeoutFor = (c) => (c.type === 'survival' ? c.duration : c.type === 'phase' ? RULES.phaseTimeout : RULES.cardTimeout);
+/** Card HP: TTK x reference DPS (x0.85 on Easy). */
+export const cardHp = (c, hpScale = 1, dps = RULES.referenceDps) => (c.type === 'survival' ? 0 : Math.round(c.ttk * dps * hpScale));
 
 const living = (s) => s.enemies.filter((e) => e.alive && e.kind === 'boss');
-export function bossPart(s, from) {
+export function bossPart(s, from, entry) {
   const b = s.boss;
-  if (!b || !from) return null;
   const parts = living(s);
-  if (from === 'nucleus') return parts.find((p) => p.id === b.nucleus) || null;
-  const [part, tag] = from.split(':');
-  return parts.find((p) => p.part === part && (!tag || p.tag === tag)) || null;
+  if (!b || !parts.length) return null;
+  if (!from || from === 'core') return parts.find((p) => p.part === 'core') || parts[0];
+  if (from === 'nucleus') return parts.find((p) => p.id === b.nucleus) || parts[0];
+  if (from === 'vertex') return parts.find((p) => p.part === 'core') || parts[0];
+  if (from === 'near') return parts.reduce((a, p) => (Math.abs(p.x - s.ship.x) < Math.abs(a.x - s.ship.x) ? p : a));
+  if (from === 'alt') {
+    entry.flip = !entry.flip;
+    const pool = parts.filter((p) => p.part !== 'node');
+    return pool[entry.flip ? 0 : pool.length - 1];
+  }
+  if (from.startsWith('node:')) return parts.find((p) => p.part === 'node' && p.tag === from.slice(5)) || null;
+  return parts.find((p) => p.tag === from) || null;
 }
 
 function makePart(s, part, radius, extra = {}) {
-  // The primary body keeps the stable id `s<stage>-boss`; extra parts get suffixes.
-  const primary = part === 'whole' || part === 'core' || (part === 'echo' && extra.tag === 'A');
-  const e = makeEnemy(s, 'spore', 0, -7, {
-    id: primary ? `s${s.wave}-boss` : `s${s.wave}-boss-${part}-${extra.tag ?? extra.slot}`,
+  const primary = part === 'core' || (part === 'twin' && extra.tag === 'B') || (part === 'half' && extra.tag === 'L');
+  const e = makeEnemy(s, 'wild', extra.x ?? 0, extra.z ?? BOSS_Z, {
+    id: primary ? `s${s.wave}-boss` : `s${s.wave}-boss-${part}-${extra.tag ?? ''}`,
     group: -1,
     mode: 'boss',
     ...extra,
   });
-  Object.assign(e, { kind: 'boss', part, radius, hp: extra.hp ?? s.boss.hp, maxHp: extra.maxHp ?? extra.hp ?? s.boss.maxHp });
+  Object.assign(e, { kind: 'boss', label: s.boss.name, part, radius, hp: extra.hp ?? s.boss.hp, maxHp: extra.maxHp ?? s.boss.maxHp });
   s.enemies.push(e);
   return e;
 }
 
-export function createBoss(s, level) {
-  const def = BOSSES[level.boss];
-  s.groups.push({ index: 99, sway: 1.1, frequency: 0.8, descent: 0, cross: false, spawnAt: 0 });
+/** Create a boss or midboss. `startCard` (practice) begins at a later card. */
+export function createBoss(s, type, { startCard = 0, world = 1 } = {}) {
+  const def = BOSSES[type];
+  const hpScale = diff(s).hp;
+  const hps = def.cards.map((c) => cardHp(c, hpScale, s.dpsRef ?? RULES.referenceDps));
+  const cards = def.cards.map((c, i) => ({ ...c, hp: hps[i], floor: hps.slice(i + 1).reduce((a, b) => a + b, 0), timeout: timeoutFor(c) }));
+  const maxHp = hps.reduce((a, b) => a + b, 0);
   const b = {
-    type: level.boss,
+    type,
     name: def.name,
-    hp: def.hp,
-    maxHp: def.hp,
-    floors: def.floors,
-    phase: 0,
+    mid: !!def.mid,
+    world,
+    hp: startCard ? cards[startCard - 1].floor : maxHp,
+    maxHp,
+    cards,
+    card: startCard,
     state: 'intro',
     timer: INTRO,
-    moveT: 0,
-    stall: false,
-    exposed: false,
-    open: false,
-    step: 0,
-    stepState: 'gap',
-    script: SCRIPTS[level.boss][0],
-    attack: def.phases[0],
-    aimX: 0,
-    pending: [],
-    ring: null,
-    speed: 1,
-    gapScale: 1,
+    cardTime: 0,
+    capture: true,
+    results: [],
+    clocks: [],
     nucleus: null,
-    ringAngle: 0,
-    minionGroup: s.groups.length - 1,
-    usedOnce: [],
+    moveT: 0,
+    swapClock: 0,
+    attack: cards[startCard].name,
+    practiceCard: null,
   };
   s.boss = b;
-  if (b.type === 'delta') makePart(s, 'whole', 1.85, { hp: def.hp, maxHp: def.hp });
-  if (b.type === 'mother') {
-    makePart(s, 'core', 2.1, { hp: def.hp });
-    [
-      [-3.1, 1.3],
-      [0, 2.6],
-      [3.1, 1.3],
-    ].forEach(([dx, dz], slot) =>
-      makePart(s, 'sac', 0.95, { slot, dx, dz, hp: 10, maxHp: 10, local: true, spawnClock: 2 + slot * 2, spawned: 0 }),
-    );
-  }
-  if (b.type === 'echo') b.nucleus = makePart(s, 'echo', 1.5, { tag: 'A', hp: def.hp }).id;
-  if (b.type === 'omega') {
-    b.speed = 0.9; // crown nodes fire slower bullets than the core phases
-    makePart(s, 'core', 2, { hp: def.hp });
-    ['aimed', 'spread', 'beam', 'spawn'].forEach((attackType, slot) =>
-      makePart(s, 'node', 0.8, { slot, tag: attackType, attackType, hp: 8, maxHp: 8, local: true }),
-    );
-  }
-  moveBoss(s, b, 0);
+  const r = def.radius;
+  if (def.body === 'twins') {
+    b.nucleus = makePart(s, 'twin', r, { tag: 'B', x: -4, z: BOSS_Z - 8 }).id;
+    makePart(s, 'twin', r, { tag: 'G', x: 4, z: BOSS_Z - 8 });
+  } else makePart(s, 'core', r, { x: 0, z: BOSS_Z - 8 });
+  pushEvent(s, 'boss-enter', { boss: type, name: def.name, mid: b.mid });
   return b;
 }
 
-const ease = (k) => 1 - (1 - k) ** 3;
 const smooth = (k) => k * k * (3 - 2 * k);
 
-function moveBoss(s, b, dt) {
+/** Per-card target positions; the speed cap is applied afterwards. */
+function targets(s, b, parts, dt) {
+  const c = b.cards[b.card];
   const t = b.moveT,
-    lift = b.state === 'intro' ? (1 - ease(1 - Math.max(0, b.timer) / INTRO)) * 6 : 0;
-  const parts = living(s),
-    ship = s.ship.x;
-  for (const p of parts) {
-    p.ox = p.x;
-    p.oz = p.z;
+    sx = s.ship.x;
+  const out = new Map();
+  const core = parts.find((p) => p.part === 'core');
+  const move = c?.move ?? 'sway';
+  if (core) {
+    let x = core.x,
+      z = BOSS_Z + Math.sin(t * 0.5) * 0.4;
+    if (move === 'sway') x = Math.sin(t * 0.32) * 4;
+    else if (move === 'still') x = core.x * (1 - Math.min(1, dt * 0.8));
+    else if (move === 'track') x = clamp(sx, -6.5, 6.5);
+    else if (move === 'mirror1') x = clamp(-sx, -6.5, 6.5);
+    out.set(core.id, [x, z]);
   }
-  if (b.type === 'delta') {
-    const whole = parts.find((p) => p.part === 'whole');
-    if (whole) {
-      whole.x = Math.sin(t * 0.62) * 5.5;
-      whole.z = -7 + Math.sin(t * 0.42) * 0.6 - lift;
+  const twins = parts.filter((p) => p.part === 'twin');
+  for (const p of twins) {
+    const sign = p.tag === 'B' ? -1 : 1;
+    let x, z;
+    if (move === 'corners') [x, z] = [sign * 5.6, -8.8];
+    // MIRROR STRAIN: BETA mirrors you deep in the field, GAMMA tracks you
+    // closer in. Different depths keep both readable when you stand centred.
+    else if (move === 'mirror') {
+      // BETA never stacks on GAMMA: when you stand near the centre it holds
+      // 4 u aside, so the two twins never fire down one column.
+      const gx = clamp(sx, -7.5, 7.5);
+      let bx = clamp(-sx, -7.5, 7.5);
+      if (Math.abs(bx - gx) < 4) bx = clamp(gx + (gx > 0 ? -4 : 4), -7.5, 7.5);
+      [x, z] = p.tag === 'B' ? [bx, -10.2] : [gx, -6.6];
     }
-    // Halves glide from the split point to mirrored tracks over 1.2 s: x_L = -x_R.
-    const xr = 3.8 + Math.sin(t * 0.8) * 3.2,
-      z = -7 + Math.sin(t * 0.5) * 0.5;
-    for (const h of parts.filter((p) => p.part === 'half')) {
-      h.blend = Math.min(1, h.blend + dt / 1.2);
-      const k = smooth(h.blend);
-      h.x = h.fromX + ((h.tag === 'L' ? -xr : xr) - h.fromX) * k;
-      h.z = h.fromZ + (z - h.fromZ) * k;
-    }
-  } else if (b.type === 'mother') {
-    const core = parts.find((p) => p.part === 'core');
-    if (core) {
-      core.x = Math.sin(t * 0.35) * 3.5;
-      core.z = -7.4 + Math.sin(t * 0.3) * 0.4 - lift;
-      for (const sac of parts.filter((p) => p.part === 'sac')) {
-        sac.x = core.x + sac.dx;
-        sac.z = core.z + sac.dz;
-      }
-      b.ringAngle += 0.55 * dt;
-      for (const e of s.enemies)
-        if (e.alive && e.mode === 'orbit') {
-          const a = b.ringAngle + (e.slot * Math.PI) / 3,
-            ox = e.x,
-            oz = e.z;
-          // Ellipse 3.0 x 2.4 u keeps every ring Burster within burst reach of the
-          // core (2.2 + half the core radius), so each pop really damages it.
-          e.x = core.x + Math.cos(a) * 3;
-          e.z = core.z + Math.sin(a) * 2.4;
-          e.vx = dt ? (e.x - ox) / dt : 0;
-          e.vz = dt ? (e.z - oz) / dt : 0;
-        }
-    }
-  } else if (b.type === 'echo') {
-    // First-order lag (0.6 s time constant) toward the player's x, or its mirror.
-    for (const p of parts) {
-      const mirror = b.phase === 1 || (b.phase === 2 && p.tag === 'B');
-      const target = clamp(mirror ? -ship : ship, -8.2, 8.2),
-        cap = b.phase === 1 ? 9 : 8;
-      if (!b.stall && dt > 0) p.x += clamp((target - p.x) / 0.6, -cap, cap) * dt;
-      p.z = -6.5 + Math.sin(t * 0.5) * 0.3 - lift;
-    }
-  } else if (b.type === 'omega') {
-    const core = parts.find((p) => p.part === 'core');
-    if (core) {
-      core.x = Math.sin(t * 0.5) * 4.2;
-      core.z = -7.8 + Math.sin(t * 0.4) * 0.5 - lift;
-      for (const n of parts.filter((p) => p.part === 'node')) {
-        const a = (n.slot * Math.PI) / 2 + t * 0.45;
-        n.x = core.x + Math.cos(a) * 3;
-        n.z = core.z + Math.sin(a) * 2.1;
-      }
-    }
+    else if (move === 'orbit') {
+      const a = t * 0.9 + (sign > 0 ? Math.PI : 0);
+      [x, z] = [Math.cos(a) * 2.6, BOSS_Z - 0.6 + Math.sin(a) * 1.6];
+    } else [x, z] = [sign * 4 + Math.sin(t * 0.5) * 1.2, BOSS_Z + Math.sin(t * 0.7 + sign) * 0.4];
+    out.set(p.id, [x, z]);
   }
+  const halves = parts.filter((p) => p.part === 'half');
+  if (halves.length) {
+    const xr = 3.8 + Math.sin(t * 0.55) * 2.2;
+    for (const h of halves) out.set(h.id, [h.tag === 'L' ? -xr : xr, BOSS_Z + Math.sin(t * 0.5) * 0.4]);
+  }
+  for (const n of parts.filter((p) => p.part === 'node')) {
+    const a = (n.slot * Math.PI) / 2 + t * 0.45;
+    const cx = core?.x ?? 0,
+      cz = core?.z ?? BOSS_Z;
+    out.set(n.id, [cx + Math.cos(a) * 3.4, cz + Math.sin(a) * 2.2]);
+  }
+  return out;
+}
+
+function moveBoss(s, b, dt) {
+  const parts = living(s);
+  const goal = targets(s, b, parts, dt);
+  // The entry slide is the only fast motion; during cards the cap is 3 u/s.
+  const entering = b.state === 'intro';
+  const cap = entering ? 9 : RULES.bossMaxSpeed;
   for (const p of parts) {
-    p.vx = dt ? (p.x - p.ox) / dt : 0;
-    p.vz = dt ? (p.z - p.oz) / dt : 0;
+    const g = goal.get(p.id);
+    if (!g) continue;
+    const ox = p.x,
+      oz = p.z;
+    // Nodes ride the core: they inherit its motion plus their orbit (<= 1.6 u/s).
+    const limit = p.part === 'node' ? cap + 1.6 : cap;
+    const dx = g[0] - p.x,
+      dz = g[1] - p.z,
+      d = Math.hypot(dx, dz),
+      step = limit * dt;
+    if (d <= step) [p.x, p.z] = g;
+    else {
+      p.x += (dx / d) * step;
+      p.z += (dz / d) * step;
+    }
+    p.vx = dt ? (p.x - ox) / dt : 0;
+    p.vz = dt ? (p.z - oz) / dt : 0;
   }
 }
 
-function stepAvailable(s, b, step) {
-  if (step.once && b.usedOnce.includes(step.name)) return false;
-  if (step.requires && !bossPart(s, step.requires)) return false;
-  if (step.at === 'parts' && !living(s).some((p) => p.part === step.from)) return false;
-  return true;
-}
-
-/** Begin a scripted step: capture aim, create telegraphs. Also used by tests to
- * isolate one attack for the dodge analysis. */
-export function beginBossStep(s, index) {
-  const b = s.boss,
-    step = b.script[index];
-  b.step = index;
-  b.stepState = 'tele';
-  b.timer = step.tele;
-  b.stall = !!step.stall;
-  b.attack = step.name;
-  b.aimX = clamp(s.ship.x, -8.6, 8.6);
-  b.pending = [];
-  if (step.once) b.usedOnce.push(step.name);
-  const src = bossPart(s, step.from);
-  if (src && step.attack !== 'none') src.charge = step.tele;
-  if (step.attack === 'beam') {
-    const lanes =
-      step.at === 'parts'
-        ? living(s)
-            .filter((p) => p.part === step.from)
-            .map((p) => p.x)
-        : step.at === 'part'
-          ? [src?.x ?? b.aimX]
-          : [b.aimX];
-    // Lane positions live on the boss; the telegraph is only the visible glow,
-    // so expiry order between the two timers can never cancel a warned beam.
-    // fromZ: the glow is drawn from its source (the boss or node) to the ship row.
-    const fromZ = src ? src.z : -9;
-    b.lanes = lanes.map((x) => ({ x: clamp(x, -8.8, 8.8), width: step.width, fromZ }));
-    for (const lane of b.lanes)
-      b.pending.push(
-        addTelegraph(s, { kind: 'lane', ...lane, timer: step.tele + 0.05, danger: true, boss: true, src: b.name }).id,
-      );
-  } else if (step.attack === 'ring' && src) {
-    b.ring = { angles: ringAngles(s, src) };
-    b.pending.push(
-      addTelegraph(s, { kind: 'ring', ownerId: src.id, x: src.x, z: src.z, angles: b.ring.angles, timer: step.tele + 0.05, danger: true, boss: true }).id,
+/** Card start: cancel bullets (antigen tokens), clear emitters, slide in the
+ * name tape, hold 1.5 s. Part changes (split, nodes) happen here. */
+function beginCard(s, b, index) {
+  b.card = index;
+  const c = b.cards[index];
+  b.state = 'cardIntro';
+  b.timer = RULES.cardIntro + diff(s).tele;
+  b.cardTime = 0;
+  b.capture = true;
+  b.attack = c.name;
+  b.clocks = c.patterns.map((p) => ({ clock: p.at ?? 0.2, em: null, flip: false, alt: false }));
+  clearEmitters(s, (em) => em.boss);
+  cancelBullets(s, { reason: 'card' });
+  s.beams = [];
+  s.quarantine = null;
+  const parts = living(s);
+  if (c.split && !parts.some((p) => p.part === 'half')) {
+    const core = parts.find((p) => p.part === 'core');
+    const x = core?.x ?? 0,
+      z = core?.z ?? BOSS_Z;
+    if (core) core.alive = false;
+    for (const tag of ['L', 'R']) makePart(s, 'half', 1.45, { tag, x: x + (tag === 'L' ? -1.2 : 1.2), z });
+    pushEvent(s, 'split', { x, z });
+  }
+  for (const n of parts.filter((p) => p.part === 'node')) if (!c.nodes) n.alive = false;
+  if (c.nodes) {
+    const core = parts.find((p) => p.part === 'core');
+    const hp = Math.round(c.hp / 4);
+    ['cough', 'ring', 'bloom', 'drip'].forEach((tag, slot) =>
+      makePart(s, 'node', 0.85, { tag, slot, local: true, hp: slot === 3 ? c.hp - hp * 3 : hp, maxHp: hp, x: core?.x ?? 0, z: core?.z ?? BOSS_Z }),
     );
   }
-  if (step.glow && src)
-    addTelegraph(s, { kind: 'glow', ownerId: src.id, color: 'cyan', timer: step.tele, boss: true, danger: false });
-  pushEvent(s, 'boss-telegraph', { name: step.name, attack: step.attack, x: src?.x ?? b.aimX, z: src?.z ?? -7 });
-}
-
-/** Corona flare: 17 bullets fan across the whole width with two 2-bullet gaps.
- * Gap centers are seeded and kept inside +/-7.5 u at the ship row, at least five
- * bullets apart, so both gaps are reachable from anywhere during 1.0 s + travel. */
-function ringAngles(s, src) {
-  const depth = RULES.shipZ - src.z;
-  const valid = [];
-  for (let i = 0; i < RING_ANGLES.length - 1; i++) {
-    const x = src.x + Math.tan((RING_ANGLES[i] + RING_ANGLES[i + 1]) / 2) * depth;
-    if (Math.abs(x) <= 7.5) valid.push(i);
+  if (c.nucleus) {
+    const twin = parts.find((p) => p.part === 'twin');
+    b.nucleus = twin?.id ?? null;
+    b.swapClock = c.nucleus;
   }
-  const g1 = valid[Math.floor(random(s) * valid.length)];
-  const far = valid.filter((i) => Math.abs(i - g1) >= 5);
-  const g2 = far.length ? far[Math.floor(random(s) * far.length)] : null;
-  const gaps = new Set([g1, g1 + 1, ...(g2 === null ? [] : [g2, g2 + 1])]);
-  return RING_ANGLES.filter((_, i) => !gaps.has(i));
+  s.twistOverride = c.rush ? { kind: 'rush' } : null;
+  pushEvent(s, 'card-start', { name: c.name, index, cardType: c.type, boss: b.name, count: b.cards.length });
 }
 
-function spawnMinion(s, b, kind, src) {
-  const minions = s.enemies.filter((e) => e.alive && e.minion && e.mode !== 'orbit');
-  if (!src || minions.length >= (b.type === 'mother' ? 6 : 2)) return null;
-  const used = new Set(minions.map((e) => e.col));
-  // Rotate the preferred slot each spawn so minions spread across the row.
-  b.spawnRotation = ((b.spawnRotation ?? 0) + 1) % 6;
-  const order = [2, 3, 1, 4, 0, 5].map((i) => (i + b.spawnRotation) % 6);
-  const col = order.find((i) => !used.has(i));
-  if (col === undefined) return null;
-  const e = makeEnemy(s, kind, src.x, src.z, {
-    group: b.minionGroup,
-    row: 0,
-    col,
-    baseX: MINION_X[col],
-    baseZ: MINION_Z,
-    mode: 'rejoin',
-    minion: true,
-  });
-  s.enemies.push(e);
-  pushEvent(s, 'spawn', { x: src.x, z: src.z, kind });
-  return e;
-}
-
-function fireStep(s, b, step) {
-  const src = bossPart(s, step.from);
-  if (step.attack === 'volley' && src) {
-    const angle = aimAngle(src.x, src.z, b.aimX);
-    step.offsets.forEach((o, i) => {
-      // `stagger` places later bullets further back along the same line.
-      const back = (step.stagger ?? 0) * i,
-        a = angle + o;
-      fireBullet(s, src.x - Math.sin(a) * back, src.z + src.radius * 0.8 - Math.cos(a) * back, a, s.levelShotSpeed * b.speed, {
-        radius: 0.23,
-        src: b.name,
-        boss: true,
-      });
-    });
-    pushEvent(s, 'enemy-shot', { x: src.x, z: src.z, kind: 'boss' });
-  } else if (step.attack === 'beam') {
-    for (const lane of b.lanes ?? []) s.beams.push({ id: nextId(s), ...lane, timer: step.active, src: b.name });
-    // The floor glow stays on (brighter) while the beam is live, so nobody steps
-    // back into a lane that just stopped "warning" but is still burning.
-    for (const t of s.telegraphs)
-      if (b.pending.includes(t.id)) {
-        t.firing = true;
-        t.timer = t.age + step.active + 0.02;
-      }
-    pushEvent(s, 'beam', { lanes: b.lanes?.map((l) => l.x) ?? [] });
-    b.lanes = [];
-  } else if (step.attack === 'ring' && src) {
-    for (const a of b.ring.angles)
-      fireBullet(s, src.x, src.z + src.radius * 0.8, a, RING_SPEED * b.speed, { radius: 0.24, src: b.name, boss: true });
-    s.telegraphs = s.telegraphs.filter((t) => !b.pending.includes(t.id));
-    pushEvent(s, 'ring', { x: src.x, z: src.z });
-  } else if (step.attack === 'spawn') spawnMinion(s, b, step.minion, src);
-  if (step.swap) {
-    const other = living(s).find((p) => p.part === 'echo' && p.id !== b.nucleus);
-    if (other) {
-      b.nucleus = other.id;
-      pushEvent(s, 'nucleus-swap', { x: other.x, z: other.z, id: other.id });
-    }
+function endCard(s, b, reason) {
+  const c = b.cards[b.card];
+  const neutralized = reason === 'cleared' && b.capture && c.type !== 'phase';
+  let bonus = 0;
+  if (neutralized) {
+    bonus = Math.round((b.card + 1) * 10000 * b.world * diff(s).neutralized);
+    addScore(s, bonus);
   }
-  b.pending = [];
-}
-
-function endStep(s, b) {
-  const step = b.script[b.step];
-  b.exposed = b.open = b.stall = false;
-  b.stepState = 'gap';
-  b.timer = (step?.gap ?? 0.5) * b.gapScale * (b.type === 'delta' && living(s).filter((p) => p.part === 'half').length === 1 ? 0.7 : 1);
-  b.attack = BOSSES[b.type].phases[b.phase];
-  for (let i = 1; i <= b.script.length; i++) {
-    const next = (b.step + i) % b.script.length;
-    if (stepAvailable(s, b, b.script[next])) {
-      b.step = next;
-      return;
-    }
+  b.results.push({ name: c.name, reason, neutralized, bonus, time: b.cardTime });
+  b.hp = Math.min(b.hp, c.floor);
+  for (const p of living(s)) if (!p.local) p.hp = b.hp;
+  // A timed-out or finished card's remaining nodes are cured with it.
+  if (c.nodes) for (const p of living(s)) if (p.part === 'node') p.alive = false;
+  clearEmitters(s, (em) => em.boss);
+  s.quarantine = null;
+  s.twistOverride = null;
+  pushEvent(s, 'card-end', { name: c.name, index: b.card, reason, neutralized, bonus, cardType: c.type, finale: !!c.finale });
+  if (b.practiceCard !== null) {
+    b.practiceDone = { name: c.name, neutralized, reason };
+    defeat(s, b, null, { practice: true });
+    return;
+  }
+  if (b.card >= b.cards.length - 1 || b.hp <= 0) defeat(s, b);
+  else {
+    requestHitstop(s, 0.12);
+    pushEvent(s, 'phase-break', { name: b.cards[b.card + 1].name, phase: b.card + 2, boss: b.name });
+    beginCard(s, b, b.card + 1);
   }
 }
 
-function runScript(s, b, dt) {
-  b.timer -= dt;
-  for (let guard = 0; guard < 5 && b.timer <= 0 && b.state === 'fight'; guard++) {
-    const step = b.script[b.step];
-    if (b.stepState === 'gap') {
-      if (!stepAvailable(s, b, step)) endStep(s, b);
-      // One threat at a time: a beam or flare waits until this boss's previous
-      // bullets have passed the ship row, so lanes never combine with crossfire.
-      else if ((step.attack === 'beam' || step.attack === 'ring') && s.enemyShots.some((x) => x.boss && x.z < RULES.shipZ + 0.7))
-        b.timer = 0.1;
-      else beginBossStep(s, b.step);
-    } else if (b.stepState === 'tele') {
-      fireStep(s, b, step);
-      b.stepState = 'active';
-      b.timer = step.active || 0;
-    } else if (b.stepState === 'active') {
-      if (step.punish) {
-        b.stepState = 'punish';
-        b.timer = step.punish;
-        b.exposed = !!step.expose;
-        b.open = !!step.open;
-        b.attack = step.open ? 'OPEN' : 'EXPOSED';
-        pushEvent(s, 'punish', { name: step.name, exposed: b.exposed, open: b.open });
-      } else endStep(s, b);
-    } else endStep(s, b);
-  }
-}
-
-/** Phase entry. Called after the transition, or directly by tests that need a
- * specific phase. Spawned parts start where the previous part was. */
-export function enterBossPhase(s, phase) {
-  const b = s.boss,
-    parts = living(s);
-  b.phase = phase;
-  if (b.type === 'delta' && phase === 1) {
-    const whole = parts.find((p) => p.part === 'whole');
-    const x = whole?.x ?? 0,
-      z = whole?.z ?? -7;
-    if (whole) whole.alive = false;
-    pushEvent(s, 'split', { x, z });
-    for (const tag of ['L', 'R']) {
-      const hp = tag === 'L' ? Math.ceil(b.hp / 2) : Math.floor(b.hp / 2);
-      const fromX = x + (tag === 'L' ? -1.6 : 1.6);
-      makePart(s, 'half', 1.3, { tag, hp, maxHp: 14, local: true, fromX, fromZ: z, blend: 0, x: fromX, z });
-    }
-  }
-  if (b.type === 'mother') {
-    for (const sac of parts.filter((p) => p.part === 'sac')) sac.alive = false;
-    if (phase === 2) {
-      // Six orbiting Bursters; a pop beside the core deals 4 (burstBossDamage).
-      for (let slot = 0; slot < 6; slot++) {
-        const e = makeEnemy(s, 'burster', 0, -7, { mode: 'orbit', slot, minion: true, noDrop: true });
-        e.id = `s${s.wave}-ring-${slot}`;
-        s.enemies.push(e);
-      }
-    }
-  }
-  if (b.type === 'echo' && phase === 2) {
-    const a = parts.find((p) => p.tag === 'A');
-    makePart(s, 'echo', 1.5, { tag: 'B', x: a?.x ?? 0, z: a?.z ?? -6.5 });
-    b.nucleus = a?.id ?? null;
-  }
-  if (b.type === 'omega') {
-    for (const n of parts.filter((p) => p.part === 'node')) n.alive = false;
-    b.speed = phase === 2 ? 1.2 : 1;
-    if (phase === 2) b.gapScale = 0.7;
-  }
-  b.script = SCRIPTS[b.type][phase];
-  b.step = 0;
-  b.stepState = 'gap';
-  b.timer = 0.5;
-  b.state = 'fight';
-  b.stall = b.exposed = b.open = false;
-  b.attack = BOSSES[b.type].phases[phase];
-  moveBoss(s, b, 0);
-}
-
-function startTransition(s, b) {
-  b.state = 'transition';
-  b.timer = b.type === 'delta' ? 1 : 1.1;
-  b.stall = true;
-  b.exposed = b.open = false;
-  b.attack = BOSSES[b.type].phases[b.phase + 1];
-  s.telegraphs = s.telegraphs.filter((t) => !t.boss);
-  b.pending = [];
-  for (const p of living(s)) p.charge = 0;
-  requestHitstop(s, 0.12);
-  pushEvent(s, 'phase-break', { name: b.attack, phase: b.phase + 2, boss: b.name });
-}
-
-function defeat(s, b, part) {
+function defeat(s, b, part, { practice = false } = {}) {
   b.state = 'defeated';
   b.hp = 0;
   b.attack = '';
-  const x = part?.x ?? 0,
-    z = part?.z ?? -7;
+  const main = living(s)[0];
+  const x = part?.x ?? main?.x ?? 0,
+    z = part?.z ?? main?.z ?? BOSS_Z;
   for (const p of living(s)) p.alive = false;
-  const { mult, points } = awardKill(s, 3000);
-  pushEvent(s, 'kill', { kind: 'boss', boss: b.type, x, z, id: part?.id, mult, points, final: true });
-  // Remaining minions are cured with the boss (scored, never dropping capsules).
-  for (const e of s.enemies)
-    if (e.alive && !e.courier) {
-      e.alive = false;
-      const r = awardKill(s, ARCHETYPES[e.kind]?.score ?? 100);
-      pushEvent(s, 'kill', { kind: e.kind, x: e.x, z: e.z, id: e.id, mult: r.mult, points: r.points, source: 'cure' });
-    }
-  s.telegraphs = s.telegraphs.filter((t) => !t.danger);
+  clearEmitters(s, (em) => em.boss);
+  cancelBullets(s, { reason: 'defeat', filter: (bl) => bl.boss });
   s.beams = [];
-  s.bursts = [];
+  s.quarantine = null;
+  s.twistOverride = null;
+  if (!practice) {
+    const { mult, points } = awardKill(s, b.mid ? 2000 : 5000);
+    pushEvent(s, 'kill', { kind: 'boss', boss: b.type, x, z, mult, points, final: !b.mid });
+  }
   requestHitstop(s, 0.2, true);
-  s.slowmo = 0.8;
-  pushEvent(s, 'boss-defeated', { name: b.name, x, z });
+  if (!b.mid) s.slowmo = 0.8;
+  pushEvent(s, 'boss-defeated', { name: b.name, x, z, mid: b.mid, boss: b.type, contained: b.cards.at(-1)?.finale && b.results.at(-1)?.neutralized });
 }
 
-function isVulnerable(s, b, p, source) {
-  if (b.state === 'transition' || b.state === 'defeated') return false;
-  if (b.type === 'mother') {
-    if (p.part === 'sac') return b.phase === 0;
-    return b.phase > 0 && (b.open || (source === 'burst' && b.phase === 2));
-  }
-  if (b.type === 'echo') return b.phase === 2 ? p.id === b.nucleus : b.open;
-  if (b.type === 'omega') {
-    if (p.part === 'node') return true;
-    if (b.phase === 0) return false;
-    return !(b.script[b.step]?.shielded && b.stepState === 'tele');
-  }
+function isVulnerable(s, b, p) {
+  if (b.state !== 'fight') return false;
+  const c = b.cards[b.card];
+  if (c.type === 'survival') return false;
+  if (c.nodes) return p.part === 'node';
+  if (c.nucleus) return p.id === b.nucleus;
   return true;
 }
+export const bossVulnerable = (s, p) => !!s.boss && isVulnerable(s, s.boss, p);
+/** The dormant twin of MIRROR STRAIN is intangible: needles pass through it,
+ * so the glowing nucleus can always be reached. */
+export const bossIntangible = (s, p) => {
+  const b = s.boss;
+  if (!b || b.state === 'defeated' || p.part !== 'twin') return false;
+  return !!b.cards[b.card]?.nucleus && p.id !== b.nucleus;
+};
 
-/** Apply damage to a boss part. Returns {blocked} so shots on a closed plate
- * become cyan sparks rather than silent misses. */
+/** Apply damage to a boss part. Returns {blocked} so a closed plate sparks
+ * rather than silently swallowing a needle. */
 export function damageBoss(s, part, amount, source = 'shot') {
   const b = s.boss;
-  if (!b || !part.alive || !isVulnerable(s, b, part, source)) {
-    pushEvent(s, 'spark', { x: part.x, z: part.z + part.radius * 0.85, id: part.id });
+  if (!b || !part.alive || !isVulnerable(s, b, part)) {
+    pushEvent(s, 'spark', { x: part.x, z: part.z + part.radius * 0.8, id: part.id });
     return { blocked: true, damage: 0 };
   }
-  const floor = b.floors[b.phase] ?? 0;
-  let damage = Math.min(amount * (b.exposed ? 2 : 1), b.hp - floor);
+  const c = b.cards[b.card];
+  let damage = Math.min(amount, b.hp - c.floor);
   if (part.local) damage = Math.min(damage, part.hp);
-  if (damage <= 0) {
-    pushEvent(s, 'spark', { x: part.x, z: part.z + part.radius * 0.85, id: part.id });
-    return { blocked: true, damage: 0 };
-  }
+  if (damage <= 0) return { blocked: true, damage: 0 };
   b.hp -= damage;
   if (part.local) part.hp -= damage;
   for (const p of living(s)) if (!p.local) p.hp = b.hp;
   refreshChainFromBoss(s);
-  s.score += 10 * damage * chainMultiplier(s.chain.count);
-  pushEvent(s, 'hit', { kind: 'boss', part: part.part, id: part.id, x: part.x, z: part.z, damage, exposed: b.exposed });
-  if (part.local && part.hp <= 0 && b.hp > 0) {
+  addScore(s, Math.round(10 * damage * chainMultiplier(s.chain.count)));
+  pushEvent(s, 'hit', { kind: 'boss', part: part.part, id: part.id, x: part.x, z: part.z, damage, source });
+  if (part.local && part.hp <= 0) {
     part.alive = false;
-    const r = awardKill(s, 400);
+    const r = awardKill(s, 600);
     pushEvent(s, 'kill', { kind: 'boss-part', part: part.part, tag: part.tag, id: part.id, x: part.x, z: part.z, ...r });
     requestHitstop(s, 0.03);
   }
-  if (b.hp <= 0) defeat(s, b, part);
-  else if (b.phase < b.floors.length - 1 && b.hp <= floor) startTransition(s, b);
+  if (b.hp <= c.floor + 1e-9) endCard(s, b, 'cleared');
   return { blocked: false, damage };
+}
+
+/** SOAP on a boss: 3% of the current card's HP, and the card is no longer
+ * capturable. */
+export function bombBoss(s) {
+  const b = s.boss;
+  if (!b || b.state === 'defeated') return;
+  b.capture = false;
+  const c = b.cards[b.card];
+  if (b.state !== 'fight' || c.type === 'survival') return;
+  const target = c.nodes ? living(s).find((p) => p.part === 'node') : living(s).find((p) => isVulnerable(s, b, p));
+  if (target) damageBoss(s, target, Math.max(1, Math.ceil(c.hp * RULES.bombBossFraction)), 'soap');
+}
+
+function runPatterns(s, b, dt) {
+  const c = b.cards[b.card];
+  c.patterns.forEach((entry, i) => {
+    const clock = b.clocks[i];
+    if (clock.em && clock.em.state !== 'done') return;
+    clock.clock -= dt;
+    if (clock.clock > 0) return;
+    const src = bossPart(s, entry.from, clock);
+    if (!src) {
+      clock.clock = 0.5;
+      return;
+    }
+    let params = entry.params;
+    if (entry.alternate) {
+      clock.alt = !clock.alt;
+      params = { ...params, dir: (params.dir || 1) * (clock.alt ? 1 : -1) };
+    }
+    if (entry.params.lanes) params = { ...params, laneAngles: laneAngles(s, entry.params.lanes) };
+    // TRIANGULATE: fans leave the three vertices of the delta in rotation.
+    let dx = 0,
+      dz = 0;
+    if (entry.from === 'vertex') {
+      clock.vertex = ((clock.vertex ?? -1) + 1) % 3;
+      [dx, dz] = [[-1.5, -0.6], [1.5, -0.6], [0, 1.3]][clock.vertex];
+    }
+    const em = startPattern(s, entry.preset, { ownerId: src.id, params, src: b.name, boss: true, label: c.name, spawnRadius: src.radius * (dx || dz ? 0.2 : 0.7), dx, dz });
+    if (em) {
+      clock.em = em;
+      clock.clock = entry.every;
+    } else clock.clock = 0.1;
+  });
+}
+/** SNEEZE STORM density lanes: two seeded safe directions, at least 40
+ * degrees apart, inside the lower field. */
+function laneAngles(s, n) {
+  const out = [];
+  for (let tries = 0; out.length < n && tries < 30; tries++) {
+    const a = (random(s) - 0.5) * 1.4;
+    if (out.every((o) => Math.abs(o - a) > 0.7)) out.push(a);
+  }
+  return out;
 }
 
 export function updateBoss(s, level, dt) {
   const b = s.boss;
   if (!b || b.state === 'defeated') return;
   for (const p of living(s)) if (p.charge > 0) p.charge = Math.max(0, p.charge - dt);
+  b.moveT += dt;
+  moveBoss(s, b, dt);
   if (b.state === 'intro') {
-    b.timer -= dt;
-    moveBoss(s, b, dt);
-    if (b.timer <= 0) {
+    if ((b.timer -= dt) <= 0) beginCard(s, b, b.card);
+    return;
+  }
+  // A QA fixture may set the pool directly; catch the cards up to it.
+  if (b.hp <= 0) return defeat(s, b);
+  const c = b.cards[b.card];
+  if (b.state === 'cardIntro') {
+    if ((b.timer -= dt) <= 0) {
       b.state = 'fight';
-      b.stepState = 'gap';
-      b.timer = 0.4;
+      if (c.quarantine) startPattern(s, 'quarantine', { params: { duration: c.duration }, src: b.name, boss: true, force: true, label: c.name });
     }
     return;
   }
-  if (!b.stall) b.moveT += dt;
-  moveBoss(s, b, dt);
-  if (b.type === 'mother' && b.phase === 0)
-    for (const sac of living(s).filter((p) => p.part === 'sac'))
-      if ((sac.spawnClock -= dt) <= 0) {
-        sac.spawnClock = 6;
-        // Each sac alternates Burster/Diver: destroying a sac removes a stream.
-        spawnMinion(s, b, (sac.spawned++ + sac.slot) % 2 ? 'diver' : 'burster', sac);
-      }
-  if (b.state === 'transition') {
-    if ((b.timer -= dt) <= 0) enterBossPhase(s, b.phase + 1);
-    return;
+  if (b.state !== 'fight') return;
+  if (b.hp <= c.floor && c.type !== 'survival') return endCard(s, b, 'cleared');
+  b.cardTime += dt;
+  if (c.nucleus && (b.swapClock -= dt) <= 0) {
+    b.swapClock = c.nucleus;
+    const other = living(s).find((p) => p.part === 'twin' && p.id !== b.nucleus);
+    if (other) {
+      b.nucleus = other.id;
+      pushEvent(s, 'nucleus-swap', { id: other.id, x: other.x, z: other.z });
+    }
   }
-  runScript(s, b, dt);
+  if (b.cardTime >= c.timeout) return endCard(s, b, c.type === 'survival' ? 'cleared' : 'timeout');
+  runPatterns(s, b, dt);
 }
 
-/** HUD data: the real pool, phase notches, sub-parts and the current attack. */
+/** Survival cards and captures need to know when the player was hit/bombed. */
+export function voidCapture(s) {
+  if (s.boss && s.boss.state !== 'defeated') s.boss.capture = false;
+}
+
+/** HUD data: the real pool, card notches, local parts and the card tape. */
 export function bossStatus(s) {
   const b = s.boss;
   if (!b || b.state === 'defeated') return null;
-  const parts = s.enemies.filter((e) => e.kind === 'boss' && e.local && (e.alive || e.part !== 'whole'));
+  const c = b.cards[b.card];
+  const parts = s.enemies.filter((e) => e.kind === 'boss' && e.local);
+  // The displayed phase is the notch the pool has crossed (it already shows
+  // the incoming card while a QA fixture or a card break moves the pool).
+  const shown = Math.min(b.cards.length, 1 + b.cards.filter((k, i) => i < b.cards.length - 1 && b.hp <= k.floor).length);
   return {
     id: b.type,
     name: b.name,
-    hp: b.hp,
+    mid: b.mid,
+    hp: Math.max(0, Math.round(b.hp)),
     maxHp: b.maxHp,
-    // The displayed phase is the notch the pool has crossed. It equals the live
-    // phase except during a transition, where it already shows the incoming one.
-    phase: 1 + b.floors.slice(0, -1).filter((f) => b.hp <= f).length,
-    phases: b.floors.length,
-    phaseName: BOSSES[b.type].phases[b.phase],
-    attack: b.attack || BOSSES[b.type].phases[b.phase],
-    notches: b.floors.slice(0, -1).map((f) => f / b.maxHp),
+    phase: Math.max(shown, b.card + 1),
+    phases: b.cards.length,
+    phaseName: c.name,
+    attack: c.name,
+    cardType: c.type,
+    cardIndex: b.card,
+    timeLeft: Math.max(0, c.timeout - b.cardTime),
+    capture: b.capture,
+    notches: b.cards.slice(0, -1).map((k) => k.floor / b.maxHp),
     parts: parts.map((p) => ({ id: p.id, label: p.tag ?? p.part, part: p.part, hp: Math.max(0, p.hp), maxHp: p.maxHp, alive: p.alive })),
-    exposed: b.exposed,
-    open: b.open,
     state: b.state,
-    stepState: b.stepState,
     nucleus: b.nucleus,
-    // Which part attacks next (Omega's sub-bars and nodes highlight it).
-    next: b.state === 'fight' ? (bossPart(s, b.script[b.step]?.from)?.id ?? null) : null,
+    results: b.results,
   };
 }

@@ -1,131 +1,168 @@
-/** Ordinary-input autopilot. It drives the attract-mode demo and the QA
- * campaign runs (tests/controller.mjs re-exports it). It only *reads* public
- * state and returns {targetX, shoot, shield}; it never edits health, actors,
- * projectiles, timers or stages, and it plays the same rules a human does.
+/** Ordinary-input autopilot for the attract demo and QA campaign runs
+ * (tests/controller.mjs re-exports it). It only READS public state and returns
+ * the same inputs a player has: {axisX, axisZ, focus, bomb, confirm}. It never
+ * edits health, actors, bullets, timers or stages.
+ *
+ * Method (RESEARCH_BULLET_HELL.md 10): every frame it samples 9 directions x
+ * {normal, focus} speed over a 0.42 s look-ahead, predicting each nearby
+ * bullet's motion (linear, plus the RNA sine and the world twists), and picks
+ * the lowest-risk move that also lines up a shot. It bombs only for a hit the
+ * best move cannot avoid, or inside the deathbomb window.
  *
  * The function must stay self-contained (no outer references): the root
  * cross-project suite serializes it with Function.prototype.toString().
  */
 export function chooseInput(s, frame = 0) {
-  const ship = s.ship,
-    Z = ship.z,
-    MUZZLE = Z - 1.4,
-    SHOT = 34,
-    MOVE = 21;
-  // A world-clear LAB REPORT waits for a fresh FIRE press: tap on alternate frames.
-  if (s.phase === 'transition')
-    return { targetX: ship.x * 0.9, shoot: s.transitionHold ? frame % 2 === 0 : false, shield: false };
+  const ship = s.ship;
+  if (s.phase === 'transition') return { axisX: 0, axisZ: 0, focus: false, bomb: false, confirm: s.transitionHold ? frame % 2 === 0 : false };
+  if (s.phase !== 'playing' || ship.respawn > 0) return { axisX: 0, axisZ: 0, focus: false, bomb: false };
+  // Deathbomb: alternate presses so each frame pair is a fresh edge.
+  if (ship.dying > 0) return { axisX: 0, axisZ: 0, focus: false, bomb: frame % 2 === 0 };
 
-  const b = s.boss;
-  const posAt = (dest, t) => ship.x + Math.max(-MOVE * t, Math.min(MOVE * t, dest - ship.x));
-  const lead = (e) => {
-    const t = Math.max(0, (MUZZLE - e.z) / (SHOT + (e.vz || 0)));
-    return { x: e.x + (e.vx || 0) * t, t };
-  };
-  const bossVulnerable = (e) => {
-    if (!b || b.state === 'transition' || b.state === 'intro') return false;
-    if (b.type === 'mother') return e.part === 'sac' ? b.phase === 0 : b.phase > 0 && b.open;
-    if (b.type === 'echo') return b.phase === 2 ? e.id === b.nucleus : b.open;
-    if (b.type === 'omega') {
-      if (e.part === 'node') return true;
-      const step = b.script?.[b.step];
-      return b.phase > 0 && !(step && step.shielded && b.stepState === 'tele');
-    }
-    return true;
-  };
+  const CORE = 0.16,
+    FAST = 11.5,
+    SLOW = 5,
+    MINX = -8.9,
+    MAXX = 8.9,
+    MINZ = -3,
+    MAXZ = 12;
+  const tw = s.twist || { scale: 1, drift: 0 };
+  const scale = tw.scale || 1,
+    drift = tw.drift || 0;
+  const q = s.quarantine;
+  const lo = (v, a, b) => (v < a ? a : v > b ? b : v);
+  const clampX = (x) => (q ? lo(x, q.x - q.half + 0.2, q.x + q.half - 0.2) : lo(x, MINX, MAXX));
+  const clampZ = (z) => (q ? lo(z, q.z - q.half + 0.2, q.z + q.half - 0.2) : lo(z, MINZ, MAXZ));
 
-  // 1. Target choice: nearest useful enemy, weighted by urgency.
-  let aimX = null,
-    bestScore = Infinity;
-  for (const e of s.enemies) {
-    if (!e.alive) continue;
-    const p = lead(e);
-    if (p.x < -9 || p.x > 9) continue;
-    let score = Math.abs(p.x - ship.x);
-    if (e.kind === 'boss') {
-      score -= bossVulnerable(e) ? (b.exposed || b.open ? 6 : 3) : -4;
-      if (e.part === 'node' || e.part === 'sac' || e.part === 'half') score -= 1.5;
-    } else if (e.kind === 'capsid') {
-      const plate = e.plate || {};
-      const openSoon = plate.state === 'open' ? plate.timer > p.t : plate.state === 'warning' && plate.timer < p.t + 0.1;
-      score += openSoon ? -2 : 5;
-    } else if (e.kind === 'infector') score -= e.tether ? 5 : 2;
-    else if (e.kind === 'courier') score += 2;
-    else if (e.kind === 'diver' && e.mode !== 'formation') score -= 1;
-    if (s.breach && e.mode === 'formation') score -= e.z * 0.6;
-    // Prefer finishing a sector over picking off minions while the boss is open.
-    if (e.minion && b && (b.open || b.exposed)) score += 3;
-    if (score < bestScore) {
-      bestScore = score;
-      aimX = p.x;
-    }
+  // ---- Threats near the syringe ---------------------------------------------
+  const near = [];
+  for (const b of s.enemyShots) {
+    if (b.dead) continue;
+    const dx = b.x - ship.x,
+      dz = b.z - ship.z;
+    if (dx > 7 || dx < -7 || dz > 3.5 || dz < -8) continue;
+    near.push(b);
   }
-  if (aimX === null) aimX = ship.x * 0.8;
-  const pickup = s.pickups.find(
-    (p) => p.z > 3.5 && p.z < Z + 0.3 && Math.abs(p.x - ship.x) < 7 && (Z - p.z) / 3.5 < 2.4,
-  );
-  if (pickup) aimX = pickup.x;
+  const bossTele = [];
+  for (const em of s.emitters || [])
+    if (em.preset === 'jet' && em.state === 'tele') for (const l of em.lanes || []) bossTele.push({ x: l.x, w: l.width, fromZ: l.fromZ, left: em.timer });
+  const beams = s.beams || [];
+  const bodies = s.enemies.filter((e) => e.alive && !e.harmless && e.kind !== 'vesicle' && Math.abs(e.x - ship.x) < 6 && Math.abs(e.z - ship.z) < 6);
+  const T = [0.05, 0.11, 0.18, 0.27, 0.42];
+  const W = [4, 3, 2.2, 1.5, 1];
+  function predict(b, t) {
+    const tt = t * scale;
+    if (b.sine) {
+      const sp = Math.hypot(b.vx, b.vz);
+      const bx = b.bx + (b.vx + drift) * tt,
+        bz = b.bz + b.vz * tt;
+      const off = b.sine.amp * Math.sin(((b.dist + sp * tt) / b.sine.wavelength) * Math.PI * 2 + (b.sine.phase || 0));
+      return [bx + b.sine.px * off, bz + b.sine.pz * off];
+    }
+    return [b.x + (b.vx + drift) * tt, b.z + b.vz * tt];
+  }
+  // Pre-compute bullet positions per look-ahead step (shared by candidates).
+  const pos = T.map((t) => near.map((b) => predict(b, t)));
+  const rad = near.map((b) => (b.hit ?? b.radius ?? 0.16) + CORE + (b.splitAt && b.age > b.splitAt - 0.45 ? 0.6 : 0));
 
-  // 2. Danger map over destinations: where will the ship be when each threat lands?
-  const lanes = s.telegraphs.filter((t) => t.kind === 'lane');
-  const paths = s.telegraphs.filter((t) => t.kind === 'path');
-  const rings = s.telegraphs.filter((t) => t.kind === 'ring');
-  let targetX = ship.x,
+  // ---- Goal: what to shoot, where to stand -------------------------------------
+  const boss = s.boss && s.boss.state !== 'defeated' ? s.boss : null;
+  const card = boss ? boss.cards[boss.card] : null;
+  let aim = null,
+    aimZ = null,
     best = Infinity;
-  for (let x = -8.65; x <= 8.651; x += 0.25) {
-    let cost = Math.abs(x - aimX) * 0.6 + Math.abs(x - ship.x) * 0.05;
-    for (const shot of s.enemyShots) {
-      if (shot.vz <= 0) continue;
-      // A bullet threatens the ship for the whole time it overlaps the ship's
-      // row band, not just at the instant its center crosses z = ship.z.
-      const reach = shot.radius + ship.radius,
-        tIn = (Z - reach - shot.z) / shot.vz,
-        tOut = (Z + reach - shot.z) / shot.vz;
-      if (tOut < 0 || tIn > 1.4) continue;
-      let gap = Infinity;
-      for (let k = 0; k <= 4; k++) {
-        const t = Math.max(0, tIn + ((tOut - tIn) * k) / 4);
-        gap = Math.min(gap, Math.abs(posAt(x, t) - (shot.x + shot.vx * t)) - reach);
-      }
-      if (gap < 0.6) cost += (0.6 - gap) * (45 / (0.25 + Math.max(0, tIn)));
+  for (const e of s.enemies) {
+    if (!e.alive || e.z < -13.2 || Math.abs(e.x) > 9.2) continue;
+    let score = Math.abs(e.x - ship.x) * 0.5 - e.z * 0.12;
+    if (e.kind === 'boss') {
+      if (card && card.nodes && e.part !== 'node') continue;
+      if (card && card.nucleus && e.id !== boss.nucleus) score += 30;
+      score -= 2;
+    } else if (e.kind === 'bloom' && (!e.bud || e.bud.state !== 'open')) score += e.bud && e.bud.state === 'opening' ? 2 : 12;
+    else if (e.kind === 'droplet' && e.mode !== 'formation') score -= 8;
+    else if (e.mode === 'flight' || e.mode === 'worm') score -= 3;
+    else if (e.kind === 'hijacker' && e.tether) score -= 5;
+    else if (e.kind === 'vesicle') score += 1;
+    if (score < best) {
+      best = score;
+      const lead = Math.max(0, (ship.z - e.z) / 34);
+      aim = e.x + (e.vx || 0) * lead;
+      aimZ = e.z;
     }
-    for (const beam of s.beams) if (Math.abs(posAt(x, 0.05) - beam.x) < beam.width / 2 + 0.75) cost += 300;
-    for (const lane of lanes) {
-      const left = lane.timer - lane.age;
-      if (Math.abs(posAt(x, Math.max(0, left - 0.05)) - lane.x) < lane.width / 2 + 0.8) cost += left < 1.1 ? 260 : 30;
-      else if (Math.abs(x - lane.x) < lane.width / 2 + 0.8) cost += 30;
+  }
+  let goalX = aim === null ? ship.x * 0.7 : aim,
+    goalZ = 7.2;
+  if (aimZ !== null && !boss) goalZ = lo(aimZ + 9, 3.5, 8.5);
+  // A wall above us: line up with its nearest gap first.
+  let wallGap = null,
+    wallZ = -99;
+  for (const b of s.enemyShots)
+    if (b.gaps && b.z < ship.z - 0.3 && b.z > wallZ) {
+      wallZ = b.z;
+      wallGap = b.gaps;
     }
-    for (const path of paths) if (Math.abs(x - path.x) < 1.35) cost += 70;
-    for (const ring of rings)
-      for (const a of ring.angles) {
-        const px = ring.x + Math.tan(a) * (Z - ring.z);
-        const d = Math.abs(x - px);
-        if (d < 1.4) cost += (1.4 - d) * 10;
-      }
-    if (cost < best) {
-      best = cost;
-      targetX = x;
-    }
+  if (wallGap) {
+    const shift = drift * Math.max(0, (ship.z - wallZ) / 3.2);
+    let g = wallGap[0].x + shift;
+    for (const k of wallGap) if (Math.abs(k.x + shift - ship.x) < Math.abs(g - ship.x)) g = k.x + shift;
+    goalX = g;
+  }
+  for (const p of s.pickups) if (p.z > ship.z - 7 && p.z < ship.z + 1.5 && Math.abs(p.x - ship.x) < 7) {
+    goalX = p.x;
+    goalZ = lo(p.z + 0.5, MINZ, MAXZ);
+    break;
   }
 
-  // 3. Shield only for a hit the chosen motion cannot avoid.
-  let shield = false;
-  if (ship.shieldCooldown <= 0 && ship.invulnerable <= 0 && !(ship.powerups && ship.powerups.shield > 0)) {
-    for (const shot of s.enemyShots) {
-      if (shot.vz <= 0) continue;
-      const reach = shot.radius + ship.radius,
-        tIn = (Z - reach - shot.z) / shot.vz,
-        tOut = (Z + reach - shot.z) / shot.vz;
-      if (tOut < 0 || tIn > 0.2) continue;
-      for (let k = 0; k <= 4; k++) {
-        const t = Math.max(0, tIn + ((tOut - tIn) * k) / 4);
-        if (Math.abs(posAt(targetX, t) - (shot.x + shot.vx * t)) < reach + 0.1) shield = true;
+  // ---- Candidate moves ------------------------------------------------------------
+  const R = Math.SQRT1_2;
+  const DIRS = [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1], [R, R], [R, -R], [-R, R], [-R, -R]];
+  let pick = null,
+    pickRisk = Infinity,
+    pickHit = Infinity;
+  for (let speedIndex = 0; speedIndex < 2; speedIndex++) {
+    const v = speedIndex ? SLOW : FAST;
+    for (let d = 0; d < DIRS.length; d++) {
+      if (speedIndex && d === 0) continue;
+      const [dx, dz] = DIRS[d];
+      let risk = 0,
+        firstHit = Infinity;
+      let px = ship.x,
+        pz = ship.z;
+      for (let k = 0; k < T.length; k++) {
+        px = clampX(ship.x + dx * v * T[k]);
+        pz = clampZ(ship.z + dz * v * T[k]);
+        const P = pos[k];
+        for (let i = 0; i < near.length; i++) {
+          const ex = P[i][0] - px,
+            ez = P[i][1] - pz;
+          const gap = Math.sqrt(ex * ex + ez * ez) - rad[i];
+          if (gap < 0) {
+            risk += 60 * W[k];
+            if (T[k] < firstHit) firstHit = T[k];
+          } else if (gap < 0.4) risk += (0.4 - gap) * 7 * W[k];
+        }
+        for (const l of bossTele) if (Math.abs(px - l.x) < l.w / 2 + 0.35 && pz > l.fromZ) risk += (l.left < T[k] + 0.15 ? 80 : 6) * W[k];
+        for (const bm of beams) if (Math.abs(px - bm.x) < bm.width / 2 + 0.3 && pz > bm.fromZ) {
+          risk += 80 * W[k];
+          if (T[k] < firstHit) firstHit = T[k];
+        }
+        for (const e of bodies) {
+          const g = Math.hypot(e.x + (e.vx || 0) * T[k] - px, e.z + (e.vz || 0) * T[k] - pz) - (e.radius * 0.8 + CORE + 0.35);
+          if (g < 0) risk += 25 * W[k];
+        }
+      }
+      // Edge pressure: corners trap; keep some room to the sides and bottom.
+      const room = Math.min(px - MINX, MAXX - px, MAXZ - pz);
+      if (room < 1.2) risk += (1.2 - room) * 1.5;
+      const goal = Math.abs(px - goalX) * 0.22 + Math.abs(pz - goalZ) * 0.08 + (boss && speedIndex ? -0.15 : 0);
+      const total = risk + goal;
+      if (total < pickRisk) {
+        pickRisk = total;
+        pick = [dx, dz, speedIndex === 1];
+        pickHit = firstHit;
       }
     }
-    for (const lane of lanes)
-      if (lane.timer - lane.age < 0.12 && Math.abs(posAt(targetX, 0.12) - lane.x) < lane.width / 2 + ship.radius)
-        shield = true;
-    for (const beam of s.beams) if (Math.abs(ship.x - beam.x) < beam.width / 2 + ship.radius) shield = true;
   }
-  return { targetX, shoot: true, shield };
+  const bomb = pickHit <= 0.12 && ship.invulnerable <= 0 && ship.bombs > 0 && !s.soapRing && frame % 2 === 0;
+  return { axisX: pick[0], axisZ: pick[1], focus: pick[2], bomb, confirm: false };
 }
