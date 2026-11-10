@@ -9,7 +9,7 @@
  * mRNA power levels 1-4 with antibody options, in-place respawn.
  */
 import { RULES as CORE_RULES, DIFFICULTY, diff, clamp, random, nextId, pushEvent, requestHitstop, aimAngle } from './core.mjs';
-import { LEVELS, WORLDS, ARCHETYPES, STAGE_COUNT, getLevel, getWorld, POWER_STEPS, powerOf, entryPower, stageDps, stageHp, PROLOGUE } from './levels.mjs';
+import { LEVELS, WORLDS, ARCHETYPES, STAGE_COUNT, getLevel, getWorld, POWER_STEPS, powerOf, entryPower, stageDps, stageHp, PROLOGUE, ELITES } from './levels.mjs';
 import { FAMILIES, spawnBullet, updateBullets, cancelBullets, normalizeBullet } from './bullets.mjs';
 import { updateEmitters, clearEmitters, PRESETS, LIMITS } from './patterns.mjs';
 import {
@@ -26,7 +26,7 @@ import {
 } from './enemies.mjs';
 import { BOSSES, createBoss, updateBoss, damageBoss, bombBoss, bossStatus, voidCapture, bossVulnerable, bossIntangible } from './bosses.mjs';
 import { awardKill, breakChain, tickChain, chainMultiplier, addScore, r0Of, r0Bonus } from './scoring.mjs';
-import { sweptHit, bulletGap, needleSegment, pointSegDist2, segSegDist2, beamHits, NEEDLE, BODY_RADIUS, INJECT } from './hitboxes.mjs';
+import { sweptHit, bulletGap, needleSegment, pointSegDist2, segSegDist2, beamHits, NEEDLE, BODY_RADIUS, INJECT, needleTip } from './hitboxes.mjs';
 
 /** Enemy collider: a circle, or a capsule along x for elongated bodies
  * (RNA WORM, BUDDER). */
@@ -61,6 +61,9 @@ function freshShip(s, power = 1) {
     power,
     grazeProgress: 0,
     powerups: { booster: 0, mask: 0 },
+    // INJECT: the plunger is loaded when injectReload is 0.
+    injectReload: 0,
+    injectReloadMax: INJECT.reload,
   };
 }
 
@@ -157,6 +160,7 @@ export function createState({ seed = 0x51a7c0de, stage = 1, difficulty = 'normal
     bombsUsed: 0,
     grazes: 0,
     deathbombs: 0,
+    injections: 0,
     transition: 0,
     transitionHold: false,
     holdTime: 0,
@@ -420,7 +424,7 @@ function moveShip(s, input, dt) {
   const ship = s.ship;
   ship.px = ship.x;
   ship.pz = ship.z;
-  for (const key of ['fireCooldown', 'antibodyCooldown', 'invulnerable']) ship[key] = Math.max(0, ship[key] - dt);
+  for (const key of ['fireCooldown', 'antibodyCooldown', 'invulnerable', 'injectReload']) ship[key] = Math.max(0, (ship[key] || 0) - dt);
   for (const key of Object.keys(ship.powerups)) ship.powerups[key] = Math.max(0, ship.powerups[key] - dt);
   if (ship.respawn > 0) {
     ship.respawn = Math.max(0, ship.respawn - dt);
@@ -598,7 +602,8 @@ function updateAntigens(s, dt) {
 function killEnemy(s, e, source) {
   e.alive = false;
   const a = ARCHETYPES[e.kind] || {};
-  const { mult, points } = awardKill(s, a.score ?? 100);
+  // A cure by INJECT scores x2 (RESEARCH_V1.md 5.4).
+  const { mult, points } = awardKill(s, (a.score ?? 100) * (source === 'inject' ? 2 : 1));
   pushEvent(s, 'kill', { id: e.id, x: e.x, z: e.z, kind: e.kind, mult, points, source, tier: e.tier });
   if (e.kind === 'heavy' || e.kind === 'sneezer') requestHitstop(s, 0.03);
   if (e.kind === 'vesicle') requestHitstop(s, 0.06);
@@ -633,6 +638,60 @@ function damageEnemy(s, e, amount, source) {
   pushEvent(s, 'hit', { x: e.x, z: e.z, kind: e.kind, id: e.id, hp: e.hp, source });
   if (e.hp <= 0) killEnemy(s, e, source);
   return { blocked: false };
+}
+
+// ---- INJECT (RESEARCH_V1.md 5.4) -------------------------------------------------
+/** The signature verb: when the needle-tip point (hitboxes.INJECT, 0.95 u
+ * ahead of the core, r 0.05) enters a virus body while the plunger is loaded:
+ *   - popcorn (WILD TYPE, mini, SNEEZER, PUFF, worm, droplet in flight) is
+ *     cured at once, whatever its HP;
+ *   - elites (HEAVY CROWN, BLOOM even closed, VESICLE) and any boss part in
+ *     reach take 10 x stageHp damage, never an instant cure;
+ *   - the victim's live bullets become antigen tokens; a cure scores x2 and
+ *     pushes the Dose Chain; 60 ms of hitstop (inside the 120 ms cap);
+ *   - reload 0.5 s (0.8 s after an elite). Nothing moves the syringe.
+ * The tip only touches viruses: no code path from it reaches the core, and
+ * the core against a body still costs a vial (updateHazards). The tip enters
+ * a body while the core is still >= 0.75 u from it, and the cure lands on the
+ * touch step, before contact is tested. */
+function updateInject(s) {
+  const ship = s.ship;
+  if (ship.injectReload > 0 || !canAct(s) || ship.dying > 0) return;
+  const [tx, tz] = needleTip(ship);
+  let target = null,
+    best = 0;
+  for (const e of s.enemies) {
+    if (!e.alive || e.harmless) continue;
+    if (e.kind === 'boss' && bossIntangible(s, e)) continue;
+    const gap = enemyPointDist(e, tx, tz) - e.radius - INJECT.r;
+    if (gap < best) [best, target] = [gap, e];
+  }
+  if (target) inject(s, target);
+}
+function inject(s, e) {
+  const ship = s.ship;
+  const elite = e.kind === 'boss' || ELITES.has(e.kind);
+  ship.injectReload = ship.injectReloadMax = elite ? INJECT.reloadElite : INJECT.reload;
+  s.injections++;
+  s.sector.injections++;
+  requestHitstop(s, INJECT.hitstop);
+  const x = e.x,
+    z = e.z,
+    kind = e.kind;
+  // Bullets the victim already fired are cancelled at the source.
+  const cancelled = cancelBullets(s, { reason: 'inject', filter: (b) => b.owner === e.id });
+  if (!elite) killEnemy(s, e, 'inject');
+  else {
+    const amount = INJECT.eliteDamage * hpRatio(s);
+    if (e.kind === 'boss') damageBoss(s, e, amount, 'inject');
+    else {
+      // The needle pierces a closed BLOOM bud.
+      e.hp -= amount;
+      pushEvent(s, 'hit', { x, z, kind, id: e.id, hp: e.hp, source: 'inject' });
+      if (e.hp <= 0) killEnemy(s, e, 'inject');
+    }
+  }
+  pushEvent(s, 'inject', { x, z, kind, id: e.id, elite, cured: !e.alive, cancelled });
 }
 
 /** Damage that is defined against base HP (cell pops, SOAP) scales with the
@@ -1058,6 +1117,7 @@ function substep(s, dt, input) {
   updateShots(s, dt);
   updateBursts(s, dt);
   updateSoap(s, dt);
+  updateInject(s);
   updateHazards(s);
   updateBeams(s, dt);
   s.enemyShots = s.enemyShots.filter((b) => !b.dead);

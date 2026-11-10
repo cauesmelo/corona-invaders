@@ -287,7 +287,9 @@ function targets(s, b, parts, dt) {
     const a = (n.slot * Math.PI) / 2 + t * 0.3;
     const cx = core?.x ?? 0,
       cz = core?.z ?? BOSS_Z;
-    out.set(n.id, [cx + Math.cos(a) * 3.4, cz + Math.sin(a) * 2.2]);
+    // 1.7 u deep (was 2.2): a node's front stays behind z = -4, out of the
+    // needle tip's reach from the top of the box (INJECT, test T8).
+    out.set(n.id, [cx + Math.cos(a) * 3.4, cz + Math.sin(a) * 1.7]);
   }
   return out;
 }

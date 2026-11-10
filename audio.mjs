@@ -503,6 +503,16 @@ export function createAudio({ context = null, clock = null, random = Math.random
         dest = out(0, 0.35);
       for (let i = 0; i < 6; i++) osc(dest, { type: 'sine', f: 880 * 2 ** ((i * 3) / 12), f1: 1760 * 2 ** ((i * 3) / 12), t: t + i * 0.04, a: 0.001, d: 0.06, peak: 0.05 });
     },
+    // INJECT: a short "pssht" (high-passed air through the needle, falling)
+    // over a low thump; an elite adds a duller second thump.
+    inject(ev) {
+      const t = now() + 0.003,
+        dest = out(panOf(ev.x), 0.2);
+      noise(dest, { t, a: 0.004, d: 0.16, peak: 0.07, type: 'highpass', f: 5200, f1: 2400, glide: 0.8 });
+      osc(dest, { type: 'sine', f: 110, f1: 62, t, a: 0.003, d: 0.12, peak: 0.16 });
+      if (ev.elite) osc(dest, { type: 'triangle', f: 82, f1: 55, t: t + 0.06, a: 0.004, d: 0.14, peak: 0.1 });
+      else osc(dest, { type: 'sine', f: 1568, t: t + 0.05, a: 0.002, d: 0.12, peak: 0.035 });
+    },
     cured(ev) {
       const t = now() + 0.003,
         dest = out(panOf(ev.x), 0.3);
@@ -878,6 +888,8 @@ export const SFX_CATALOG = Object.freeze([
   { id: 'extend', group: 'Rewards', label: 'Extend (+1 vial)', ev: { type: 'extend' } },
   { id: 'graze-soap', group: 'Rewards', label: '100 grazes: +1 SOAP', ev: { type: 'graze-soap' } },
   { id: 'cured', group: 'Rewards', label: 'CURED +300', ev: { type: 'cured', x: 0 } },
+  { id: 'inject', group: 'Player', label: 'INJECT: needle cures a virus', ev: { type: 'inject', x: 0, elite: false } },
+  { id: 'inject-elite', group: 'Player', label: 'INJECT: needle pierces an elite', ev: { type: 'inject', x: 0, elite: true } },
   { id: 'cancel', group: 'Rewards', label: 'Bullets cancelled into tokens', ev: { type: 'cancel', count: 40, reason: 'card' } },
   { id: 'wave', group: 'Rewards', label: 'Sample cleared', ev: { type: 'wave' } },
   { id: 'tele-cough', group: 'Threats', label: 'WILD TYPE winds up a cough', ev: { type: 'telegraph', preset: 'cough', owner: 'fx-wild', x: -3 }, s: S({ enemies: [enemy('wild')] }) },

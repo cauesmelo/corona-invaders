@@ -290,9 +290,15 @@ function handleEvents(list, s, live) {
       track.classList.remove('shatter');
       void track.offsetWidth;
       track.classList.add('shatter');
-    } else if (ev.type === 'escape') hintOnce('hint-r0', 'R0: THE SHARE OF VIRUSES THAT GOT AWAY. KEEP IT UNDER 1.');
-    else if (ev.type === 'surge') flashElement('#callout', 1300, (el) => ((el.innerHTML = '<small>THE CHOIR SPEEDS UP</small>OUTBREAK SURGE'), el.classList.remove('is-card', 'long')));
-    else if (ev.type === 'boss-enter' && !ev.mid) hintOnce('hint-focus', 'HOLD SHIFT: SLOWER MOVES, A STRONGER NEEDLE STREAM.');
+    } else if (ev.type === 'escape') hintOnce('hint-r0', 'PROTOCOL: R0 IS THE SHARE THAT GOT AWAY. KEEP IT UNDER 1.');
+    else if (ev.type === 'surge') flashElement('#callout', 1300, (el) => ((el.innerHTML = '<small>CHOIR TEMPO RISING</small>OUTBREAK SURGE'), el.classList.remove('is-card', 'long')));
+    // One-time PROTOCOL lines in the lab voice (RESEARCH_V1.md 5.2), at most
+    // 60 characters: the first bullet over the glass, the INJECT beat, the
+    // first close pass while unfocused (from 1-2, where focus is taught).
+    else if (ev.type === 'graze' && s.wave === 1) hintOnce('hint-dose', 'PROTOCOL: ONLY THE GLOWING DOSE CAN BE HIT.');
+    else if (ev.type === 'graze' && s.wave >= 2 && !s.ship.focus) hintOnce('hint-focus', 'PROTOCOL: HOLD SHIFT. SLOWER MOVES, A STRONGER NEEDLE.');
+    else if (ev.type === 'hint' && ev.id === 'inject') hintOnce('hint-inject', 'PROTOCOL: TOUCH A VIRUS WITH THE NEEDLE TO INJECT.');
+    else if (ev.type === 'inject' && ev.cured) flashElement('#card-result', 900, (el) => ((el.className = 'good'), (el.innerHTML = 'INJECTED · <b>CURED</b>')));
     else if (ev.type === 'boss-intro') showBossCard(ev);
     // A boss defeat is the payoff: the LAB REPORT / victory overlay waits until
     // the final pop has landed (presentation only; the model's 0.6 s minimum

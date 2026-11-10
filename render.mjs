@@ -1555,8 +1555,14 @@ export function createRenderer({ canvas, stage, settings }) {
     } else if (ev.type === 'kill') {
       if (ev.kind === 'boss') fx.trauma += 0.3; // the defeat sequence carries the payoff
       else {
-        spawnDebris(ev.x, ev.z, PALETTE.virus, ev.kind === 'boss-part' ? 18 : ev.kind === 'mini' ? 3 : 5, 1);
-        if (ev.id) startPop(ev.id, ev.kind === 'boss-part' || ev.kind === 'heavy');
+        // A cure (INJECT) deflates to grey and fades over 0.25 s instead of
+        // popping, so a cure reads differently from a kill.
+        if (ev.source === 'inject') {
+          if (ev.id) startPop(ev.id, false, true);
+        } else {
+          spawnDebris(ev.x, ev.z, PALETTE.virus, ev.kind === 'boss-part' ? 18 : ev.kind === 'mini' ? 3 : 5, 1);
+          if (ev.id) startPop(ev.id, ev.kind === 'boss-part' || ev.kind === 'heavy');
+        }
       }
       if (ev.kind === 'virion-bullet') addBurst(ev.x, ev.z, PALETTE.vaccine, 0.5);
     } else if (ev.type === 'boss-defeated') startDefeat(ev);
@@ -1589,6 +1595,11 @@ export function createRenderer({ canvas, stage, settings }) {
     else if (ev.type === 'spark') addBurst(ev.x, ev.z, PALETTE.vaccine, 0.5);
     else if (ev.type === 'split') addBurst(ev.x, ev.z, '#ffffff', 1.6);
     else if (ev.type === 'cured') addBurst(ev.x, ev.z, PALETTE.vaccine, 1.6);
+    else if (ev.type === 'inject') {
+      // The dose goes in: a small cyan ring at the tip, never pink.
+      addBurst(ev.x, ev.z, PALETTE.vaccine, ev.elite ? 1.1 : 0.8);
+      if (motion) fx.trauma += 0.08;
+    }
     else if (ev.type === 'splash') addBurst(ev.x, ev.z, PALETTE.danger, 1.2);
     else if (ev.type === 'graze') {
       // The arc at the bullet's bearing (RingGeometry's arc is centred on +x;
@@ -1754,14 +1765,16 @@ export function createRenderer({ canvas, stage, settings }) {
   }
 
   // ---- Kill pops and the boss defeat (visual only: no collider remains) -----------
+  const CURE_GREY = new THREE.Color('#8d969c');
   const pops = [],
     dying = [];
-  function startPop(id, big) {
+  function startPop(id, big, cure = false) {
     const m = enemyMeshes.get(id);
     if (!m) return;
     enemyMeshes.delete(id);
     for (const mat of m.userData.mats) mat.transparent = true;
-    pops.push({ m, life: big ? 0.16 : 0.11, max: big ? 0.16 : 0.11 });
+    const life = cure ? 0.25 : big ? 0.16 : 0.11;
+    pops.push({ m, life, max: life, cure });
   }
   function updatePops(dt) {
     for (let i = pops.length - 1; i >= 0; i--) {
@@ -1773,8 +1786,19 @@ export function createRenderer({ canvas, stage, settings }) {
         pops.splice(i, 1);
         continue;
       }
-      // The pop: the body inflates and fades in about 0.1 s, face shocked.
       const k = 1 - p.life / p.max;
+      if (p.cure) {
+        // The cure: the body deflates (never wider than it was) and greys out.
+        ud.tilt.scale.set(1 - 0.35 * k, 1 - 0.6 * k, 1 - 0.35 * k);
+        for (const mat of ud.mats) {
+          mat.opacity = (1 - k) * mat.userData.baseOpacity;
+          mat.color?.lerp(CURE_GREY, Math.min(1, k * 3));
+          mat.emissive.set('#000000');
+          mat.emissiveIntensity = 0;
+        }
+        continue;
+      }
+      // The pop: the body inflates and fades in about 0.1 s.
       ud.tilt.scale.set(1 + 0.45 * k, 1 + 0.6 * k, 1 + 0.45 * k);
       for (const mat of ud.mats) {
         mat.opacity = (1 - k) * mat.userData.baseOpacity;
