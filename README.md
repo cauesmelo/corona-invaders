@@ -17,7 +17,7 @@ npm test              # 144 tests
 npm run build:itch    # dist/corona-invaders-itch.zip
 ```
 
-Node 18 or later; nothing to install. Three.js r187 and its license live in `vendor/`. Serve over HTTP (module imports are blocked from `file:`). `index.html` is a plain green `#168546` page with only the game centred, at most 960×640; in an iframe or fullscreen the same game fills the surface. The itch ZIP holds 33 files (about 0.61 MiB; `soundboard.html` stays out): runtime modules (`.mjs` rewritten to `.js`), `vendor/` and the Markdown docs. No font, image, model or sound is downloaded at runtime.
+Node 18 or later; nothing to install. Three.js r187 and its license live in `vendor/`. Serve over HTTP (module imports are blocked from `file:`). `index.html` is a plain green `#168546` page with only the game centred, at most 960×640; in an iframe or fullscreen the same game fills the surface. The itch ZIP holds 33 files (about 0.62 MiB; `soundboard.html` stays out): runtime modules (`.mjs` rewritten to `.js`), `vendor/` and the Markdown docs. No font, image, model or sound is downloaded at runtime.
 
 ## Controls (one scheme)
 
