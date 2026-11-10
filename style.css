@@ -509,9 +509,12 @@ canvas {
 }
 
 /* ---- VIRAL LOAD bar and the mutation card tape ---------------------------- */
+/* Hidden by opacity, not display or visibility: the panel stays laid out and
+   composited, so a boss entry does not trigger a style and layout pass. */
 #boss-status.off {
   opacity: 0;
   visibility: visible;
+  pointer-events: none;
 }
 #boss-status {
   will-change: opacity;
