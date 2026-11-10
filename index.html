@@ -4,27 +4,31 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
     <meta name="theme-color" content="#168546" />
-    <meta
-      name="description"
-      content="Corona Invaders: a 3D syringe shooter in a lab-instrument arcade cabinet. Three worlds, four bosses, one dose chain."
-    />
+    <meta name="description" content="Corona Invaders: a 3D bullet hell of a vaccine syringe against coronavirus variants. Four worlds, 18 samples, four variant bosses." />
     <title>Corona Invaders 3D</title>
     <link rel="stylesheet" href="./style.css" />
     <link rel="stylesheet" href="./embed.css" />
     <link
       rel="icon"
-      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect width='40' height='40' rx='8' fill='%2305080b'/%3E%3Ccircle cx='20' cy='20' r='9' fill='%2391ffce'/%3E%3Cg stroke='%2391ffce' stroke-width='3' stroke-linecap='round'%3E%3Cpath d='M20 5v4M20 31v4M5 20h4M31 20h4M9 9l3 3M28 28l3 3M31 9l-3 3M12 28l-3 3'/%3E%3C/g%3E%3C/svg%3E"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect width='40' height='40' rx='8' fill='%2305080b'/%3E%3Ccircle cx='20' cy='20' r='8' fill='%2312ce5d'/%3E%3Cg stroke='%2312ce5d' stroke-width='3' stroke-linecap='round'%3E%3Cpath d='M20 5v5M20 30v5M5 20h5M30 20h5M9 9l3.5 3.5M27.5 27.5L31 31M31 9l-3.5 3.5M12.5 27.5L9 31'/%3E%3C/g%3E%3C/svg%3E"
     />
   </head>
   <body>
-    <main class="cabinet" aria-label="Corona Invaders 3D">
+    <main class="cabinet" aria-label="Corona Invaders 3D" data-layout="side">
       <header class="hud" id="hud">
-        <div class="vials" id="lives" role="img" aria-label="3 of 3 doses"></div>
-        <div class="readout">
-          <div class="led" id="score" role="img" aria-label="Score 0"></div>
-          <span class="chain-chip" id="chain" aria-live="polite" hidden>×2</span>
+        <div class="panel panel-left" id="panel-left">
+          <div class="meter"><span class="label">DOSES</span><div class="vials" id="lives" role="img" aria-label="3 of 3 doses"></div></div>
+          <div class="meter"><span class="label">SOAP</span><div class="soap" id="soap" role="img" aria-label="2 soap bursts"></div></div>
+          <div class="meter power-meter"><span class="label">mRNA</span><div class="power" id="power" role="img" aria-label="Power 1 of 4"></div></div>
+          <div id="powerups" hidden aria-live="polite"></div>
         </div>
-        <div class="sector-tag" id="sector-tag"><b id="sector-code">1-1</b><span id="sector-world">BLOODSTREAM</span></div>
+        <div class="panel panel-right" id="panel-right">
+          <div class="meter score-meter"><span class="label">SCORE</span><div class="led" id="score" role="img" aria-label="Score 0"></div><div class="hi" id="hud-hi"></div></div>
+          <div class="meter"><span class="label">GRAZE</span><div class="led small" id="graze" role="img" aria-label="Graze 0"></div></div>
+          <div class="meter r0-meter"><span class="label">R0</span><div id="r0"></div><b id="r0-value">0.00</b></div>
+          <span class="chain-chip" id="chain" aria-live="polite" hidden>×2</span>
+          <div class="sector-tag" id="sector-tag"><b id="sector-code">1-1</b><span id="sector-world">AIRWAY</span></div>
+        </div>
         <button class="hud-button" id="pause-button" type="button" aria-label="Pause game">
           <svg viewBox="0 0 20 20" aria-hidden="true"><rect x="5" y="4" width="3.4" height="12" rx="1" /><rect x="11.6" y="4" width="3.4" height="12" rx="1" /></svg>
         </button>
@@ -33,39 +37,43 @@
         <canvas
           id="game"
           tabindex="0"
-          aria-label="3D syringe shooter. Move with arrows or A and D, hold Space to fire, Shift to shield, P to pause, R to retry the sector."
+          aria-label="3D syringe bullet hell. Arrow keys or WASD move, hold Shift to focus, Space for a soap burst. Fire is automatic. P pauses, R retries the sample."
         ></canvas>
         <div id="damage-flash" aria-hidden="true"></div>
+        <div id="twist-tag" hidden aria-live="polite"></div>
         <div id="boss-status" hidden aria-label="Boss encounter">
           <div class="boss-heading">
             <span class="boss-tag">VIRAL LOAD</span><strong id="boss-label">VARIANT</strong><span id="boss-pips" aria-hidden="true"></span
             ><span id="boss-numeric">0 / 0</span>
           </div>
-          <div id="boss-track" role="progressbar" aria-valuemin="0" aria-valuemax="1" aria-valuenow="1" aria-label="Boss health">
+          <div id="boss-track" role="progressbar" aria-valuemin="0" aria-valuemax="1" aria-valuenow="1" aria-label="Boss viral load">
             <b id="boss-lag"></b><i id="boss-health"></i><span id="boss-notches" aria-hidden="true"></span>
             <span id="boss-phase">PHASE 1</span>
           </div>
+          <div id="card-tape" aria-live="polite"><span id="card-kind">MUTATION</span><strong id="card-name"></strong><span id="card-timer" class="led-timer"></span></div>
           <div id="boss-parts" aria-hidden="true"></div>
         </div>
+        <div id="card-result" hidden aria-live="polite"></div>
         <div id="callout" aria-live="assertive" hidden></div>
         <div id="intro-card" hidden><b id="intro-code"></b><span id="intro-name"></span><em id="intro-new" hidden></em></div>
         <div id="tally" aria-live="polite" hidden></div>
-        <div id="powerups" hidden aria-live="polite"></div>
-        <div id="touch-fire" class="touch-pad" aria-label="Touch pad: drag to steer, hold to fire" role="button" tabindex="-1">
-          <span class="pad-hint" id="pad-hint">DRAG · HOLD TO FIRE</span>
+        <div id="touch-fire" class="touch-pad" aria-label="Touch pad: drag anywhere to move the syringe" role="application" tabindex="-1">
+          <span class="pad-hint" id="pad-hint">DRAG ANYWHERE · AUTO-FIRE</span>
         </div>
-        <button id="touch-shield" type="button" aria-label="Activate shield"><span>SHIELD</span></button>
+        <button id="touch-bomb" type="button" aria-label="Soap burst"><span id="touch-bomb-count">2</span><small>SOAP</small></button>
         <div class="overlay" id="overlay" data-screen="title">
           <div class="attract-tag" id="attract-tag" hidden>DEMO</div>
           <div class="card" id="card" role="dialog" aria-labelledby="overlay-heading">
-            <span class="card-tag" id="card-tag" aria-hidden="true">SPECIMEN 001</span>
+            <span class="card-tag" id="card-tag" aria-hidden="true"></span>
             <h2 id="overlay-heading" class="matrix">CORONA INVADERS</h2>
             <div id="overlay-body"></div>
             <div class="actions" id="actions">
-              <button id="play-button" class="row primary" type="button">PRESS FIRE</button>
-              <button id="assist-button" class="row" type="button" aria-pressed="false" hidden>+1 VIAL ASSIST</button>
-              <button id="retry-button" class="row" type="button" hidden>RETRY SECTOR</button>
-              <button id="menu-button" class="row" type="button" hidden>SECTOR MAP</button>
+              <button id="play-button" class="row primary" type="button">PRESS SPACE</button>
+              <button id="assist-button" class="row" type="button" hidden>+1 VIAL</button>
+              <button id="easy-button" class="row" type="button" hidden>SWITCH TO EASY</button>
+              <button id="retry-button" class="row" type="button" hidden>RETRY SAMPLE</button>
+              <button id="menu-button" class="row" type="button" hidden>SPECIMEN TRAY</button>
+              <button id="difficulty-button" class="row" type="button" hidden>DIFFICULTY <b>NORMAL</b></button>
               <button id="sound-button" class="row" type="button" aria-pressed="false" hidden>SOUND <b>OFF</b></button>
               <button id="effects-button" class="row" type="button" hidden>EFFECTS <b>FULL</b></button>
               <button id="controls-button" class="row" type="button" hidden>CONTROLS</button>
@@ -73,9 +81,13 @@
             </div>
             <p class="title-controls" id="title-controls"></p>
             <div class="title-icons" id="title-icons">
-              <button id="map-button" class="icon-button" type="button" aria-label="Sector map">
+              <button id="map-button" class="icon-button" type="button" aria-label="Specimen tray">
                 <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="8" r="3.2" /><circle cx="14" cy="8" r="3.2" /><circle cx="6" cy="17" r="3.2" /><circle cx="14" cy="17" r="3.2" /><path d="M20 5v15" /></svg>
-                <span>MAP</span>
+                <span>TRAY</span>
+              </button>
+              <button id="title-difficulty" class="icon-button" type="button" aria-label="Difficulty: Normal">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 18h16M7 18V10M12 18V6M17 18v-5" /></svg>
+                <span id="title-difficulty-label">NORMAL</span>
               </button>
               <button id="title-sound" class="icon-button" type="button" aria-label="Enable sound" aria-pressed="false">
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9h4l5-4v14l-5-4H4z" /><path class="wave" d="M16 9c1.5 1.5 1.5 4.5 0 6M18.5 6.5c3 3 3 8 0 11" /><path class="mute" d="M16 9l5 6M21 9l-5 6" /></svg>
@@ -86,6 +98,12 @@
           </div>
           <div class="tray" id="map" hidden role="dialog" aria-labelledby="map-heading">
             <h2 id="map-heading" class="matrix">SPECIMEN TRAY</h2>
+            <div class="tray-tabs" role="tablist" id="tray-tabs">
+              <button type="button" role="tab" data-mode="campaign" aria-selected="true">SAMPLES</button>
+              <button type="button" role="tab" data-mode="practice" aria-selected="false">PRACTICE</button>
+              <button type="button" role="tab" data-mode="lab" aria-selected="false">MUTATION LAB</button>
+            </div>
+            <p class="tray-note" id="tray-note"></p>
             <div class="tray-rows" id="tray-rows"></div>
             <button id="map-back" class="row" type="button">BACK</button>
           </div>

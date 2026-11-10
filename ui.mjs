@@ -1,6 +1,7 @@
 /** Lab-instrument UI drawing helpers. Everything is generated SVG markup, so no
  * font or image is fetched: headings use a 5x7 dot-matrix face, numbers use
- * seven-segment LEDs, doses are glass vials and sectors are petri dishes.
+ * seven-segment LEDs, doses are vaccine vials (cyan fluid), samples are petri
+ * dishes, SOAP is bubbles, power is an mRNA helix and R0 is an analog dial.
  */
 const FONT = {
   A: '.###.#...##...#######...##...##...#',
@@ -45,6 +46,11 @@ const FONT = {
   '!': '..#....#....#....#....#.........#..',
   '?': '.###.#...#....#...#...#.........#..',
   ' ': '...................................',
+  '&': '.##..#..#.#.#...#...#.#.##..#.##.#.',
+  '>': '#.....#.....#.....#...#...#...#....',
+  '<': '....#...#...#...#.....#.....#.....#',
+  '.': '...............................#...',
+  'Δ': '..#....#...#.#..#.#.#...##...######',
 };
 
 /** Dot-matrix heading. Lit dots are circles so it reads as an LED matrix. */
@@ -115,6 +121,7 @@ export function vial(state) {
     <rect class="cap" x="3" y="1" width="10" height="5" rx="1.5"/>
     <path class="glass" d="M4 7h8v20a4 4 0 0 1-8 0z"/>
     <g class="fluid-clip"><rect class="fluid" x="5.2" y="11" width="5.6" height="18" rx="2.6" style="transform:scaleY(${fill})"/></g>
+    <path class="marks" d="M9 14h2M9 18h2M9 22h2"/>
     <path class="crack" d="M6 12l3 4-2 3 3 4"/>
   </svg>`;
 }
@@ -139,37 +146,133 @@ export function medalRing(medal, assisted) {
     : '';
   return `<svg class="medal ${medal || 'none'}" viewBox="0 0 20 20" aria-hidden="true">${body}${a}</svg>`;
 }
-/** HUD twin of the renderer's Omega node icons. */
-export function nodeIcon(kind) {
-  const paths = {
-    aimed: '<path d="M12 20L6 7h12z" fill="currentColor"/>',
-    spread: '<path d="M12 6v14M12 6l-6 12M12 6l6 12" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>',
-    beam: '<rect x="9.5" y="3" width="5" height="18" rx="1" fill="currentColor"/>',
-    spawn: '<ellipse cx="12" cy="12" rx="5" ry="7" fill="none" stroke="currentColor" stroke-width="2.2"/><path d="M4 12h16" stroke="currentColor" stroke-width="2.2"/>',
-  };
-  return `<svg viewBox="0 0 24 24" aria-hidden="true">${paths[kind] || ''}</svg>`;
+/** The user's original 16x16 sprites (refs/canvas-retro-arcade/src/img),
+ * transcribed pixel for pixel and drawn as crisp SVG squares: the personality
+ * this revision recovers. */
+const SPRITES = {
+  corona: [
+    '......####......',
+    '...#...##...#...',
+    '..#....##....#..',
+    '.#.#..####..#.#.',
+    '....###..###....',
+    '....########....',
+    '#..###.##.###..#',
+    '####.##..##.####',
+    '####.##..##.####',
+    '#..###.##.###..#',
+    '....########....',
+    '....###..###....',
+    '.#.#..####..#.#.',
+    '..#....##....#..',
+    '...#...##...#...',
+    '......####......',
+  ],
+  syringe: [
+    '........#.......',
+    '........#.......',
+    '........#.......',
+    '.......###......',
+    '.......#.#......',
+    '.......###......',
+    '.......#.#......',
+    '.......###......',
+    '.......#.#......',
+    '.......###......',
+    '.......#.#......',
+    '......#####.....',
+    '.....#######....',
+    '........#.......',
+    '........#.......',
+    '.......###......',
+  ],
+};
+export function pixelSprite(name, { color = '#12ce5d', cls = '' } = {}) {
+  let rects = '';
+  SPRITES[name].forEach((row, y) => [...row].forEach((c, x) => c === '#' && (rects += `<rect x="${x}" y="${y}" width="1.02" height="1.02"/>`)));
+  return `<svg class="pixel ${cls}" viewBox="0 0 16 16" fill="${color}" shape-rendering="crispEdges" aria-hidden="true">${rects}</svg>`;
+}
+export const SPRITE_ROWS = SPRITES;
+
+/** SOAP stock: bubbles; the last one fills with graze progress. */
+export function soapBubbles(count, progress = 0) {
+  const n = Math.max(count, 0);
+  let out = '';
+  for (let i = 0; i < Math.max(2, n); i++) out += `<svg class="bubble ${i < n ? 'on' : 'off'}" viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="7.5"/><circle class="shine" cx="7" cy="7" r="2"/></svg>`;
+  return `${out}<svg class="graze-ring" viewBox="0 0 20 20" aria-hidden="true"><circle class="track" cx="10" cy="10" r="7"/><circle class="fill" cx="10" cy="10" r="7" pathLength="100" stroke-dasharray="${(progress * 100).toFixed(1)} 100" transform="rotate(-90 10 10)"/></svg>`;
+}
+/** mRNA power: a 4-segment helix (one rung per level). */
+export function helix(power) {
+  let out = '';
+  for (let i = 0; i < 4; i++) {
+    const y = 2 + i * 8;
+    out += `<g class="${i < power ? 'on' : 'off'}"><path d="M3 ${y}c6 0 10 6 16 6M19 ${y}c-6 0-10 6-16 6"/><path class="rung" d="M11 ${y + 1}v4"/></g>`;
+  }
+  return `<svg class="helix" viewBox="0 0 22 34" aria-hidden="true">${out}</svg>`;
+}
+/** R0 dial from 0 to 3 with a red zone above 1. Below 1 the outbreak shrinks. */
+export function r0Dial(value) {
+  const v = Math.max(0, Math.min(3, value || 0));
+  const a = Math.PI * (1 - v / 3);
+  const x = 20 + Math.cos(a) * 14,
+    y = 22 - Math.sin(a) * 14;
+  const zoneA = Math.PI * (1 - 1 / 3);
+  const zx = 20 + Math.cos(zoneA) * 15,
+    zy = 22 - Math.sin(zoneA) * 15;
+  return `<svg class="r0-dial ${v >= 1 ? 'over' : ''}" viewBox="0 0 40 26" aria-hidden="true"><path class="arc" d="M5 22a15 15 0 0 1 30 0"/><path class="zone" d="M${zx.toFixed(2)} ${zy.toFixed(2)}A15 15 0 0 1 35 22"/><line class="needle" x1="20" y1="22" x2="${x.toFixed(2)}" y2="${y.toFixed(2)}"/><circle cx="20" cy="22" r="2"/></svg>`;
 }
 
-/** Mini archetype icons for the sector intro "NEW" line. */
+/** Mini icons for the sample intro "NEW" line. */
+const crownIcon = (spikes = 8, r = 5) => {
+  let d = '';
+  for (let i = 0; i < spikes; i++) {
+    const a = (i / spikes) * Math.PI * 2;
+    d += `M${(12 + Math.cos(a) * r).toFixed(1)} ${(12 + Math.sin(a) * r).toFixed(1)}L${(12 + Math.cos(a) * (r + 4)).toFixed(1)} ${(12 + Math.sin(a) * (r + 4)).toFixed(1)}`;
+  }
+  return `<circle cx="12" cy="12" r="${r}"/><path d="${d}"/>`;
+};
 export const ICONS = {
-  membrane:
-    '<svg viewBox="0 0 24 24"><rect x="3" y="8" width="5" height="4" rx="1"/><rect x="9.5" y="8" width="5" height="4" rx="1"/><rect x="16" y="8" width="5" height="4" rx="1"/><rect x="6" y="13" width="5" height="4" rx="1"/><rect x="13" y="13" width="5" height="4" rx="1"/></svg>',
-  courier: '<svg viewBox="0 0 24 24"><rect x="3" y="8" width="18" height="8" rx="4"/><path d="M12 3v3M12 18v3"/></svg>',
-  splitter: '<svg viewBox="0 0 24 24"><circle cx="8" cy="12" r="5"/><circle cx="16" cy="12" r="5"/><path d="M12 5v14"/></svg>',
-  diver: '<svg viewBox="0 0 24 24"><path d="M12 3l5 8h-3v4h-4v-4H7z"/><path d="M12 17v1.5M12 20.5V22" class="dash"/></svg>',
-  burster: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="5"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2"/></svg>',
-  infector: '<svg viewBox="0 0 24 24"><path d="M5 18l4-9 4 9z"/><path d="M13 13l7-6" class="dash"/><circle cx="20" cy="6" r="2"/></svg>',
-  capsid: '<svg viewBox="0 0 24 24"><path d="M12 3l7 4v10l-7 4-7-4V7z"/><rect x="7" y="16" width="10" height="3" rx="1"/></svg>',
-  boss: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="6"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4M5 5l3 3M16 16l3 3M19 5l-3 3M8 16l-3 3"/></svg>',
+  wild: `<svg viewBox="0 0 24 24">${crownIcon()}</svg>`,
+  sneezer: `<svg viewBox="0 0 24 24">${crownIcon(10, 6)}<path class="dash" d="M8 22l4-3 4 3"/></svg>`,
+  budder: '<svg viewBox="0 0 24 24"><circle cx="8" cy="12" r="5"/><circle cx="16" cy="12" r="5"/><path d="M12 6v12"/></svg>',
+  worm: '<svg viewBox="0 0 24 24"><path d="M2 12c3-6 5 6 8 0s5 6 8 0 3 0 4 0"/></svg>',
+  puff: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="7"/><circle cx="12" cy="5" r="1.6"/><circle cx="19" cy="12" r="1.6"/><circle cx="12" cy="19" r="1.6"/><circle cx="5" cy="12" r="1.6"/></svg>',
+  droplet: '<svg viewBox="0 0 24 24"><path d="M12 3c4 6 6 9 6 12a6 6 0 0 1-12 0c0-3 2-6 6-12z"/><path class="dash" d="M12 21v2"/></svg>',
+  hijacker: `<svg viewBox="0 0 24 24">${crownIcon(8, 4)}<path class="dash" d="M15 15l6 6"/></svg>`,
+  heavy: `<svg viewBox="0 0 24 24">${crownIcon(10, 5)}<circle cx="12" cy="12" r="2"/></svg>`,
+  bloom: '<svg viewBox="0 0 24 24"><path d="M12 20c-5-3-6-9-1-15M12 20c5-3 6-9 1-15M12 20V6"/></svg>',
+  breath: '<svg viewBox="0 0 24 24"><path d="M12 4v8M12 12c-6 0-8 4-7 8 2 0 6-1 7-4M12 12c6 0 8 4 7 8-2 0-6-1-7-4"/></svg>',
+  mutation: '<svg viewBox="0 0 24 24"><path d="M7 3c10 6 0 12 10 18M17 3C7 9 17 15 7 21"/></svg>',
+  r0: '<svg viewBox="0 0 24 24"><path d="M3 18a9 9 0 0 1 18 0"/><path d="M12 18l5-6"/></svg>',
+  boss: `<svg viewBox="0 0 24 24">${crownIcon(12, 6)}</svg>`,
   bonus: '<svg viewBox="0 0 24 24"><path d="M12 3l2.6 5.4 5.9.8-4.3 4.1 1 5.9L12 16.4 6.8 19.2l1-5.9L3.5 9.2l5.9-.8z"/></svg>',
-  none: '<svg viewBox="0 0 24 24"><rect x="4" y="9" width="16" height="6" rx="1.5"/><path d="M4 20L20 4"/></svg>',
 };
 
 export const KEYCAP = (label, wide = false) => `<kbd class="${wide ? 'wide' : ''}">${label}</kbd>`;
+/** One control scheme. Keyboard: arrows move, Shift focus, Space SOAP, fire is
+ * automatic. Touch: drag anywhere (relative), the SOAP button, auto-fire. */
+export function controlsLine(touch) {
+  return touch
+    ? '<span><i class="gesture">↔</i><b>DRAG</b> MOVE</span><span><i class="gesture soap">◎</i><b>SOAP</b></span><span><b>AUTO-FIRE</b></span>'
+    : `<span>${KEYCAP('←')}${KEYCAP('→')}${KEYCAP('↑')}${KEYCAP('↓')}<b>MOVE</b></span><span>${KEYCAP('SHIFT', true)}<b>FOCUS</b></span><span>${KEYCAP('SPACE', true)}<b>SOAP</b></span><span><b>AUTO-FIRE</b></span>`;
+}
 export function controlsCard(touch) {
-  if (touch)
-    return `<div class="controls-card"><span><i class="gesture">↔</i>DRAG</span><span><i class="gesture">●</i>HOLD = FIRE</span><span><i class="gesture shield">◎</i>SHIELD</span></div>`;
-  return `<div class="controls-card"><span>${KEYCAP('←')}${KEYCAP('→')}MOVE</span><span>${KEYCAP('SPACE', true)}FIRE</span><span>${KEYCAP('SHIFT', true)}SHIELD</span></div>`;
+  const rows = touch
+    ? [['DRAG ANYWHERE', 'MOVE (THE FINGER NEVER COVERS THE SYRINGE)'], ['◎ SOAP', 'BOMB: CLEARS BULLETS'], ['AUTO-FIRE', 'ALWAYS ON'], ['❚❚', 'PAUSE']]
+    : [['ARROWS / WASD', 'MOVE IN 2D'], ['HOLD SHIFT', 'FOCUS: SLOW + NEEDLE STREAM'], ['SPACE / X', 'SOAP BOMB (ALSO JUST AFTER A HIT)'], ['AUTO-FIRE', 'ALWAYS ON'], ['P / ESC · R', 'PAUSE · RETRY']];
+  return `<div class="controls-card">${rows.map(([k, v]) => `<div><b>${k}</b><span>${v}</span></div>`).join('')}<p>ONLY THE WHITE DOT IN THE BARREL CAN BE HIT. GRAZE BULLETS FOR POINTS AND SOAP.</p></div>`;
+}
+
+/** The CONTAINMENT LOST cause line. Always meaningful: a bullet without a
+ * source or family (a bare QA fixture) reads "Hit by VIRUS droplet", never
+ * "Hit by undefined shot". */
+export function causeText(cause) {
+  const c = cause || {};
+  const ok = (v) => typeof v === 'string' && v && v !== 'undefined' && v !== 'null';
+  const by = ok(c.by) ? c.by : 'VIRUS';
+  if (c.what === 'CONTACT') return `Touched a ${by}`;
+  const what = (ok(c.what) ? c.what : 'DROPLET').toLowerCase();
+  return `Hit by ${by} ${what}${ok(c.pattern) && c.pattern !== c.what ? ` · ${c.pattern}` : ''}`;
 }
 
 export const fmtTime = (seconds) => {
