@@ -400,7 +400,7 @@ function truthHit(b, c0, c1, coreR) {
   }
   return false;
 }
-test('C3 swept collision: no tunnelling at twice the fastest bullet, with the core moving at touch-drag speed', () => {
+test('C3 swept collision: no tunnelling at twice the fastest bullet, with the core moving at touch-drag speed', (t) => {
   // Fastest authored bullet: 8.5 u/s (x1.3 in an exhale = 11.05). Test 25 u/s.
   let seed = 9;
   const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
@@ -432,6 +432,7 @@ test('C3 swept collision: no tunnelling at twice the fastest bullet, with the co
   // The swept test compares the paths over the whole substep, so it can
   // report a touch that two linear motions only reach at different instants
   // (conservative, within one substep of travel). Keep that rare.
+  t.diagnostic(`${cases} random swept cases: ${misses} missed, ${ghost} conservative hits`);
   assert.ok(ghost / cases < 0.03, `${ghost}/${cases} conservative hits`);
   // And through the real update(): a 25 u/s aerosol aimed through the core.
   for (let off = -0.3; off <= 0.3; off += 0.05) {

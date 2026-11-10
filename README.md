@@ -9,11 +9,11 @@ This is revision five. The user felt revision four had drifted into generic airc
 ```sh
 npm run dev           # http://127.0.0.1:4175/
 node serve.mjs --port 4200
-npm test              # 109 tests
+npm test              # 127 tests
 npm run build:itch    # dist/corona-invaders-itch.zip
 ```
 
-Node 18 or later; nothing to install. Three.js r187 and its license live in `vendor/`. Serve over HTTP (module imports are blocked from `file:`). `index.html` is a plain green `#168546` page with only the game centred, at most 960×640; in an iframe or fullscreen the same game fills the surface. The itch ZIP holds 29 files (about 0.57 MiB): runtime modules (`.mjs` rewritten to `.js`), `vendor/` and the Markdown docs. No font, image, model or sound is downloaded at runtime.
+Node 18 or later; nothing to install. Three.js r187 and its license live in `vendor/`. Serve over HTTP (module imports are blocked from `file:`). `index.html` is a plain green `#168546` page with only the game centred, at most 960×640; in an iframe or fullscreen the same game fills the surface. The itch ZIP holds 31 files (about 0.58 MiB): runtime modules (`.mjs` rewritten to `.js`), `vendor/` and the Markdown docs. No font, image, model or sound is downloaded at runtime.
 
 ## Controls (one scheme)
 
@@ -29,7 +29,7 @@ The title shows the line **ARROWS MOVE · SHIFT FOCUS · SPACE SOAP · AUTO-FIRE
 
 ## What is in the game
 
-- **The kit.** A 0.2 u core hitbox, drawn as the glowing vaccine chamber in the middle of the barrel at exactly the collider radius (9.0 px at 960×640, 6.0 px at 320 wide); a 1.0 u graze ring (+10 and +1 graze per bullet, a SOAP every 100); normal speed 11.5 u/s and focus 5.0 u/s with a 60 ms blend and normalised diagonals; auto-fire at 8 volleys/s (SPRAY 3–5 needles at ±4°, or NEEDLE 3–5 parallel needles in focus); mRNA power L1–L4 with Y-shaped antibody options; SOAP: 2 per vial (Easy 3), up to 5, a soap bubble to 15 u in 0.6 s that turns bullets into antigen tokens and deals 12 damage (3% of a boss card); death: −1 vial, −1 power level dropped as a catchable mRNA strand for 4 s, every bullet cancelled, 0.5 s glide-in, 2.5 s invulnerability.
+- **The kit.** A 0.2 u core hitbox, drawn as the glowing vaccine chamber in the middle of the barrel at exactly the collider radius (9.0 px at 960×640, 6.0 px at 320 wide); a 1.0 u graze ring (+10 and +1 graze per bullet, a SOAP every 100); normal speed 11.5 u/s and focus 5.0 u/s, with no inertia (start, stop and the focus switch act on the step of the press) and normalised diagonals; auto-fire at 8 volleys/s (SPRAY 3–5 needles at ±4°, or NEEDLE 3–5 parallel needles in focus); mRNA power L1–L4 with Y-shaped antibody options; SOAP: 2 per vial (Easy 3), up to 5, a soap bubble to 15 u in 0.6 s that turns bullets into antigen tokens and deals 12 damage (3% of a boss card); death: −1 vial, −1 power level dropped as a catchable mRNA strand for 4 s, every bullet cancelled, 0.5 s glide-in, 2.5 s invulnerability.
 - **Six bullet families**, shape first: sneeze droplets (teardrops), aerosol mist (decelerating dots), spike proteins (lollipops), RNA beads on a sine with their thread, shootable virions (the original 8-spike crown with a green ring) and mucus globs. Pink-violet with white cores and dark rims, drawn above everything.
 - **Hitboxes are what you see** (`hitboxes.mjs`, one module shared by the simulation and the renderer). The player is only the glowing core. An enemy is its body sphere (or capsule for the BUDDER and RNA WORM); spikes are decoration for every interaction. A bullet is its solid body, dark rim included; the glow outside is light, not matter. Droplets and spike proteins are capsules along their travel. Collisions are swept over each 1/120 s substep, so nothing tunnels. Needles are thin segments, lane beams are their drawn rectangle, the SOAP ring is its drawn radius and supplies are caught by the barrel. `?hitboxes=1` or `__game.hitboxes(true)` draws every collider as an outline.
 - **Twelve pattern presets** (COUGH, SNEEZE, SNIFFLE, CORONA RING, SPIKE BLOOM, DRIP, MUCUS WALL, AEROSOL, SNEEZE JET, RNA STRAND, REPLICATION, QUARANTINE BOX) with tested fairness limits.
@@ -37,7 +37,7 @@ The title shows the line **ARROWS MOVE · SHIFT FOCUS · SPACE SOAP · AUTO-FIRE
 - **Campaign: 18 samples in four worlds** (AIRWAY, LUNGS with BREATH, BLOODSTREAM with CURRENT, LAB / PETRI with MUTATION), including two bonus samples, four midbosses and four variant bosses: **ALPHA, BETA & GAMMA, DELTA, OMICRON PRIME**, 25 named cards in all. WHO Greek letters only.
 - **R0 meter** (3 × escaped ÷ spawned escapable viruses) with a clear bonus for R0 below 1; medals (gold = no vial lost and R0 < 1). R0, the Dose Chain and the Shift stronger-needle rule are each explained once in a short hint the first time they matter.
 - **Specimen tray** with three tabs: SAMPLES (any unlocked sample), PRACTICE (any cleared sample, one vial, R restarts at once) and MUTATION LAB (any card already seen, ends when the card ends).
-- **Easy / Normal** (title and pause): Easy has 5 vials, 3 SOAP, auto-SOAP on hit, a 0.35 s deathbomb, ×0.6 bullets, ×0.85 speed, +0.15 s telegraphs and 2.8 u wall gaps. The title offers **EASY START** on a first visit. After three failures the loss screen offers **+1 VIAL** (medal marked A) or **SWITCH TO EASY**, with Easy as the focused default. The loss screen ignores keys for 1 s and then needs a fresh press, so a held Space cannot retry by accident (clicks work at once).
+- **Easy / Normal** (title and pause): Easy has 5 vials, 3 SOAP, auto-SOAP on hit (so its 0.35 s deathbomb matters only with an empty stock), ×0.6 bullets, ×0.85 speed, +0.15 s telegraphs and 2.8 u wall gaps. The title offers **EASY START** on a first visit. After three failures the loss screen offers **+1 VIAL** (medal marked A) or **SWITCH TO EASY**, with Easy as the focused default. The loss screen ignores keys for 1 s and then needs a fresh press, so a held Space cannot retry by accident (clicks work at once).
 - **Checkpoints:** a sample clear restores one vial; a world clear restores all and shows a LAB REPORT that waits for a press. A retry restores the sample's entry score, power and RNG stream.
 
 ## The UI: a lab instrument, tied to the theme
@@ -49,6 +49,7 @@ Landscape puts the board in a centred column (about 430 px at 960×640) with two
 | File | Responsibility |
 | --- | --- |
 | `core.mjs` | Rules (units: u, s, u/s), difficulty table, seeded RNG, events, hitstop |
+| `clock.mjs` | The browser's fixed 1/120 s step clock: frame snapping, the 50 ms stall cap, interpolation only at refresh rates the grid does not divide |
 | `bullets.mjs` | The six families, spawning (2.5 u exclusion, no edge spawns, caps), motion (twists, sine, split), cancels into antigen tokens |
 | `patterns.mjs` | The twelve emitter presets, LIMITS, Easy scaling, mutation upgrades, the overlap gate |
 | `levels.mjs` | Worlds, archetypes (with per-world attack upgrades) and the 18 authored stage scripts |
@@ -67,7 +68,9 @@ The simulation imports neither the DOM nor Three.js. It advances in substeps of 
 
 ## Validate
 
-`npm test` runs 109 tests in about 25 s: player kit 15, pattern fairness 10, bosses 17, archetypes 14, campaign/model 20, difficulty curve 7, camera 11, theme 8, hitboxes 7. They cover every collider against its drawn sprite or mesh (bullets per family, enemy and boss bodies, the syringe core), capsule and swept collisions with no tunnelling, exact edges for needles, beams, contact, supplies and SOAP, every boss card's TTK under 80% of its timeout at 75% of the reference DPS, the reactive player ending cards by damage, hitbox vs graze radii, focus speed, SOAP and deathbomb, death and respawn, spawn exclusion, every authored parameter inside its preset LIMITS, clear gaps, wall gaps, aerosol density, the overlap gate measured on a live campaign, telegraph minimums, card HP/timeouts/captures, boss speed caps, every gimmick, every card (LAMBDA MIRROR included) dodgeable by a 150 ms reactive player without SOAP, the rising world curve, determinism, checkpoints, practice, supplies, R0, medals, extends, the controller winning the campaign for seeds 42, 1 and 7, and the no-aircraft mesh registry with distinct boss silhouettes. Results are in BALANCE.md.
+`npm test` runs 127 tests in about 27 s: player kit 15, pattern fairness 10, bosses 17, archetypes 14, campaign/model 20, difficulty curve 7, camera 11, theme 8, hitboxes 7, movement audit 18. They cover every collider against its drawn sprite or mesh (bullets per family, enemy and boss bodies, the syringe core), capsule and swept collisions with no tunnelling, exact edges for needles, beams, contact, supplies and SOAP, every boss card's TTK under 80% of its timeout at 75% of the reference DPS, the reactive player ending cards by damage, hitbox vs graze radii, focus speed, SOAP and deathbomb, death and respawn, spawn exclusion, every authored parameter inside its preset LIMITS, clear gaps, wall gaps, aerosol density, the overlap gate measured on a live campaign, telegraph minimums, card HP/timeouts/captures, boss speed caps, every gimmick, every card (LAMBDA MIRROR included) dodgeable by a 150 ms reactive player without SOAP, the rising world curve, determinism, checkpoints, practice, supplies, R0, medals, extends, the controller winning the campaign for seeds 42, 1 and 7, and the no-aircraft mesh registry with distinct boss silhouettes. Results are in BALANCE.md.
+
+The movement audit (`tests/movement-audit.test.mjs`, results and reasons in [MOVEMENT_AUDIT.md](./MOVEMENT_AUDIT.md)) measures the shared movement rubric: input acting on the step of the press, identical simulations at 30/60/120/240 Hz and through hitches, presses across pause, hitstop, sample ends and retries, crossing times, edges, the marker and graze ring against the projected colliders, tunnelling at 2.3× the fastest bullet, the deathbomb window in real time, threat lead times, every pattern preset dodged by the 150 ms reactive player, and the focus technique and skill gradient. `node tests/browser/movement-audit.mjs http://127.0.0.1:4402/` (with `node serve.mjs --port 4402`) repeats the pixel and input checks in Chrome.
 
 ## Browser QA interface and what changed for the root suite
 
@@ -78,18 +81,22 @@ __game.checkpoint(4);                  // start an unlocked sample (1..18; 4 = A
 __game.practice(18, 2, 'omicron');     // MUTATION LAB card (stage, card, boss type)
 __game.restart(); __game.bomb(); __game.setDifficulty('easy'); __game.renderer();
 __game.hitboxes(true);                 // dev overlay: every collider outlined (also ?hitboxes=1)
+__game.probe('marker-solid');          // QA: draw one layer alone on black ('marker' | 'bullets' | 'graze', '-solid' = white solid masks)
 __game.setState(patch);                // fixtures only; also boss (merged), enemyShots (normalised), emitters
 ```
 
 - **Input contract:** `{ axisX, axisZ, focus, bomb, targetX, targetZ, drag, confirm }`. `axisX/axisZ` are in [−1, 1] (+z is toward the player); `axis` is still accepted as `axisX`. `bomb` is edge-triggered (one SOAP per press). `targetX/targetZ` steer toward a board point (`drag: true` for touch speed). `confirm` (or the legacy `shoot` edge) releases the LAB REPORT. Fire is automatic, so `shoot` no longer fires.
 - **Shield → SOAP:** `ship.shield`/`ship.shieldCooldown` are gone. Use `ship.bombs` (stock), `bombsUsed` and `soapRing`; Shift now holds focus (`ship.focus`).
 - **Hits take the deathbomb window:** a hit sets `ship.dying` for 0.18 s before the vial is lost, so the last-vial fixture needs `step(0.25)` (not `0.03`) to reach `phase: 'lost'`. Its cause card reads "Hit by VIRUS droplet" for a bare fixture bullet.
-- **Campaign:** 18 stages (was 13); `wave` and `unlockedStage` reach 18. The controller needs about 56–58k frames (seeds 42/1/7: 58,344 / 57,850 / 56,000); the budget stays `60 * 1800`.
+- **Campaign:** 18 stages (was 13); `wave` and `unlockedStage` reach 18. The controller needs about 59–60k frames (seeds 42/1/7: 60,340 / 59,315 / 58,913); the budget stays `60 * 1800`.
 - **Boss HUD:** stage 4 is now ALPHA (pool 1344: card HP = round(TTK × 24 × 0.7), so 302 + 370 + 370 + 302). `#boss-status` is shown and hidden with an `off` class (opacity, plus `aria-hidden`) instead of the `hidden` attribute, which avoids a style and layout pass at boss entry. Playwright's `isVisible()` treats opacity 0 as visible, so to assert that no boss is shown, check for the `off` class or `aria-hidden="true"`. `#boss-numeric` reads `hp / max` of the whole pool; `#boss-phase` reads `PHASE k/n · CARD NAME`, with k the card the pool has reached (so `setState({ boss: { hp: 23 } })` on ALPHA shows `PHASE 4/4 · COUGH COUGH` until the boss acts). `#boss-track` carries aria-valuenow/max.
 - **Supplies:** kinds are `mrna`, `booster`, `mask`, `soap`, `vial`. A collected `booster` sets `ship.powerups.booster = 8` and `#powerups` reads BOOSTER (the old `rapid` kind no longer exists).
 - **Selectors kept:** `#game`, `#play-button`, `#pause-button`, `#menu-button`, `[data-stage="N"]`, `#boss-status`, `#boss-label`, `#boss-numeric`, `#boss-phase`, `#boss-health`, `#boss-track`, `#boss-lag`, `#powerups`, `#touch-fire` (now the full-stage relative drag pad), `#graphics-error`, `#title-sound`, `#sound-button`. New: `#touch-bomb`, `#card-tape`, `#card-result`, `#r0`, `#graze`, `#soap`, `#power`, `#twist-tag`, `[data-practice]`, `[data-card]`, `#tray-tabs`, `#difficulty-button`, `#easy-button`, `#easy-start` (first-visit title offer), `#hint` (one-time R0 / CHAIN / Shift hints).
 - **Hitboxes:** `RULES.shipRadius` is 0.2 u (was 0.16) and is exactly the drawn chamber marker; bullets carry `hit` (radius) and `half` (capsule half-length), and a fixture bullet given only `radius` is a circle. Collisions are swept from `px/pz` (the previous substep position) for bullets and the ship.
-- **Mouse:** steering needs a held left button over the board; the mouse no longer holds focus (Shift only). The loss screen ignores keyboard input for 1 s and key repeats; `#play-button` clicks are not locked.
+- **Mouse:** steering needs a held left button over the board; the mouse no longer holds focus (Shift only). Steering and the right-button SOAP follow the live button mask, so a release outside the page ends them. The loss screen ignores keyboard input for 1 s and key repeats; `#play-button` clicks are not locked.
+- **Held keys:** Space or X already down when play starts, a retry begins or a pause ends must be released before it fires a SOAP; arrows, WASD and Shift held through a pause act at once. A SOAP press on the pause or loss screen or between samples is dropped; one made during hitstop fires when the freeze ends.
+- **Fixed step:** the browser loop advances whole 1/120 s steps (`clock.mjs`). `__game.step(seconds)` is unchanged: it advances exactly `seconds`. `?smooth=1` forces the interpolated view used at 144/165 Hz.
+- **Beams:** a SNEEZE JET lane telegraphs for 1.5 s (was 1.0 s).
 
 ## Known limits (honest scope)
 

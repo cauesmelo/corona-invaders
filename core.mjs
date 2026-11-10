@@ -27,7 +27,7 @@ export const RULES = Object.freeze({
   grazeRadius: 1,
   // 11.5 u/s crosses the 17.8 u box in 1.55 s, slower than the 0.8-1.3 s
   // rubric band, on purpose: at 14 u/s (1.27 s) the 150 ms reactive player
-  // lost more vials in every world (W1 0.03 -> 0.66, W4 0.84 -> 1.41 per
+  // lost 2-4x more vials in every world (W1 0.16 -> 0.66, W4 0.69 -> 1.38 per
   // sample) because each committed correction overshot (MOVEMENT_AUDIT.md).
   // A 1 u sidestep still takes 87 ms.
   shipSpeed: 11.5,

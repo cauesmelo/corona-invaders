@@ -8,7 +8,7 @@ All numbers are from `core.mjs`, `patterns.mjs`, `levels.mjs` and `bosses.mjs`, 
 | --- | --- | --- |
 | Core hitbox | 0.2 u radius, drawn as the glowing vaccine chamber at exactly that radius (9.0 px at 960×640, 7.3 px at 390, 6.0 px at 320) | The user found the old hitbox imprecise; the marker is the collider, never larger |
 | Graze ring | 1.0 u; +10 points, +1 graze, once per bullet; a SOAP per 100 grazes | Rewards near misses without rewarding sitting in fire |
-| Speed | 11.5 u/s; FOCUS 5.0 u/s (0.43×); linear 60 ms blend; diagonals normalised | Crosses the board in ~1.5 s; focus still escapes an aimed stream |
+| Speed | 11.5 u/s; FOCUS 5.0 u/s (0.43×); no inertia and no blend (focus acts on the press step); diagonals normalised | Crosses the 17.8 u box in 1.55 s (a documented WARN: at 14 u/s the reactive player lost more vials in every world, see MOVEMENT_AUDIT.md); focus still escapes an aimed stream |
 | Box | x ±8.9, z −3..12; the formation stops at z = −4 | Room for macro-dodges and point-blank |
 | Auto-fire | 8 volleys/s, needles 34 u/s, 1 damage; SPRAY 3 (5 from L3) at ±4°; NEEDLE 3/3/4/5 parallel, 0.25 u apart; antibodies 4 needles/s each (2 from L2, 4 at L4), tucked to ±0.6–1.0 u in focus | Calm stream (the user asked for a lower fire rate earlier) |
 | Power | L2 at 1 mRNA, L3 at 3, L4 at 5 | Guaranteed supplies give L2 in W1, L3 in W2, L4 in W3 |
@@ -62,26 +62,30 @@ Measured live campaign peaks stay under the caps (tested): every sample ≤ its 
 - Every fan and ring emission keeps ≥ 0.5 u clear between neighbours 10 u from its source (40+ emissions measured on real emitters).
 - MUCUS WALL: only the marked gaps are passable, each ≥ 2.0 u (≥ 2.8 u on Easy), centres within ±7.5 u.
 - AEROSOL ≤ 8 bullets/s per emitter.
+- Telegraph minimums: 0.5 s aimed, 0.8 s fans, 1.0 s walls, 1.5 s beams (a beam is instant once live, so its telegraph is the whole warning). From the formation front every bullet pattern needs at least 2.08 s from first sight to reach the core; in live play every near pass had at least 1.72 s.
+- Every pattern preset at its harshest authored use, fired every 3 s for 16 s from five starts, is dodged by the 150 ms reactive player without SOAP (tests/movement-audit.test.mjs).
 - On a live controller campaign (seed 1): never more than two live pattern families, never two aimed families together, no emitter below its telegraph minimum, every boss attack ≥ 1.5 s after a card start, no bullet appearing at the bottom or side edges.
 
 ## Dodgeability: every card, 150 ms reactive player, no SOAP
 
 `tests/reactive.mjs` acts on a 150 ms-old view every 100 ms, extrapolates what it sees in straight lines (on-screen velocity; it does not know sines, splits or upcoming twist changes), commits to one keyboard direction per decision and prefers sidestepping out of a bullet's line. Each card was run alone from five starts (x = −6, −3, 0, 3, 6); the test requires mean ≤ 1.2 hits per run, worst ≤ 3, and ≥ 3 of 5 starts with at most one hit.
 
+Remeasured on 2026-11-10 after the movement audit (instant focus, 1.5 s beams, MOVEMENT_AUDIT.md):
+
 | Card | Hits (5 starts) | Card | Hits |
 | --- | --- | --- | --- |
-| ALPHA COUGH COUGH | 0 0 0 0 0 | DELTA TRIANGULATE | 0 0 0 0 1 |
+| ALPHA COUGH COUGH | 0 0 0 0 0 | DELTA TRIANGULATE | 0 0 0 0 0 |
 | ALPHA FIRST SNEEZE | 0 0 0 0 0 | DELTA LANE SNEEZE | 0 0 0 0 0 |
 | ALPHA SPIKE BLOOM | 0 0 0 0 0 | DELTA HALVES | 0 0 0 0 0 |
-| ALPHA CORONA | 0 0 0 0 0 | DELTA BLOOD RUSH | 0 0 1 0 1 |
+| ALPHA CORONA | 0 1 0 0 0 | DELTA BLOOD RUSH | 0 0 0 0 1 |
 | B&G PING-PONG | 0 0 0 0 0 | DELTA Δ CASCADE | 0 0 0 0 0 |
 | B&G CROSS INFECTION | 0 0 0 0 0 | OMICRON SPIKE CROWN | 0 0 0 0 0 |
 | B&G MIRROR STRAIN | 0 0 0 0 0 | OMICRON SNEEZE STORM | 0 0 0 0 0 |
-| B&G DOUBLE HELIX | 0 0 0 0 0 | OMICRON MUTATION SPIRAL | 1 1 0 0 0 |
+| B&G DOUBLE HELIX | 0 0 0 0 0 | OMICRON MUTATION SPIRAL | 0 1 0 0 0 |
 | BIG SNEEZER ACHOO! | 0 0 0 0 0 | OMICRON QUARANTINE | 0 0 0 0 0 |
 | AEROSOL CLOUD MIST | 0 0 0 0 0 | OMICRON CORONA FLARE | 0 0 0 0 0 |
-| MOTHER BUDDING / LYSIS / CELL BURST | 0s / 0s / 0s | OMICRON R0 > 1 | 0 1 2 0 0 |
-| LAMBDA TRACKING / MIRROR | 0s / 0s | | |
+| MOTHER BUDDING / LYSIS / CELL BURST | 0s / 0s / 0s | OMICRON R0 > 1 | 0 1 1 1 0 |
+| LAMBDA TRACKING / MIRROR | 0 0 1 0 0 / 0s | | |
 
 The same runs also test that every card ends by damage, not on the timer, from at least 4 of 5 starts. All of them do, from all five starts, except one BLOOD RUSH start that timed out. Hits are lower than in the previous table, as expected with cards about 30% shorter.
 
@@ -91,23 +95,25 @@ Two structural problems found this way were fixed rather than tuned around: MIRR
 
 Each sample was played from its tray entry by the reactive player on eight seeds (42, 1, 7, 3, 5, 11, 23, 99). "Lost" is vials lost per sample without SOAP; "near" is bullets within 3 u of the core per 0.1 s sample (the dodging load).
 
+Remeasured on 2026-11-10 after the movement audit:
+
 | Sample | Lost | Near | Sample | Lost | Near |
 | --- | --- | --- | --- | --- | --- |
-| 1-1 FIRST CONTACT | 0.00 | 0.22 | 3-1 CIRCULATION | 0.38 | 1.23 |
-| 1-2 GESUNDHEIT | 0.00 | 0.38 | 3-2 HIJACK | 0.25 | 0.65 |
-| 1-3 BUDDING | 0.00 | 0.77 | 3-3 VARIANT SURGE | 0.63 | 0.97 |
-| 1-4 ALPHA | 0.13 | 0.83 | 3-4 DELTA | 1.00 | 0.75 |
-| 2-1 GAS EXCHANGE | 0.13 | 0.59 | 4-1 AGAR | 0.50 | 1.12 |
-| 2-2 AEROSOL | 0.13 | 0.63 | 4-2 MUTATION | 0.38 | 0.70 |
-| 2-3 DEEP BREATH | 0.13 | 0.96 | 4-3 OUTBREAK | 1.50 | 1.67 |
-| 2-4 BETA & GAMMA | 0.63 | 1.22 | 4-4 OMICRON PRIME | 1.00 | 1.47 |
+| 1-1 FIRST CONTACT | 0.00 | 0.22 | 3-1 CIRCULATION | 0.38 | 1.29 |
+| 1-2 GESUNDHEIT | 0.13 | 0.38 | 3-2 HIJACK | 0.13 | 0.67 |
+| 1-3 BUDDING | 0.38 | 0.80 | 3-3 VARIANT SURGE | 0.13 | 0.89 |
+| 1-4 ALPHA | 0.13 | 0.81 | 3-4 DELTA | 0.25 | 0.80 |
+| 2-1 GAS EXCHANGE | 0.00 | 0.60 | 4-1 AGAR | 0.63 | 1.03 |
+| 2-2 AEROSOL | 0.13 | 0.57 | 4-2 MUTATION | 0.25 | 0.72 |
+| 2-3 DEEP BREATH | 0.13 | 0.70 | 4-3 OUTBREAK | 1.38 | 1.53 |
+| 2-4 BETA & GAMMA | 0.50 | 1.22 | 4-4 OMICRON PRIME | 0.50 | 1.55 |
 
 | World mean | W1 | W2 | W3 | W4 |
 | --- | --- | --- | --- | --- |
-| Vials lost (no SOAP) | 0.03 | 0.25 | 0.56 | 0.84 |
-| Bullets near the core | 0.55 | 0.85 | 0.90 | 1.24 |
+| Vials lost (no SOAP) | 0.16 | 0.19 | 0.22 | 0.69 |
+| Bullets near the core | 0.55 | 0.77 | 0.91 | 1.21 |
 
-Both rise strictly by world (tested, with W4 ≥ 1.8× W1). Without SOAP the reactive player cleared every sample on the first try on all eight seeds, except 4-3 on seed 99 (two retries). With SOAP allowed, the same player clears every sample within three tries on every seed, and every world-1 sample and B1 on the first try. Single-sample vial losses are noisy (small changes move one sample by ±1), which is why the table uses eight seeds and the pressure metric; the W2→W3 pressure margin (0.85 → 0.90) is the thinnest.
+Both rise strictly by world (tested, with W4 ≥ 1.8× W1). The vial margins between W1, W2 and W3 are now thin (0.16 / 0.19 / 0.22, from 0.03 / 0.25 / 0.56 before the audit): instant focus and longer beam warnings changed the reactive trajectories, and single-sample losses move by ±0.25 with small changes. Without SOAP the reactive player cleared every sample on the first try on all eight seeds, except 4-3 on seed 11 (one retry). With SOAP allowed, the same player clears every sample within three tries on every seed, and every world-1 sample and B1 on the first try. Single-sample vial losses are noisy (small changes move one sample by ±1), which is why the table uses eight seeds and the pressure metric; the W1→W2 and W2→W3 vial margins (0.03 each) are now the thinnest, while pressure rises clearly (0.55 → 0.77 → 0.91 → 1.21).
 
 ## Controller campaign (tests/model.test.mjs)
 
@@ -115,15 +121,17 @@ Both rise strictly by world (tested, with W4 ≥ 1.8× W1). Without SOAP the rea
 
 | Seed | Result | Frames (1/60 s) | Vials lost | SOAP used | Grazes | Kills | Score |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| 42 | won, all 18 | 58,344 | 0 | 0 | 543 | 783 | 2,547,457 |
-| 1 | won, all 18 | 57,850 | 0 | 0 | 593 | 775 | 2,509,551 |
-| 7 | won, all 18 | 56,000 | 0 | 1 | 583 | 797 | 2,459,550 |
+| 42 | won, all 18 | 60,340 | 0 | 0 | 611 | 786 | 2,559,345 |
+| 1 | won, all 18 | 59,315 | 0 | 1 | 622 | 776 | 2,420,900 |
+| 7 | won, all 18 | 58,913 | 0 | 0 | 612 | 782 | 2,523,358 |
 
-Frame budget for the root suite: `60 * 1800` (108,000), unchanged. Shorter boss cards cut the campaign from about 79k to 56–58k frames.
+Remeasured after the movement audit (instant focus, 1.5 s beams). Frame budget for the root suite: `60 * 1800` (108,000), unchanged. Shorter boss cards cut the campaign from about 79k to 56–60k frames.
 
 ## Browser evidence
 
-Real Chrome with SwiftShader WebGL at 960×640, 390×844 and 320×844 (throwaway Playwright scripts outside the repo): title, every world, all 25 boss and midboss cards, the hitbox overlay on four busy cards, the syringe (normal and hit flash), focus, SOAP, pause, game over, tray, MUTATION LAB and portrait views, with no console errors. A scratch copy of the root browser suite (`ONLY="Corona Invaders"`, run outside `common/` so it wrote no shared evidence) passed 14/14 on the packaged ZIP. Measured: core marker 9.0 px (960) / 7.3 px (390) / 6.0 px (320) across, the same as the collider; the board column is 428 px at 960×640.
+Movement audit (2026-11-10, `tests/browser/movement-audit.mjs`, results in MOVEMENT_AUDIT.md): the core marker, all six bullet families and the graze ring equal their projected colliders within one device pixel at 960×640, 390×844 and 320×568; real keys act on the next rendered frame; held keys, lost mouse releases and touch drag past an edge behave as documented. A scratch copy of the root browser suite (`ONLY="Corona Invaders"`, outside `common/`) passed 14/14 on the packaged ZIP after the audit.
+
+Earlier art pass: real Chrome with SwiftShader WebGL at 960×640, 390×844 and 320×844 (throwaway Playwright scripts outside the repo): title, every world, all 25 boss and midboss cards, the hitbox overlay on four busy cards, the syringe (normal and hit flash), focus, SOAP, pause, game over, tray, MUTATION LAB and portrait views, with no console errors. A scratch copy of the root browser suite (`ONLY="Corona Invaders"`, run outside `common/` so it wrote no shared evidence) passed 14/14 on the packaged ZIP. Measured: core marker 9.0 px (960) / 7.3 px (390) / 6.0 px (320) across, the same as the collider; the board column is 428 px at 960×640.
 
 Input and flow checks: moving the mouse with no button held left the syringe in place, and a held-button drag moved it. Space during the 1 s loss lock kept the loss screen; a fresh press after it retried. After three losses, Easy was the focused, highlighted button. The first visit showed the Easy start offer. At 390×844 and 320×844 the fullscreen button no longer overlaps pause, and the portrait cabinet is 828 px tall.
 
