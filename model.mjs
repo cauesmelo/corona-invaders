@@ -210,6 +210,13 @@ export function createState({ seed = 0x51a7c0de, stage = 1, difficulty = 'normal
     prevConfirm: false,
     failures: 0,
     assist: false,
+    // The run rule (RESEARCH_V1.md 2.1): credits spent on lost runs, the
+    // stage the run started at (a 1CC needs 1-1) and the game-speed assist.
+    creditsUsed: 0,
+    runStart: stage,
+    runOver: false,
+    gameSpeed: 1,
+    speedAssisted: false,
     lastCause: null,
     pendingCause: null,
     medals: {},
@@ -259,16 +266,44 @@ export function openMenu(s) {
   return s;
 }
 export function newRun(s, seed = s.seed) {
-  const { unlockedStage, difficulty } = s;
-  Object.assign(s, createState({ seed, difficulty, drafts: s.drafts }), { phase: 'playing', unlockedStage });
+  const { unlockedStage, difficulty, gameSpeed } = s;
+  Object.assign(s, createState({ seed, difficulty, drafts: s.drafts }), { phase: 'playing', unlockedStage, gameSpeed, speedAssisted: gameSpeed < 1 });
   return s;
 }
-/** Retry the sample checkpoint: full vials, the entry score, power and RNG
- * stream, fresh actors. After three failures the loss screen offers either
- * +1 VIAL (medal marked A) or switching to Easy. */
+/** Credits left in the run (Infinity on Easy). */
+export const creditsLeft = (s) => diff(s).credits - s.creditsUsed;
+/** A one-credit clear: the whole run from 1-1, no credit spent, no
+ * practice (RESEARCH_V1.md 2.1, test T12). */
+export const oneCredit = (s) => s.runStart === 1 && s.creditsUsed === 0 && !s.practice;
+/** ASSIST: game speed 70 / 80 / 90 / 100%, a dt scale applied by the
+ * browser's fixed clock (game.js). The model only records that a stage was
+ * played assisted (the LAB REPORT says ASSISTED; nothing else changes). */
+export const GAME_SPEEDS = Object.freeze([1, 0.9, 0.8, 0.7]);
+export function setGameSpeed(s, speed) {
+  if (!GAME_SPEEDS.includes(speed)) return false;
+  s.gameSpeed = speed;
+  if (speed < 1) {
+    s.speedAssisted = true;
+    if (s.sector) s.sector.speedAssisted = true;
+  }
+  return true;
+}
+/** CONTINUE: restart the current stage from its entry snapshot (score,
+ * power, RNG, extends; the card draft adds its build). After a lost run the
+ * credit is already spent; a manual retry mid-stage spends one (Normal), so a
+ * retry is never a free refill. With no credit left the run is over (only
+ * NEW RUN or practice). Practice retries are always free. After three
+ * failures the loss screen offers +1 VIAL (medal A) or switching to Easy. */
 export function restartGame(s, { assist = false, easy = false } = {}) {
+  if (!s.practice) {
+    if (s.runOver) return false;
+    if (s.phase !== 'lost') {
+      if (creditsLeft(s) <= 0) return false;
+      s.creditsUsed++;
+    }
+  }
   const checkpoint = { ...s.checkpoint },
-    { seed, unlockedStage, failures, medals, practice } = s;
+    { seed, unlockedStage, failures, medals, practice, creditsUsed, runStart, gameSpeed, speedAssisted } = s;
   const difficulty = easy && failures >= 3 ? 'easy' : s.difficulty;
   const useAssist = assist && failures >= 3;
   Object.assign(s, createState({ seed, stage: checkpoint.stage, difficulty, drafts: s.drafts }), {
@@ -285,6 +320,10 @@ export function restartGame(s, { assist = false, easy = false } = {}) {
     checkpoint,
     assist: useAssist,
     practice: practice ? { ...practice, result: null } : null,
+    creditsUsed,
+    runStart,
+    gameSpeed,
+    speedAssisted,
   });
   setPower(s.ship, checkpoint.power ?? 1);
   // Adjuvants are never lost on death: the entry build comes back.
@@ -297,13 +336,16 @@ export function restartGame(s, { assist = false, easy = false } = {}) {
   s.sector.entryScore = s.score;
   s.sector.entryPower = s.ship.power;
   s.sector.assisted = useAssist;
+  s.sector.speedAssisted = gameSpeed < 1;
   s.health = s.lives = practice ? 1 : s.kit.maxVials + (useAssist ? 1 : 0);
   return s;
 }
 export function selectStage(s, stage) {
   if (!Number.isInteger(stage) || stage < 1 || stage > s.unlockedStage || stage > STAGE_COUNT) return false;
-  const { unlockedStage, medals, difficulty } = s;
-  Object.assign(s, createState({ seed: s.seed, stage, difficulty, drafts: s.drafts }), { phase: 'playing', unlockedStage, medals });
+  const { unlockedStage, medals, difficulty, gameSpeed } = s;
+  // A run from the tray starts fresh at that stage (it can only be a 1CC
+  // from 1-1).
+  Object.assign(s, createState({ seed: s.seed, stage, difficulty, drafts: s.drafts }), { phase: 'playing', unlockedStage, medals, gameSpeed, speedAssisted: gameSpeed < 1 });
   // A sample started from the tray begins with the power the campaign
   // guarantees on arrival, so it is never harder than playing through.
   // With drafts on, a start past 1-1 has no run (builds are a run thing): it
@@ -337,8 +379,8 @@ export function startPractice(s, stage, { card = null, boss = null } = {}) {
   const level = getLevel(stage);
   const type = boss || level.boss;
   if (card !== null && (!type || !BOSSES[type]?.cards[card] || bossHome(type) !== stage)) return false;
-  const { unlockedStage, medals, difficulty, seed } = s;
-  Object.assign(s, createState({ seed, stage, difficulty, drafts: s.drafts }), { phase: 'playing', unlockedStage, medals });
+  const { unlockedStage, medals, difficulty, seed, gameSpeed } = s;
+  Object.assign(s, createState({ seed, stage, difficulty, drafts: s.drafts }), { phase: 'playing', unlockedStage, medals, gameSpeed });
   s.practice = { stage, card, boss: card !== null ? type : null, result: null };
   s.run = null; // practice measures skill on STANDARD ISSUE (A8)
   setPower(s.ship, entryPower(stage));
@@ -469,11 +511,48 @@ function die(s) {
   ship.invulnerable = RULES.respawnTime + RULES.hitInvulnerability;
   pushEvent(s, 'respawn', { x: ship.x, z: ship.z });
 }
+/** The last vial is gone. In a run this spends a credit and offers a
+ * CONTINUE from the stage's entry; with none left the run is over and the
+ * FINAL REPORT follows. Practice just ends. */
 function lose(s, cause) {
   s.phase = 'lost';
   s.failures++;
   s.lastCause = cause;
-  pushEvent(s, 'lost', { by: cause.by });
+  let credit = false;
+  if (!s.practice) {
+    if (creditsLeft(s) > 0) {
+      s.creditsUsed++;
+      credit = true;
+    } else {
+      s.runOver = true;
+      s.finalReport = finalReport(s, false);
+    }
+  }
+  pushEvent(s, 'lost', { by: cause.by, credit, creditsLeft: creditsLeft(s), runOver: s.runOver, code: getLevel(s.wave).code, at: s.waveElapsed });
+}
+/** FINAL REPORT (RESEARCH_V1.md 5.3): score, the 1CC stamp, credits used,
+ * variants sequenced (NEUTRALIZED cards of the four variant bosses, x/19),
+ * medals and whether the specimen was contained. The draft adds the build. */
+export function finalReport(s, contained) {
+  const variantCards = LEVELS.filter((l) => l.kind === 'boss').reduce((n, l) => n + BOSSES[l.boss].cards.length, 0);
+  const sequenced = LEVELS.filter((l) => l.kind === 'boss').reduce((n, l) => n + (s.medals[l.id]?.cards || []).filter((c) => c.neutralized).length, 0);
+  const medals = { gold: 0, silver: 0, bronze: 0 };
+  for (const r of Object.values(s.medals)) if (medals[r.medal] !== undefined) medals[r.medal]++;
+  return {
+    contained,
+    score: s.score,
+    oneCredit: contained && oneCredit(s),
+    creditsUsed: s.creditsUsed,
+    credits: diff(s).credits,
+    sequenced,
+    variantCards,
+    medals,
+    reached: getLevel(s.wave).code,
+    assisted: s.speedAssisted || Object.values(s.medals).some((r) => r.assisted),
+    difficulty: s.difficulty,
+    injections: s.injections,
+    grazes: s.grazes,
+  };
 }
 
 /** Where the core may be: the 2D box, narrowed by a QUARANTINE (its soft
@@ -1135,11 +1214,22 @@ function finishSector(s, level) {
   let bonus = clearBonus(level, value);
   if (level.kind === 'bonus' && s.sector.bonusHits === s.sector.bonusTotal) bonus += 5000;
   addScore(s, bonus);
+  // The LAB REPORT (RESEARCH_V1.md 5.3): specimen, result, EXPOSURE
+  // (grazes), INJECTIONS, R0 with its verdict, doses lost, time, medal and a
+  // one-line assessment in the lab voice.
+  const world = WORLDS[level.world - 1];
   const result = {
     stage: s.wave,
     code: level.code,
+    name: level.name,
+    site: world.site,
+    zoom: world.zoom,
     medal,
-    assisted: s.sector.assisted,
+    assisted: s.sector.assisted || !!s.sector.speedAssisted || s.gameSpeed < 1,
+    injections: s.sector.injections,
+    exposure: s.sector.grazes,
+    verdict: value < 1 ? 'CONTAINED' : 'SPREADING',
+    assessment: level.kind === 'boss' ? world.assessment : s.sector.vialsLost === 0 ? 'SAMPLE STERILE. NO DOSE LOST.' : `SAMPLE CLEARED. ${s.sector.vialsLost} DOSE${s.sector.vialsLost > 1 ? 'S' : ''} LOST.`,
     time: s.waveElapsed,
     vialsLost: s.sector.vialsLost,
     heartsLost: s.sector.vialsLost,
@@ -1170,7 +1260,8 @@ function finishSector(s, level) {
   pushEvent(s, 'wave', { wave: s.wave, ...result, world: level.world, worldEnd: level.worldEnd });
   if (s.wave === STAGE_COUNT) {
     s.phase = 'won';
-    pushEvent(s, 'won', { score: s.score });
+    s.finalReport = finalReport(s, true);
+    pushEvent(s, 'won', { score: s.score, ...s.finalReport });
     return;
   }
   // LAB REPORT (2.5 s, skippable) after a sample; after a boss the FIELD
@@ -1285,6 +1376,10 @@ export function exportRun(s) {
     extendsGiven: [...(draft ? s.extendsGiven : c.extendsGiven || [])],
     medals: structuredClone(s.medals || {}),
     run: structuredClone(draft ? s.run : c.run),
+    // The run rule: credits spent so far and where the run began (a 1CC
+    // needs 1-1 and none spent).
+    creditsUsed: s.creditsUsed | 0,
+    runStart: s.runStart ?? 1,
   };
 }
 /** RESUME RUN from a stored run. Returns false (and leaves `s` alone) for a
@@ -1302,6 +1397,8 @@ export function resumeRun(s, data) {
     Object.assign(s, createState({ seed: data.seed >>> 0, stage: data.stage, difficulty, drafts: true }), { unlockedStage: Math.max(unlockedStage || 1, data.stage) });
     Object.assign(s, {
       score: data.score,
+      creditsUsed: Math.max(0, Math.min(99, data.creditsUsed | 0)),
+      runStart: Number.isInteger(data.runStart) && data.runStart >= 1 && data.runStart <= data.stage ? data.runStart : data.stage,
       kills: data.kills | 0,
       hits: data.hits | 0,
       shotsFired: data.shotsFired | 0,

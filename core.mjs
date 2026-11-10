@@ -112,8 +112,10 @@ export const RULES = Object.freeze({
 
 /** Easy halves the pressure for newcomers (RESEARCH_BULLET_HELL.md 7.4). */
 export const DIFFICULTY = Object.freeze({
-  normal: { count: 1, speed: 1, tele: 0, health: 3, bombs: 2, autoBomb: false, deathbomb: 0.18, hp: 1, overlap: 2, wallGap: 2, neutralized: 1 },
-  easy: { count: 0.6, speed: 0.85, tele: 0.15, health: 5, bombs: 3, autoBomb: true, deathbomb: 0.35, hp: 0.85, overlap: 1, wallGap: 2.8, neutralized: 0.5 },
+  // `credits`: continues per run (RESEARCH_V1.md 2.1): 3 on Normal,
+  // unlimited on Easy.
+  normal: { count: 1, speed: 1, tele: 0, health: 3, bombs: 2, autoBomb: false, deathbomb: 0.18, hp: 1, overlap: 2, wallGap: 2, neutralized: 1, credits: 3 },
+  easy: { count: 0.6, speed: 0.85, tele: 0.15, health: 5, bombs: 3, autoBomb: true, deathbomb: 0.35, hp: 0.85, overlap: 1, wallGap: 2.8, neutralized: 0.5, credits: Infinity },
 });
 export const diff = (s) => DIFFICULTY[s.difficulty] || DIFFICULTY.normal;
 

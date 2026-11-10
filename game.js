@@ -44,7 +44,12 @@ import {
   resumeRun,
   refreshKit,
   entryPower,
+  creditsLeft,
+  setGameSpeed,
+  GAME_SPEEDS,
+  PROLOGUE,
 } from './model.mjs';
+import { KEYS, loadStore, write as writeKey } from './save.mjs';
 import { formulateHTML, offerSummary, rackHTML, formulationList, createDraftGate } from './formulate.mjs';
 import { CARD, limitOf, legendariesIn } from './cards.mjs';
 import { clamp } from './core.mjs';
@@ -57,36 +62,25 @@ import { bossCard, bossLine, talkTime, DEFEAT_FINAL } from './personality.mjs';
 import { matrix, segments, vial, medalRing, ICONS, controlsCard, controlsLine, fmtTime, pixelSprite, soapBubbles, helix, r0Dial, causeText } from './ui.mjs';
 
 const $ = (sel) => document.querySelector(sel);
-const KEYS = {
-  unlocked: 'corona-invaders-v5-unlocked',
-  medals: 'corona-invaders-v5-medals',
-  scores: 'corona-invaders-v5-scores',
-  effects: 'corona-invaders-v5-effects',
-  seen: 'corona-invaders-v5-seen',
-  cards: 'corona-invaders-v5-cards',
-  practice: 'corona-invaders-v5-practice',
-  sound: 'corona-invaders-v5-sound',
-  difficulty: 'corona-invaders-v5-difficulty',
-  // v6: the run in progress (build, credits, RNG, the open offer). The v5
-  // keys (unlocks, medals, scores, cards seen) stay valid.
-  run: 'corona-invaders-v6-run',
-};
-// Storage can be disabled (private mode, sandboxed iframes): play never depends on it.
+// Storage can be disabled (private mode, sandboxed iframes, itch's shared
+// third-party storage): play never depends on it. Keys, sanitising and the
+// one-time migration from older saves live in save.mjs.
+const storage = (() => {
+  try {
+    return window.localStorage;
+  } catch {
+    return null;
+  }
+})();
 function load(key, fallback) {
   try {
-    const raw = localStorage.getItem(key);
-    return raw === null ? fallback : JSON.parse(raw);
+    const raw = storage?.getItem(key);
+    return raw === null || raw === undefined ? fallback : JSON.parse(raw);
   } catch {
     return fallback;
   }
 }
-function save(key, value) {
-  try {
-    localStorage.setItem(key, JSON.stringify(value));
-  } catch {
-    /* Progress still exists for this session. */
-  }
-}
+const save = (key, value) => writeKey(storage, key, value);
 function freshSeed() {
   const data = new Uint32Array(1);
   if (globalThis.crypto?.getRandomValues) crypto.getRandomValues(data);
@@ -96,20 +90,12 @@ function freshSeed() {
 
 const reducedMotionQuery = matchMedia('(prefers-reduced-motion: reduce)');
 const touchQuery = matchMedia('(pointer: coarse)');
-const store = {
-  unlocked: Math.max(1, Math.min(STAGE_COUNT, Number(load(KEYS.unlocked, 1)) || 1)),
-  medals: load(KEYS.medals, {}) || {},
-  scores: Array.isArray(load(KEYS.scores, [])) ? load(KEYS.scores, []) : [],
-  effects: load(KEYS.effects, reducedMotionQuery.matches ? 'reduced' : 'full') === 'reduced' ? 'reduced' : 'full',
-  seen: new Set(load(KEYS.seen, [])),
-  cards: load(KEYS.cards, {}) || {},
-  practice: load(KEYS.practice, {}) || {},
-  difficulty: load(KEYS.difficulty, 'normal') === 'easy' ? 'easy' : 'normal',
-};
+const store = loadStore(storage, { reducedMotion: reducedMotionQuery.matches });
 const settings = { effects: () => store.effects === 'full' && !reducedMotionQuery.matches };
 
 const state = createState({ seed: freshSeed(), difficulty: store.difficulty, drafts: true });
 state.unlockedStage = store.unlocked;
+setGameSpeed(state, store.speed);
 const cabinet = $('.cabinet'),
   stage = $('#stage'),
   canvas = $('#game'),
@@ -118,7 +104,7 @@ const cabinet = $('.cabinet'),
 const audio = createAudio();
 // Sound is ON by default and the choice is remembered. Browsers only allow an
 // AudioContext after a gesture, so the preference applies on the first press.
-const soundPref = { on: load(KEYS.sound, true) !== false };
+const soundPref = { on: store.sound };
 function applySoundPref() {
   if (soundPref.on && !audio.enabled) audio.setEnabled(true, { quiet: true });
 }
@@ -277,7 +263,7 @@ function saveRun() {
 }
 function clearRun() {
   try {
-    localStorage.removeItem(KEYS.run);
+    storage?.removeItem(KEYS.run);
   } catch {
     /* Nothing stored. */
   }
@@ -358,7 +344,7 @@ function handleEvents(list, s, live) {
       if (line) say(line, s, ev);
     }
     else if (ev.type === 'chain-tier') {
-      if (ev.tier === 2) hintOnce('hint-chain', 'CHAIN: CURE AGAIN WITHIN 2 S TO MULTIPLY POINTS.');
+      if (ev.tier === 2) hintOnce('hint-chain', 'PROTOCOL: CURE AGAIN WITHIN 2 S TO RAISE THE DOSE CHAIN.');
       const chip = $('#chain');
       chip.classList.remove('bump');
       void chip.offsetWidth;
@@ -396,7 +382,7 @@ function showBossCard(ev) {
     el.classList.toggle('mid', !!ev.mid);
     el.style.setProperty('--card', BOSSES[ev.boss]?.color || '#12ce5d');
     el.classList.toggle('long', !!hint);
-    el.innerHTML = `<small>${ev.mid ? 'MIDBOSS' : 'VARIANT BOSS'} · ${card.title}</small><strong>${card.name}</strong><em>${card.line}</em>${hint ? `<span class="hint">${hint}</span>` : ''}`;
+    el.innerHTML = `<small>CASE FILE · ${card.file}</small><strong>${card.name}</strong><em>${card.line}</em>${hint ? `<span class="hint">${hint}</span>` : ''}`;
   });
 }
 /** A boss line in the HUD, not a speech bubble (user: "not cartoon"): card
@@ -433,27 +419,75 @@ function showIntro() {
     }
     return;
   }
-  setText($('#intro-code'), state.practice ? `PRACTICE ${level.code}` : level.code);
-  setText($('#intro-name'), level.name);
+  // The lab voice: SPECIMEN 2-1 · DEEP BREATH · ALVEOLI x400, then the
+  // stage's PROTOCOL line. A sector's first stage rolls the microscope's
+  // magnification up from the previous sector's (RESEARCH_V1.md 5.1).
+  const world = WORLDS[level.world - 1];
+  const sectorStart = LEVELS.find((l) => l.world === level.world)?.id === level.id;
+  setText($('#intro-code'), `${state.practice ? 'PRACTICE' : 'SPECIMEN'} ${level.code}`);
+  setText($('#intro-name'), `${level.name} · ${world.site}`);
+  const zoom = $('#intro-zoom');
+  const from = sectorStart && level.world > 1 ? WORLDS[level.world - 2].zoom : world.zoom;
+  rollZoom(zoom, from, world.zoom);
   const line = $('#intro-new');
-  line.hidden = !fresh;
+  line.hidden = false;
+  line.innerHTML = fresh ? `<b>NEW</b>${ICONS[icon] || ''}<span>${level.intro.text}</span>` : `<span>PROTOCOL: ${level.protocol || level.intro?.text || ''}</span>`;
   if (fresh) {
-    line.innerHTML = `<b>NEW</b>${ICONS[icon] || ''}<span>${level.intro.text}</span>`;
     store.seen.add(level.code);
     save(KEYS.seen, [...store.seen]);
   }
-  flashElement('#intro-card', fresh ? 2600 : 1450, (el) => el.classList.toggle('short', !fresh));
+  const prologue = level.id === 1 && !state.practice && !store.seen.has('prologue');
+  if (prologue) {
+    store.seen.add('prologue');
+    save(KEYS.seen, [...store.seen]);
+    flashElement('#callout', 3000, (el) => ((el.innerHTML = `<small>FIELD NOTE 0</small>${PROLOGUE}`), el.classList.add('long'), el.classList.remove('is-card')));
+  }
+  flashElement('#intro-card', fresh || sectorStart ? 2600 : 1600, (el) => {
+    el.classList.toggle('short', !(fresh || sectorStart));
+    el.classList.toggle('sector', sectorStart);
+  });
 }
+/** The microscope's magnification counter: x40 -> x400 over 0.8 s. */
+function rollZoom(el, from, to) {
+  if (!el) return;
+  const fmt = (n) => `×${Math.round(n).toLocaleString('en-US').replace(/,/g, ' ')}`;
+  el.textContent = fmt(from);
+  if (from === to || !settings.effects()) return void (el.textContent = fmt(to));
+  const t0 = performance.now();
+  const step = () => {
+    const k = Math.min(1, (performance.now() - t0) / 800);
+    el.textContent = fmt(from * (to / from) ** k);
+    if (k < 1) requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
+}
+/** The LAB REPORT after a sample (RESEARCH_V1.md 5.3): 2.5 s, skippable;
+ * specimen, EXPOSURE, INJECTIONS, R0 with its verdict, doses lost, time,
+ * medal and a one-line assessment. */
 function showTally(ev) {
   const medal = ev.medal;
-  const label = medal ? `★ ${medal.toUpperCase()}${ev.assisted ? ' A' : ''}` : '';
-  const parts =
-    ev.bonusTotal > 0
-      ? [`CURED <b>${ev.bonusHits}/${ev.bonusTotal}</b>`, `BONUS <b>+${ev.bonus}</b>`]
-      : [`CLEAR <b>+${ev.bonus}</b>`, `R0 <b>${ev.r0.toFixed(2)}</b>`, `GRAZE <b>${ev.grazes}</b>`];
-  flashElement('#tally', 1800, (el) => {
-    el.innerHTML = [...parts, `<span class="medal-label ${medal}">${label}</span>`].join('<span class="sep">·</span>');
+  const label = medal ? `★ ${medal.toUpperCase()}${ev.assisted ? ' · ASSISTED' : ''}` : '';
+  const parts = [
+    `<b>LAB REPORT ${ev.code}</b>`,
+    `EXPOSURE <b>${ev.exposure ?? ev.grazes}</b>`,
+    `INJECTIONS <b>${ev.injections ?? 0}</b>`,
+    `R0 <b>${ev.r0.toFixed(2)}</b> ${ev.verdict || ''}`,
+    `DOSES LOST <b>${ev.vialsLost}</b>`,
+    `<b>${fmtTime(ev.time)}</b>`,
+  ];
+  flashElement('#tally', 2500, (el) => {
+    el.innerHTML = [...parts, `<span class="medal-label ${medal}">${label}</span>`].join('<span class="sep">·</span>') + (ev.assessment ? `<em class="assess">${ev.assessment}</em>` : '');
   });
+}
+
+/** FINAL REPORT body: score, the 1CC stamp, credits used, variants
+ * sequenced and medals (the ADJUVANT draft adds the build). */
+function finalReportHTML(r) {
+  if (!r) return '';
+  const credits = r.credits === Infinity ? `${r.creditsUsed} / ∞` : `${r.creditsUsed} / ${r.credits}`;
+  const stamp = r.oneCredit ? '<div class="stamp">1CC · ONE CREDIT CLEAR</div>' : '';
+  const medals = ['gold', 'silver', 'bronze'].map((m) => `<span class="m">${medalRing(m)}${r.medals[m]}</span>`).join('');
+  return `${stamp}<div class="report"><div><b>RESULT</b><span>${r.contained ? 'CONTAINED' : 'NOT CONTAINED'}</span><span></span><span></span></div><div><b>CREDITS USED</b><span>${credits}</span><span></span><span></span></div><div><b>SEQUENCED</b><span>${r.sequenced}/${r.variantCards} VARIANT CARDS</span><span></span><span></span></div><div><b>MEDALS</b><span class="medal-row">${medals}</span><span></span><span></span></div>${r.assisted ? '<div><b>MODE</b><span>ASSISTED</span><span></span><span></span></div>' : ''}<div class="total"><span>SCORE</span>${segments(String(r.score).padStart(7, '0'))}</div></div>`;
 }
 
 // ---- Screens -------------------------------------------------------------------
@@ -470,7 +504,7 @@ function currentScreen() {
   if (p === 'transition' && state.transitionHold) return shown ? 'report' : '';
   return '';
 }
-const ROWS = ['play-button', 'resume-button', 'assist-button', 'easy-button', 'retry-button', 'menu-button', 'difficulty-button', 'sound-button', 'effects-button', 'controls-button', 'back-button'];
+const ROWS = ['play-button', 'resume-button', 'assist-button', 'easy-button', 'retry-button', 'menu-button', 'difficulty-button', 'speed-button', 'sound-button', 'effects-button', 'controls-button', 'back-button'];
 const ATTRACT = ['title', 'demo', 'scores', 'attract-controls'];
 function configure(screen) {
   const assist = assistAvailable(state);
@@ -480,9 +514,9 @@ function configure(screen) {
       demo: ['play-button'],
       scores: ['play-button'],
       'attract-controls': ['play-button'],
-      pause: ['play-button', 'retry-button', 'menu-button', 'difficulty-button', 'sound-button', 'effects-button', 'controls-button'],
+      pause: ['play-button', ...(state.practice || creditsLeft(state) > 0 ? ['retry-button'] : []), 'menu-button', 'difficulty-button', 'speed-button', 'sound-button', 'effects-button', 'controls-button'],
       controls: ['back-button'],
-      lost: ['play-button', ...(assist ? ['assist-button', ...(state.difficulty === 'normal' ? ['easy-button'] : [])] : []), 'menu-button'],
+      lost: state.runOver ? ['play-button', 'menu-button'] : ['play-button', ...(assist ? ['assist-button', ...(state.difficulty === 'normal' ? ['easy-button'] : [])] : []), 'menu-button'],
       won: ['play-button', 'menu-button'],
       practice: ['play-button', 'menu-button'],
       report: ['play-button'],
@@ -528,17 +562,28 @@ function configure(screen) {
     // The whole formulation, with text (RESEARCH_CARDS §6.2).
     body.innerHTML = state.run ? formulationList(state.run.deck) : state.kit?.scale > 1 ? `<p class="formulation empty">STANDARD ISSUE ×${state.kit.scale.toFixed(2)} (PRACTICE: NO ADJUVANTS)</p>` : '';
     playButton.textContent = 'RESUME';
-    $('#retry-button').innerHTML = `RETRY SAMPLE <span class="hint">R</span>`;
+    $('#retry-button').innerHTML = state.practice ? `RETRY <span class="hint">R</span>` : `RESTART STAGE <span class="hint">R · 1 CREDIT</span>`;
     $('#menu-button').innerHTML = `SPECIMEN TRAY <span class="hint">MAP</span>`;
   } else if (screen === 'controls') {
     heading.innerHTML = matrix('CONTROLS');
     body.innerHTML = controlsCard(touch);
+  } else if (screen === 'lost' && state.runOver) {
+    // No credit left: the FINAL REPORT (RESEARCH_V1.md 5.3).
+    heading.innerHTML = matrix('FINAL') + matrix('REPORT');
+    tag.textContent = `SPECIMEN NOT CONTAINED · REACHED ${level.code}`;
+    body.innerHTML = finalReportHTML(state.finalReport);
+    playButton.innerHTML = `NEW RUN <span class="hint">${press}</span>`;
+    $('#menu-button').innerHTML = `PRACTICE <span class="hint">TRAY</span>`;
+    ui.lostTime = 0;
+    ui.lockUntil = performance.now() + 1000;
   } else if (screen === 'lost') {
     heading.innerHTML = matrix('CONTAINMENT') + matrix('LOST');
-    tag.textContent = `SAMPLE ${level.code}${state.practice ? ' · PRACTICE' : ''}`;
+    const left = creditsLeft(state);
+    const credits = state.practice ? 'PRACTICE' : left === Infinity ? 'CREDITS ∞' : `CREDITS LEFT ${left}`;
+    tag.textContent = `SPECIMEN ${level.code} · ${credits}`;
     const cause = state.lastCause || { by: 'VIRUS', what: 'DROPLET', at: state.waveElapsed };
-    body.innerHTML = `<div class="cause">${pixelSprite('corona', { color: '#ff4fa3' })}<strong>${causeText(cause)}</strong><span>${level.code} ${level.name} · ${fmtTime(cause.at ?? state.waveElapsed)}</span></div><div class="countdown-row"><span id="countdown-text">CONTINUE? 9</span><span>${press} TO RETRY</span></div><span class="countdown"><i></i></span>`;
-    playButton.innerHTML = `RETRY SAMPLE <span class="hint">${press}</span>`;
+    body.innerHTML = `<div class="cause">${pixelSprite('corona', { color: '#ff4fa3' })}<strong>${causeText(cause)}</strong><span>${level.code} ${level.name} · ${fmtTime(cause.at ?? state.waveElapsed)}</span></div><div class="countdown-row"><span id="countdown-text">CONTINUE? 9</span><span>${press} TO RESTART ${level.code}</span></div><span class="countdown"><i></i></span>`;
+    playButton.innerHTML = `${state.practice ? 'RETRY' : 'CONTINUE'} <span class="hint">${press}</span>`;
     $('#assist-button').innerHTML = `+1 VIAL <span class="hint">MEDAL A</span>`;
     $('#easy-button').innerHTML = `SWITCH TO EASY <span class="hint">5 VIALS · AUTO-SOAP</span>`;
     $('#menu-button').innerHTML = `SPECIMEN TRAY <span class="hint">↓</span>`;
@@ -552,19 +597,15 @@ function configure(screen) {
     playButton.classList.add('locked');
     setTimeout(() => playButton.classList.remove('locked'), 1000);
   } else if (screen === 'won') {
-    heading.innerHTML = matrix('CONTAINED');
-    tag.textContent = 'R0 < 1 · CAMPAIGN COMPLETE';
-    const counts = { gold: 0, silver: 0, bronze: 0 };
-    for (const r of Object.values(state.medals)) counts[r.medal]++;
-    // FINAL REPORT: the build in line order, and PLACEBO GROUP for a run
-    // that discarded every draft.
+    heading.innerHTML = matrix('FINAL') + matrix('REPORT');
+    tag.textContent = WORLDS[3].note;
+    // FINAL REPORT: score, 1CC, credits, sequencing and medals, then the
+    // build in line order, and PLACEBO GROUP for a run that discarded every draft.
     const run = state.run;
     const placebo = run && run.drafts > 0 && run.discards === run.drafts;
-    body.innerHTML = `<div class="report">${Object.entries(counts)
-      .map(([m, n]) => `<div>${medalRing(m)}<span>${m.toUpperCase()}</span><b>${n}</b><span></span></div>`)
-      .join('')}<div class="total"><span>SCORE</span>${segments(String(state.score).padStart(7, '0'))}</div></div>${run ? `${placebo ? '<p class="badge">PLACEBO GROUP · NO ADJUVANTS TAKEN</p>' : ''}${formulationList(run.deck)}` : ''}`;
-    playButton.textContent = 'NEW CAMPAIGN';
-    $('#menu-button').innerHTML = `SPECIMEN TRAY <span class="hint">MAP</span>`;
+    body.innerHTML = `${finalReportHTML(state.finalReport)}${run ? `${placebo ? '<p class="badge">PLACEBO GROUP · NO ADJUVANTS TAKEN</p>' : ''}${formulationList(run.deck)}` : ''}`;
+    playButton.textContent = 'NEW RUN';
+    $('#menu-button').innerHTML = `PRACTICE <span class="hint">TRAY</span>`;
   } else if (screen === 'practice') {
     const r = state.practice?.result || {};
     heading.innerHTML = matrix(r.cardName ? (r.neutralized ? 'NEUTRALIZED' : 'CARD OVER') : 'CLEAR');
@@ -573,20 +614,25 @@ function configure(screen) {
     playButton.innerHTML = `AGAIN <span class="hint">${press} / R</span>`;
     $('#menu-button').innerHTML = `SPECIMEN TRAY <span class="hint">MAP</span>`;
   } else if (screen === 'report') {
+    // After a boss: the FIELD NOTE (the whole story, in the lab's voice), the
+    // SEQUENCED readout and the sector's samples.
     const world = WORLDS[level.world - 1];
-    heading.innerHTML = matrix('LAB REPORT');
-    tag.textContent = `WORLD ${world.id} · ${world.name}`;
-    const rows = LEVELS.filter((l) => l.world === world.id && l.kind !== 'bonus')
+    heading.innerHTML = matrix('FIELD NOTE');
+    const r = state.medals[state.wave];
+    const seq = r?.cards?.length ? `SEQUENCED ${r.cards.filter((c) => c.neutralized).length}/${r.cards.length}` : '';
+    tag.textContent = `SECTOR ${world.id} · ${world.name} ×${world.zoom.toLocaleString('en-US').replace(/,/g, ' ')}${seq ? ' · ' + seq : ''}`;
+    const rows = LEVELS.filter((l) => l.world === world.id)
       .map((l) => {
         const r = state.medals[l.id];
         return `<div><b>${l.code}</b><span>${l.name}</span><span>${r ? `R0 ${r.r0.toFixed(2)}` : '—'}</span>${medalRing(r?.medal, r?.assisted)}</div>`;
       })
       .join('');
-    body.innerHTML = `<div class="report">${rows}<div class="total"><span>SCORE</span>${segments(String(state.score).padStart(7, '0'))}</div></div>`;
+    body.innerHTML = `<p class="field-note">${world.note}</p><div class="report">${rows}<div class="total"><span>SCORE</span>${segments(String(state.score).padStart(7, '0'))}</div></div>`;
     playButton.innerHTML = `CONTINUE <span class="hint">${press}</span>`;
   } else if (screen === 'map') renderMap();
   syncSoundButtons();
   syncEffectsButton();
+  syncSpeedButton();
   syncDifficultyButtons();
   focusPrimary(screen);
 }
@@ -880,7 +926,8 @@ function primaryAction() {
     resume();
     syncUI();
     focusGame();
-  } else if (screen === 'lost' || screen === 'practice') beginPlay(() => restartGame(state));
+  } else if (screen === 'lost' && state.runOver) beginPlay(freshCampaign);
+  else if (screen === 'lost' || screen === 'practice') beginPlay(() => restartGame(state));
   else if (screen === 'won') beginPlay(freshCampaign);
   else if (screen === 'report') {
     confirmReport(state);
@@ -913,6 +960,9 @@ function closeMap() {
   syncUI();
 }
 function retrySector() {
+  if (state.phase === 'lost' && state.runOver) return beginPlay(freshCampaign);
+  // A restart mid-stage spends a credit; with none left it is refused.
+  if (!state.practice && state.phase !== 'lost' && creditsLeft(state) <= 0) return;
   beginPlay(() => restartGame(state));
 }
 function toggleSound() {
@@ -944,6 +994,20 @@ $('#sound-button').addEventListener('click', toggleSound);
 $('#title-sound').addEventListener('click', toggleSound);
 $('#difficulty-button').addEventListener('click', toggleDifficulty);
 $('#title-difficulty').addEventListener('click', toggleDifficulty);
+// ASSIST: game speed 100 / 90 / 80 / 70% (RESEARCH_V1.md 3.16), changeable
+// any time; the browser clock runs the fixed 1/120 s steps at that rate. The
+// LAB REPORT says ASSISTED; nothing else marks the run.
+$('#speed-button').addEventListener('click', () => {
+  const next = GAME_SPEEDS[(GAME_SPEEDS.indexOf(state.gameSpeed) + 1) % GAME_SPEEDS.length];
+  setGameSpeed(state, next);
+  store.speed = next;
+  save(KEYS.speed, next);
+  syncSpeedButton();
+});
+function syncSpeedButton() {
+  const pct = Math.round((state.gameSpeed || 1) * 100);
+  $('#speed-button').innerHTML = `GAME SPEED <b>${pct}%</b>${pct < 100 ? '<span class="hint">ASSIST</span>' : ''}`;
+}
 $('#effects-button').addEventListener('click', () => {
   store.effects = store.effects === 'full' ? 'reduced' : 'full';
   save(KEYS.effects, store.effects);
@@ -1601,7 +1665,8 @@ async function boot() {
     const dt = Math.min(real, 0.05);
     lastFrame = timestamp;
     tickAttract(real);
-    advanceClock(clock, real);
+    // ASSIST game speed scales real time into the fixed-step clock.
+    advanceClock(clock, real * (ui.attract === 'demo' ? 1 : state.gameSpeed || 1));
     if (forceSmooth) clock.smooth = true;
     const demo = ui.attract === 'demo' && ui.demo;
     const shown = demo ? ui.demo : state;

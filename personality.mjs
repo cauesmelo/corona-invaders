@@ -277,11 +277,23 @@ export const BOSS_SCRIPT = Object.freeze({
 });
 
 /** Name card for a boss entrance: { name, title, line, mid }. */
+/** Boss case files (RESEARCH_V1.md 5.2): the entrance card in the lab's
+ * calm, clinical voice. The villain's own line stays below it. */
+export const CASE_FILES = Object.freeze({
+  alpha: 'VARIANT ALPHA · FIRST OF ITS LINE · COUGHS IN THREES · TEMPERAMENT: POMPOUS',
+  betagamma: 'VARIANTS BETA AND GAMMA · ONE LOAD, TWO BODIES · TEMPERAMENT: BICKERING',
+  delta: 'VARIANT DELTA · TRAVELS WITH THE FLOW · SPLITS ON CONTACT · TEMPERAMENT: IMPATIENT',
+  omicron: 'VARIANT OMICRON PRIME · SPIKE HEAVILY MUTATED · TEMPERAMENT: MANIC',
+  bigsneezer: 'SPECIMEN BIG SNEEZER · ODD FANS, TWO TIERS · TEMPERAMENT: DRAMATIC',
+  aerosolcloud: 'SPECIMEN AEROSOL CLOUD · RANDOM MIST · TEMPERAMENT: VAGUE',
+  lambda: 'VARIANT LAMBDA · LANE JETS, MIRRORS YOU · TEMPERAMENT: SLY',
+  mother: 'SPECIMEN MOTHER CELL · REPLICATION SITE · TEMPERAMENT: PROTECTIVE',
+});
 export function bossCard(type, mid = false) {
   const sc = BOSS_SCRIPT[type];
   if (!sc) return null;
   const names = { alpha: 'ALPHA', betagamma: 'BETA & GAMMA', delta: 'DELTA', omicron: 'OMICRON PRIME', bigsneezer: 'BIG SNEEZER', aerosolcloud: 'AEROSOL CLOUD', mother: 'MOTHER CELL', lambda: 'LAMBDA' };
-  return { name: names[type] || type.toUpperCase(), title: sc.title, line: sc.line, mid };
+  return { name: names[type] || type.toUpperCase(), title: sc.title, line: sc.line, file: CASE_FILES[type] || '', mid };
 }
 
 /** The line a boss says for an event, or null. Deterministic (no random), so
@@ -317,6 +329,33 @@ export const DEFEAT_POPS = Object.freeze({ main: [0, 0.18, 0.34, 0.48, 0.6, 0.7,
 export const syllablesOf = (text) => Math.max(2, Math.min(8, text.trim().split(/\s+/).length * 2));
 /** How long a boss line is voiced and shown as active in the HUD (s). */
 export const talkTime = (text) => 0.12 * syllablesOf(text) + 0.1;
+
+// ---- Sector arrangements of the original march (RESEARCH_V1.md 5.1) ----------
+/** One motif, four arrangements. `tempo(k)` maps how empty the board is (0
+ * full .. 1 nearly empty) to beats per minute; LUNGS is locked to BREATH (80
+ * bpm: an 8-beat phrase per 6 s breath). All synthesized in audio.mjs. */
+export const ARRANGEMENTS = Object.freeze({
+  airway: Object.freeze({ id: 'airway', label: 'DRY MARCH: BASS, TICK, CILIA SHAKER', tempo: (k) => 96 + 36 * k, phraseBeats: 4 }),
+  lungs: Object.freeze({ id: 'lungs', label: 'BREATH-LOCKED PAD: OPENS ON THE INHALE', tempo: () => 80, phraseBeats: 8 }),
+  blood: Object.freeze({ id: 'blood', label: 'HEARTBEAT LUB-DUB, HAT, ARPEGGIO WITH THE FLOW', tempo: (k) => 72 + 24 * k, phraseBeats: 4 }),
+  cell: Object.freeze({ id: 'cell', label: '16-STEP SEQUENCER COPYING THE MARCH', tempo: (k) => 108 + 36 * k, phraseBeats: 4 }),
+});
+/** How empty the board is: 1 - alive / total of the stage's hostiles, or the
+ * boss's lost share of its viral load. */
+export function emptiness(s) {
+  const b = s.boss;
+  if (b && b.state !== 'defeated') return 1 - Math.max(0, b.hp) / Math.max(1, b.maxHp);
+  let alive = 0,
+    total = 0;
+  for (const e of s.enemies) {
+    if (e.harmless || e.kind === 'vesicle') continue;
+    total++;
+    if (e.alive) alive++;
+  }
+  return 1 - alive / Math.max(1, total);
+}
+/** The sector's tempo now (bpm). */
+export const sectorTempo = (arrangement, s) => (ARRANGEMENTS[arrangement] || ARRANGEMENTS.airway).tempo(emptiness(s));
 
 // ---- The march: the bass pulse that speeds up as a sample empties ---------------
 /** Beats per minute of the Space Invaders march: 72 at a full sample or a full

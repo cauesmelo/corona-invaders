@@ -27,7 +27,8 @@
  * and measure every sound.
  */
 import { chainMultiplier } from './model.mjs';
-import { CHARACTERS, characterOf, bossLine, marchTempo, DEFEAT_FINAL, DEFEAT_POPS } from './personality.mjs';
+import { CHARACTERS, characterOf, bossLine, marchTempo, DEFEAT_FINAL, DEFEAT_POPS, ARRANGEMENTS, sectorTempo } from './personality.mjs';
+import { getWorld } from './levels.mjs';
 
 const BASS = [55, 43.65, 49, 41.2]; // the original 4-note march (A1 F1 G1 E1)
 const PENTA = [0, 2, 4, 7, 9];
@@ -870,6 +871,42 @@ export function createAudio({ context = null, clock = null, random = Math.random
     noise(bed, { t: t + interval / 2, a: 0.002, d: 0.025, peak: 0.006, type: 'highpass', f: 7000 });
   }
 
+  /** One beat of the sector's arrangement (RESEARCH_V1.md 5.1). */
+  function playArrangement(id, t, interval, s) {
+    const f = BASS[beat % 4];
+    const tw = s?.twist || {};
+    if (id === 'lungs') {
+      // 8 beats per 6 s breath: the bass on 1 and 5, thinner on the exhale; a
+      // soft two-voice pad opens with each inhale (phrase start + 1 s).
+      const step = beat % 8;
+      const thin = tw.stage === 'exhale' ? 0.45 : 1;
+      if (step === 0 || step === 4) osc(bed, { type: 'sine', f: f * 2, f1: f * 1.96, t, a: 0.008, d: 0.32, peak: LEVELS.bed * thin });
+      if (step === 1)
+        for (const r of [1, 1.5])
+          osc(bed, { type: 'triangle', f: f * 4 * r, t, a: 0.45, d: 1.4, peak: LEVELS.bed * 0.22, filter: { f: 900, f1: 1800, glide: 1.2 } });
+      noise(bed, { t: t + interval / 2, a: 0.004, d: 0.05, peak: 0.004, type: 'bandpass', f: 1800 });
+    } else if (id === 'blood') {
+      // Heartbeat: a lub-dub kick pair per beat, a hat on every half beat, an
+      // arpeggio of the march panned with the CURRENT; a riser on the flip warning.
+      osc(bed, { type: 'sine', f: 70, f1: 42, t, a: 0.003, d: 0.12, peak: LEVELS.bed * 1.1 });
+      osc(bed, { type: 'sine', f: 62, f1: 38, t: t + 0.16, a: 0.003, d: 0.1, peak: LEVELS.bed * 0.8 });
+      for (const h of [0, 0.5]) noise(bed, { t: t + interval * h, a: 0.001, d: 0.02, peak: 0.005, type: 'highpass', f: 8000 });
+      const pan = Math.max(-0.6, Math.min(0.6, (tw.drift || 0) * 0.5));
+      osc(out(pan, 0.15), { type: 'triangle', f: f * 8 * [1, 1.25, 1.5, 2][beat % 4], t: t + interval * 0.25, a: 0.004, d: 0.12, peak: LEVELS.bed * 0.18 });
+      if (tw.warn && beat % 2 === 0) noise(bed, { t, a: interval * 0.9, d: 0.05, peak: 0.01, type: 'bandpass', f: 600, f1: 3000, glide: interval });
+    } else if (id === 'cell') {
+      // A 16-step sequencer copying the march (four steps per beat). While a
+      // virus flashes (MUTATION), one step plays a semitone out of key.
+      const mutating = (s?.enemies || []).some((e) => e.alive && e.mutating > 0);
+      for (let k = 0; k < 4; k++) {
+        const stepIndex = (beat * 4 + k) % 16;
+        const note = BASS[Math.floor(stepIndex / 4) % 4] * (k % 2 ? 4 : 2);
+        const off = mutating && stepIndex === (beat * 4) % 16 ? 2 ** (1 / 12) : 1;
+        osc(bed, { type: k ? 'square' : 'sine', f: note * off, t: t + (interval * k) / 4, a: 0.002, d: k ? 0.05 : 0.18, peak: LEVELS.bed * (k ? 0.12 : 0.8), filter: k ? { f: 1400, f1: 700, glide: 0.08 } : null });
+      }
+    } else playBass(t, interval);
+  }
+
   return {
     get enabled() {
       return enabled;
@@ -918,18 +955,23 @@ export function createAudio({ context = null, clock = null, random = Math.random
     voice(id, opts = {}) {
       if (enabled && ctx && CHARACTERS[id]?.voice) speak(id, { pitchMul: 0.55, growl: 0.6, len: 0.26, syl: 2, ...opts });
     },
-    /** Bass march, scheduled a few ms ahead from the frame loop: 72 bpm at a
-     * full sample, 144 when nearly empty (personality.marchTempo). */
+    /** The bed, scheduled a few ms ahead from the frame loop: the sector's
+     * arrangement of the march (personality.ARRANGEMENTS), or the boss march
+     * (72 bpm at a full viral load, 144 nearly empty). */
     tick(s, active) {
       if (!enabled || !ctx || !active) {
         nextBeat = 0;
         return;
       }
-      const bpm = marchTempo(s);
+      // Bosses keep the march that speeds up with the viral load; stages
+      // play their sector's arrangement.
+      const id = s.boss && s.boss.state !== 'defeated' && !s.boss.mid ? 'march' : getWorld(s.wave)?.music || 'airway';
+      const bpm = id === 'march' ? marchTempo(s) : sectorTempo(id, s);
       const t = now();
       if (!nextBeat || nextBeat < t) nextBeat = t + 0.05;
       while (nextBeat < t + 0.12) {
-        playBass(nextBeat, 60 / bpm);
+        if (id === 'march') playBass(nextBeat, 60 / bpm);
+        else playArrangement(id, nextBeat, 60 / bpm, s);
         beat++;
         nextBeat += 60 / bpm;
       }

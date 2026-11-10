@@ -2703,4 +2703,46 @@ kbd {
   .f-btn.inject {
     min-height: 56px;
   }
+/* v1.0 lab voice: the microscope magnification, FIELD NOTES, the LAB REPORT
+   assessment and the 1CC stamp. Calm, clinical, no exclamation marks. */
+#intro-zoom {
+  color: var(--vaccine, #7fe8ff);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.08em;
+}
+#intro-card.sector {
+  border-left-color: var(--vaccine, #7fe8ff);
+  box-shadow: 0 0 0 1px rgba(127, 232, 255, 0.25), inset 0 0 18px rgba(127, 232, 255, 0.08);
+}
+#intro-card.sector #intro-zoom {
+  font-size: 16px;
+}
+#tally .assess {
+  display: block;
+  margin-top: 3px;
+  font-style: normal;
+  opacity: 0.8;
+}
+.field-note {
+  margin: 0 0 10px;
+  font-size: 13px;
+  line-height: 1.5;
+  letter-spacing: 0.04em;
+  color: #cfeff5;
+  max-width: 34em;
+}
+.stamp {
+  display: inline-block;
+  margin: 0 0 10px;
+  padding: 4px 10px;
+  border: 2px solid #ffc65a;
+  color: #ffc65a;
+  letter-spacing: 0.12em;
+  transform: rotate(-3deg);
+}
+.medal-row .m {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-right: 8px;
 }

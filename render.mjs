@@ -39,7 +39,9 @@ const THEMES = {
   1: { name: 'AIRWAY', background: '#0a1416', floor: '#3c5f60', rim: '#69c6c0', rail: '#8fd8d0', fog: '#0a1416' },
   2: { name: 'LUNGS', background: '#0b1018', floor: '#4a5a72', rim: '#8fb4e6', rail: '#a9c6ee', fog: '#0b1018' },
   3: { name: 'BLOODSTREAM', background: '#0c1012', floor: '#3e5d5c', rim: '#72d0c4', rail: '#9adcd2', fog: '#0c1012' },
-  4: { name: 'LAB / PETRI', background: '#0e0d07', floor: '#5c5634', rim: '#d8cf9a', rail: '#e4dcae', fog: '#0e0d07' },
+  // THE CELL x40 000: desaturated sepia-umber cytoplasm (never green or a
+  // saturated amber: those mean viruses and supplies).
+  4: { name: 'THE CELL', background: '#100c09', floor: '#54463a', rim: '#c9b39b', rail: '#d8c6b2', fog: '#100c09' },
 };
 const BULLET_Y = RULES.bulletY;
 // Exponential easing per frame; a QA render with dt = 0 snaps to the target.
@@ -653,25 +655,64 @@ function backdropTexture(world) {
         g.restore();
       }
     } else {
-      // LAB / PETRI: a darker olive agar (the old bright amber hid the pale
-      // aerosol dots and the amber supplies) with muted colonies.
-      const grad = g.createRadialGradient(w / 2, h / 2, 40, w / 2, h / 2, w * 0.9);
-      grad.addColorStop(0, '#4f4a2c');
-      grad.addColorStop(1, '#2b2914');
+      // THE CELL (x40 000): a replication factory inside one cell. ER
+      // membrane folds (paired wavy bands), double-membrane replication
+      // bubbles, ribosome beads on strands (dark and larger than any bullet
+      // stays readable: low contrast, under 35% luminance difference) and a
+      // polymerase "reading head" bar. Sepia-umber midtones only.
+      const grad = g.createRadialGradient(w / 2, h * 0.45, 40, w / 2, h / 2, w * 0.95);
+      grad.addColorStop(0, '#5a4a3d');
+      grad.addColorStop(1, '#3a3029');
       g.fillStyle = grad;
       g.fillRect(0, 0, w, h);
-      for (let i = 0; i < 22; i++) {
+      for (let y = 30; y < h; y += 92) {
+        const phase = rnd() * 6;
+        for (const dy of [0, 14]) {
+          g.strokeStyle = dy ? '#4a3d33' : '#6b5a4b';
+          g.lineWidth = dy ? 9 : 5;
+          g.beginPath();
+          for (let x = -10; x <= w + 10; x += 8) {
+            const yy = y + dy + Math.sin(x * 0.018 + phase) * 16 + Math.sin(x * 0.051 + phase * 2) * 5;
+            x < 0 ? g.moveTo(x, yy) : g.lineTo(x, yy);
+          }
+          g.stroke();
+        }
+      }
+      // Ribosome beads on curved strands: dull, 7-9 px, darker than the field.
+      for (let i = 0; i < 9; i++) {
+        let x = rnd() * w,
+          y = rnd() * h,
+          a = rnd() * 6;
+        g.fillStyle = '#463a31';
+        for (let k = 0; k < 9; k++) {
+          a += (rnd() - 0.5) * 0.7;
+          x += Math.cos(a) * 15;
+          y += Math.sin(a) * 15;
+          g.beginPath();
+          g.arc(x, y, 7 + rnd() * 2, 0, Math.PI * 2);
+          g.fill();
+        }
+      }
+      // Double-membrane replication bubbles.
+      for (let i = 0; i < 7; i++) {
         const x = rnd() * w,
           y = rnd() * h,
-          r = 16 + rnd() * 34;
-        g.fillStyle = '#5c5634';
+          r = 26 + rnd() * 22;
+        g.fillStyle = '#4e4137';
         g.beginPath();
         g.arc(x, y, r, 0, Math.PI * 2);
         g.fill();
-        g.strokeStyle = '#3e3a20';
-        g.lineWidth = 3;
-        g.stroke();
+        for (const [rr, c] of [[r, '#7a6857'], [r * 0.78, '#6a5a4c']]) {
+          g.strokeStyle = c;
+          g.lineWidth = 3;
+          g.beginPath();
+          g.arc(x, y, rr, 0, Math.PI * 2);
+          g.stroke();
+        }
       }
+      // The polymerase reading head: a soft bar across one strand.
+      g.fillStyle = '#7d6b5a';
+      g.fillRect(w * 0.18, h * 0.62, w * 0.18, 10);
     }
   });
 }
@@ -2244,7 +2285,27 @@ export function createRenderer({ canvas, stage, settings }) {
     streaks.count = n;
     streaks.instanceMatrix.needsUpdate = true;
     if (backdropMat.map && motion) backdropMat.map.offset.x = flowing ? (backdropMat.map.offset.x + (tw.drift || 0) * 0.004 * dt) % 1 : backdropMat.map.offset.x;
+    // AIRWAY: the cilia carpet beats in a slow travelling wave up-field
+    // (0.5 Hz), a sub-pixel texture sway that never reads as a bullet.
+    const world = getLevel(s.wave).world;
+    if (backdropMat.map && motion) backdropMat.map.offset.y = world === 1 ? Math.sin(visualTime * Math.PI) * 0.004 : 0;
+    // THE CELL: the polymerase reading head flickers while MUTATION fires.
+    const mutating = world === 4 && s.enemies.some((e) => e.alive && e.mutating > 0);
+    const flicker = mutating && motion ? 1.06 + Math.sin(visualTime * 40) * 0.05 : 1;
+    backdropMat.color.setScalar(flicker);
+    // Sector entry: a 0.8 s focus pull on the backdrop (the microscope zooms).
+    if (world !== pulledWorld) {
+      pulledWorld = world;
+      focusPull = 0.8;
+    }
+    focusPull = Math.max(0, focusPull - dt);
+    if (motion && focusPull > 0) {
+      const k = focusPull / 0.8;
+      backdrop.scale.x = backdrop.scale.y = 1 + 0.18 * k * k;
+    }
   }
+  let pulledWorld = 0,
+    focusPull = 0;
 
   // Title diorama: the syringe facing a row of the original green crowns.
   const titleGroup = new THREE.Group();

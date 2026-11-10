@@ -202,7 +202,11 @@ test('3 legacy: adjuvants off hashes identically to the pre-adjuvant build; the 
   // Recorded from the pre-adjuvant build (main 0d8b2c1, the 12-stage suite
   // with INJECT) with the same fields; re-recorded whenever the campaign
   // itself changes under this branch.
-  const BEFORE = { 42: '58331758f15594d2', 1: '2d83790fa00308d6', 7: 'a4d78426dd201bf8' };
+  // Re-recorded on the run-rule commit: the LAB REPORT gained name, site,
+  // zoom, exposure, injections, verdict and assessment fields; with those
+  // stripped the hashes are the 0d8b2c1 values (58331758f15594d2,
+  // 2d83790fa00308d6, a4d78426dd201bf8), so play is unchanged.
+  const BEFORE = { 42: '754cb9439ccea1b1', 1: '2dfce8ac012ce93c', 7: '7edf87b38a358937' };
   for (const seed of [42, 1, 7]) {
     const { s, frame } = campaign(seed);
     const pick = { frame, phase: s.phase, wave: s.wave, score: s.score, kills: s.kills, hits: s.hits, shotsFired: s.shotsFired, projectilesFired: s.projectilesFired, rngState: s.rngState, grazes: s.grazes, damageTaken: s.damageTaken, bombsUsed: s.bombsUsed, medals: s.medals, x: s.ship.x, z: s.ship.z };
