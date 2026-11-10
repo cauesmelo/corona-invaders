@@ -59,7 +59,7 @@ import { chooseInput } from './autopilot.mjs';
 import { createAudio } from './audio.mjs';
 import { TOP_BAND } from './camera.mjs';
 import { bossCard, bossLine, talkTime, DEFEAT_FINAL } from './personality.mjs';
-import { matrix, segments, vial, medalRing, ICONS, controlsCard, controlsLine, fmtTime, pixelSprite, soapBubbles, helix, r0Dial, causeText } from './ui.mjs';
+import { matrix, segments, vial, medalRing, ICONS, controlsCard, controlsLine, creditsCard, fmtTime, pixelSprite, soapBubbles, helix, r0Dial, causeText } from './ui.mjs';
 
 const $ = (sel) => document.querySelector(sel);
 // Storage can be disabled (private mode, sandboxed iframes, itch's shared
@@ -134,6 +134,7 @@ const ui = {
   mapOpen: false,
   trayMode: 'campaign',
   controlsOpen: false,
+  creditsOpen: false,
   attract: 'title',
   attractTime: 0,
   idle: 0,
@@ -495,7 +496,7 @@ function currentScreen() {
   if (!inputEnabled) return '';
   if (ui.mapOpen) return 'map';
   const p = state.paused ? 'paused' : state.phase;
-  if (p === 'title') return ui.controlsOpen ? 'controls' : ui.attract === 'title' ? 'title' : ui.attract;
+  if (p === 'title') return ui.creditsOpen ? 'credits' : ui.controlsOpen ? 'controls' : ui.attract === 'title' ? 'title' : ui.attract;
   if (p === 'paused') return ui.controlsOpen ? 'controls' : 'pause';
   if (p === 'lost') return 'lost';
   if (p === 'draft') return 'formulate';
@@ -505,7 +506,7 @@ function currentScreen() {
   return '';
 }
 const ROWS = ['play-button', 'resume-button', 'assist-button', 'easy-button', 'retry-button', 'menu-button', 'difficulty-button', 'speed-button', 'sound-button', 'effects-button', 'controls-button', 'back-button'];
-const ATTRACT = ['title', 'demo', 'scores', 'attract-controls'];
+const ATTRACT = ['title', 'demo', 'scores', 'attract-controls', 'attract-credits'];
 function configure(screen) {
   const assist = assistAvailable(state);
   const visible =
@@ -514,6 +515,8 @@ function configure(screen) {
       demo: ['play-button'],
       scores: ['play-button'],
       'attract-controls': ['play-button'],
+      'attract-credits': ['play-button'],
+      credits: ['back-button'],
       pause: ['play-button', ...(state.practice || creditsLeft(state) > 0 ? ['retry-button'] : []), 'menu-button', 'difficulty-button', 'speed-button', 'sound-button', 'effects-button', 'controls-button'],
       controls: ['back-button'],
       lost: state.runOver ? ['play-button', 'menu-button'] : ['play-button', ...(assist ? ['assist-button', ...(state.difficulty === 'normal' ? ['easy-button'] : [])] : []), 'menu-button'],
@@ -554,6 +557,10 @@ function configure(screen) {
       heading.innerHTML = matrix('CONTROLS');
       body.innerHTML = controlsCard(touch);
     }
+    if (screen === 'attract-credits') {
+      heading.innerHTML = matrix('CREDITS');
+      body.innerHTML = creditsCard();
+    }
     const best = store.scores[0]?.score || 0;
     $('#hiscore').innerHTML = best ? `HI ${segments(String(best).padStart(7, '0'))}` : '';
   } else if (screen === 'pause') {
@@ -567,6 +574,9 @@ function configure(screen) {
   } else if (screen === 'controls') {
     heading.innerHTML = matrix('CONTROLS');
     body.innerHTML = controlsCard(touch);
+  } else if (screen === 'credits') {
+    heading.innerHTML = matrix('CREDITS');
+    body.innerHTML = creditsCard();
   } else if (screen === 'lost' && state.runOver) {
     // No credit left: the FINAL REPORT (RESEARCH_V1.md 5.3).
     heading.innerHTML = matrix('FINAL') + matrix('REPORT');
@@ -645,7 +655,7 @@ function focusPrimary(screen) {
   const target = screen === 'lost' && $('#easy-button').classList.contains('primary') ? $('#easy-button') :
     screen === 'map'
       ? $(`#tray-rows [data-stage="${Math.min(state.wave, state.unlockedStage)}"]`) || $('#tray-rows button:not(:disabled)') || $('#map-back')
-      : screen === 'controls'
+      : screen === 'controls' || screen === 'credits'
         ? $('#back-button')
         : playButton;
   target?.focus({ preventScroll: true });
@@ -895,7 +905,7 @@ function beginPlay(action) {
   wake();
   lockHeld();
   audio.resume();
-  ui.mapOpen = ui.controlsOpen = false;
+  ui.mapOpen = ui.controlsOpen = ui.creditsOpen = false;
   action();
   if (state.phase === 'playing') showIntro();
   syncUI();
@@ -1018,7 +1028,11 @@ $('#controls-button').addEventListener('click', () => {
   syncUI();
 });
 $('#back-button').addEventListener('click', () => {
-  ui.controlsOpen = false;
+  ui.controlsOpen = ui.creditsOpen = false;
+  syncUI();
+});
+$('#title-credits').addEventListener('click', () => {
+  ui.creditsOpen = true;
   syncUI();
 });
 $('#easy-start').addEventListener('click', () => {
@@ -1298,8 +1312,8 @@ window.addEventListener('keydown', (event) => {
   if (screen && screen !== 'report') {
     if (code === 'Escape') {
       if (screen === 'map') closeMap();
-      else if (screen === 'controls') {
-        ui.controlsOpen = false;
+      else if (screen === 'controls' || screen === 'credits') {
+        ui.controlsOpen = ui.creditsOpen = false;
         syncUI();
       } else if (screen === 'pause') {
         resume();
@@ -1505,7 +1519,7 @@ function leaveDemo() {
   }
 }
 function tickAttract(dt) {
-  if (state.phase !== 'title' || ui.mapOpen || ui.controlsOpen || !inputEnabled) {
+  if (state.phase !== 'title' || ui.mapOpen || ui.controlsOpen || ui.creditsOpen || !inputEnabled) {
     ui.idle = 0;
     if (ui.attract !== 'title') {
       leaveDemo();
@@ -1530,7 +1544,8 @@ function tickAttract(dt) {
     leaveDemo();
     next('scores');
   } else if (ui.attract === 'scores' && ui.attractTime > 5) next('attract-controls');
-  else if (ui.attract === 'attract-controls' && ui.attractTime > 6) {
+  else if (ui.attract === 'attract-controls' && ui.attractTime > 6) next('attract-credits');
+  else if (ui.attract === 'attract-credits' && ui.attractTime > 6) {
     next('title');
     ui.idle = 0;
   }

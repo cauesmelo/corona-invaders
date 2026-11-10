@@ -6,6 +6,12 @@
     "height": 640,
     "clickToPlay": true,
     "fullscreenButton": true,
-    "mobileFriendly": "Test physical devices before enabling"
+    "mobileFriendly": false,
+    "orientation": "portrait"
+  },
+  "decisions": {
+    "viewport": "960x640 is the game surface (the side-panel cabinet); the same game fills any iframe or fullscreen size",
+    "orientation": "portrait: in an emulated phone the board is 374x768 px at 390x844 (syringe 30.2 px) against 812x358 px with a 260 px wide board between the side panels at 844x390 (syringe 19.6 px)",
+    "mobileFriendly": "false until a physical phone passes the touch run; touch worked end to end in an emulated phone (tap to start, drag, SOAP, pause and resume, FORMULATE select and INJECT)"
   }
 }

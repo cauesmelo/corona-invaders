@@ -1163,13 +1163,15 @@ canvas {
 }
 .overlay[data-screen='pause'] .matrix,
 .overlay[data-screen='controls'] .matrix,
+.overlay[data-screen='credits'] .matrix,
 .overlay[data-screen='practice'] .matrix,
 .overlay[data-screen='won'] .matrix {
   color: var(--cyan);
 }
 .overlay[data-screen='title'] .card,
 .overlay[data-screen='scores'] .card,
-.overlay[data-screen='attract-controls'] .card {
+.overlay[data-screen='attract-controls'] .card,
+.overlay[data-screen='attract-credits'] .card {
   width: min(600px, 100%);
   background: none;
   border: 0;
@@ -1529,6 +1531,35 @@ canvas {
   margin: 6px 0 0;
   color: var(--muted);
   line-height: 1.5;
+}
+/* CREDITS: the same lab-card grid as CONTROLS, with sentence-case text. */
+.credits-card {
+  max-width: 480px;
+  letter-spacing: 0.02em;
+  line-height: 1.45;
+}
+.credits-card div {
+  grid-template-columns: 110px 1fr;
+}
+.credits-card span {
+  color: var(--ink);
+}
+.controls-card .credits-title {
+  margin: 0 0 2px;
+  color: var(--muted);
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+}
+/* The release label: plain DOM text under the title card (CHANGELOG.md). */
+.version-tag {
+  margin: 10px 0 0;
+  color: var(--muted);
+  font: 600 11px var(--mono);
+  letter-spacing: 0.18em;
+  text-align: center;
+}
+.overlay:not([data-screen='title']) .version-tag {
+  display: none;
 }
 kbd {
   min-width: 26px;

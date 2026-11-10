@@ -263,6 +263,23 @@ export function controlsCard(touch) {
   return `<div class="controls-card">${rows.map(([k, v]) => `<div><b>${k}</b><span>${v}</span></div>`).join('')}<p>ONLY THE WHITE DOT IN THE BARREL CAN BE HIT. GRAZE BULLETS FOR POINTS AND SOAP.</p></div>`;
 }
 
+/** The release players see on the title (package.json 1.0.0; CHANGELOG.md). */
+export const VERSION = 'v1.0';
+
+/** CREDITS: the original game and its author, the 3D library and its
+ * licence, how the sound is made and what the march nods to. Plain DOM text,
+ * so it reads, scales and translates like the rest of the card. */
+export function creditsCard() {
+  const rows = [
+    ['ORIGINAL GAME', 'Original Corona Invaders by Cauê Melo (Canvas Retro Arcade, 2023, MIT licence). The pixel corona and syringe on this screen are his sprites.'],
+    ['THIS VERSION', `Corona Invaders 3D ${VERSION}, a bullet-hell remake for Cauê Melo, developed with AI assistance (Claude Code).`],
+    ['3D', 'three.js r187 by the three.js authors, MIT licence (vendor/THREE-LICENSE.txt).'],
+    ['SOUND', 'Every sound and the music are synthesized live with the Web Audio API: no recordings. The four-note march is a nod to Space Invaders (Tomohiro Nishikado, Taito, 1978).'],
+    ['LETTERING', 'Generated SVG and the system font: no font files.'],
+  ];
+  return `<div class="controls-card credits-card"><p class="credits-title">Credits</p>${rows.map(([k, v]) => `<div><b>${k}</b><span>${v}</span></div>`).join('')}</div>`;
+}
+
 /** The CONTAINMENT LOST cause line. Always meaningful: a bullet without a
  * source or family (a bare QA fixture) reads "Hit by VIRUS droplet", never
  * "Hit by undefined shot". */
