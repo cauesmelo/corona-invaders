@@ -220,27 +220,36 @@ test('the voice cap holds under a flood, and pause suspends the whole context', 
   assert.equal(ctx.nodes.length, m);
 });
 
-test('every character has its own voice, and every voice is audible', () => {
+test('only bosses have voices, each its own; regular viruses make organic sounds', () => {
   const sig = (v) => `${v.pitch}:${v.vowel}:${v.syl}:${v.len}:${v.glide}:${v.growl || 0}:${v.vibrato || 0}:${v.breath || 0}`;
   const seen = new Map();
   for (const [id, ch] of Object.entries(CHARACTERS)) {
+    if (!ch.voice) continue;
     const s = sig(ch.voice);
     assert.ok(!seen.has(s), `${id} sounds like ${seen.get(s)}`);
     seen.set(s, id);
     const { ctx, audio, mark } = engine();
     const m = mark();
     audio.voice(id);
-    assert.ok(since(ctx, m).some((n) => n.kind === 'osc' && n.type === 'sawtooth'), `${id} speaks`);
+    assert.ok(since(ctx, m).some((n) => n.kind === 'osc' && n.type === 'sawtooth'), `${id} growls`);
+  }
+  assert.ok(seen.size >= 8);
+  // A popcorn wind-up, spawn, dive and death never use a voiced (sawtooth) formant.
+  for (const ev of [{ type: 'telegraph', preset: 'cough', owner: 'w', x: 0 }, { type: 'spawn', kind: 'sneezer', x: 0 }, { type: 'dive-telegraph', x: 0 }, { type: 'kill', kind: 'heavy', x: 0 }, { type: 'telegraph', preset: 'sneeze', owner: 'w', x: 0, tele: 0.8 }]) {
+    const { ctx, audio, mark } = engine();
+    const m = mark();
+    audio.event(ev, fixtureState({ enemies: [{ id: 'w', kind: 'sneezer', alive: true, x: 0 }] }));
+    assert.ok(!since(ctx, m).some((n) => n.kind === 'osc' && n.type === 'sawtooth'), `${ev.type} ${ev.preset || ev.kind || ''} has no voice`);
   }
 });
 
-test('boss lines are babbled: one syllable pair per word, in the right twin voice', () => {
+test('boss lines are vocalised as a low growl, in the right twin voice, never as babble', () => {
   const { ctx, audio, mark } = engine();
   const m = mark();
   const s = fixtureState({ boss: { type: 'betagamma', state: 'fight' }, enemies: [{ id: 1, kind: 'boss', part: 'twin', tag: 'G', alive: true, x: 2 }] });
   audio.event({ type: 'card-start', index: 1, cardType: 'card' }, s); // "G:LEFT! NO, YOUR LEFT!"
   const voices = since(ctx, m).filter((n) => n.kind === 'osc' && n.type === 'sawtooth');
-  assert.equal(voices.length, 8, '4 words -> 8 syllables');
+  assert.equal(voices.length, 2, 'two growled syllables, whatever the line length');
   const gamma = CHARACTERS.gamma.voice.pitch;
-  assert.ok(voices.every((o) => Math.abs(o.frequency.events[0][1] / gamma - 1) < 0.25), 'GAMMA speaks its line');
+  assert.ok(voices.every((o) => o.frequency.events[0][1] < gamma * 0.75), 'pitched down: menace, not speech');
 });

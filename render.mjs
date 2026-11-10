@@ -9,8 +9,9 @@
  * Bullets are drawn last, above everything, with depth testing off, so no
  * mesh can ever hide one; player needles are drawn under them. Shapes come
  * from shapes.mjs (tests/theme.test.mjs checks that registry).
- * Personality (faces, idle life, reactions, the boss entrance and defeat;
- * personality.mjs and faces.mjs) never moves a body off its collider and
+ * Personality (idle life, reactions, boss pits, the boss entrance and
+ * defeat; personality.mjs) is 3D form, light and motion, never a drawn face,
+ * and it never moves a body off its collider or
  * never draws one wider than it: motion is squash, stretch and tilt around
  * the board-plane centre, normalised to the collider footprint.
  * Juice (flash, punch, shake, debris) is visual only and obeys
@@ -22,9 +23,8 @@ import { cameraLayout, FRAMING_POINTS, pxPerUnit } from './camera.mjs';
 import { RULES, getLevel, chainMultiplier, antibodyOffsets } from './model.mjs';
 import { SHAPES, SYRINGE, PALETTE, shapeFor } from './shapes.mjs';
 import { COLLIDERS, NEEDLE, MARKER, GRAZE_RING, markerQuad, spriteLayout, bulletQuad, enemyScale, bodyRadiusOf, bulletAxis, needleSegment } from './hitboxes.mjs';
-import { CHARACTERS, characterOf, faceState, bodyMotion, faceReach, marchTempo, bossLine, talkTime, DEFEAT_FINAL, DEFEAT_POPS } from './personality.mjs';
+import { characterOf, bodyMotion, bossMenace, marchTempo, bossLine, talkTime, DEFEAT_FINAL, DEFEAT_POPS } from './personality.mjs';
 import { INTRO as BOSS_INTRO } from './bosses.mjs';
-import { createFaces, writeFace, placeFace, commitFaces, FACE_MAX } from './faces.mjs';
 
 export { PALETTE };
 export const PICKUP_STYLE = Object.freeze({
@@ -672,15 +672,51 @@ function cachedGeo(spec, key, make) {
   }
   return m.get(key);
 }
+/** Scientific-render look for virus materials (revision five, "make it more
+ * 3D, not cartoon"): a membrane of small rounded proteins as a procedural
+ * bump (two octaves of a sine lattice on the object-space position, so it
+ * works on merged geometry without UVs and turns with the body) and a
+ * fresnel rim that lights the silhouette like an electron-microscopy
+ * render. Every material shares one shader program (one cache key). */
+function microscopy(m, color, { bump = 0.42, freq = 19, rim = 0.5, power = 2.6 } = {}) {
+  const rimColor = new THREE.Color(color).lerp(new THREE.Color('#f2fff8'), 0.55).multiplyScalar(rim);
+  m.onBeforeCompile = (shader) => {
+    Object.assign(shader.uniforms, { uBump: { value: bump }, uFreq: { value: freq }, uRim: { value: rimColor }, uRimPower: { value: power } });
+    shader.vertexShader = shader.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vObjPos;').replace('#include <begin_vertex>', '#include <begin_vertex>\nvObjPos = position;');
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vObjPos;\nuniform mat3 normalMatrix;\nuniform float uBump, uFreq, uRimPower;\nuniform vec3 uRim;')
+      .replace(
+        '#include <normal_fragment_maps>',
+        `#include <normal_fragment_maps>
+        {
+          vec3 q = vObjPos * uFreq;
+          vec3 g = vec3(cos(q.x) * sin(q.y) * sin(q.z), sin(q.x) * cos(q.y) * sin(q.z), sin(q.x) * sin(q.y) * cos(q.z));
+          vec3 q2 = q * 2.3 + 1.7;
+          g += 0.45 * vec3(cos(q2.x) * sin(q2.y) * sin(q2.z), sin(q2.x) * cos(q2.y) * sin(q2.z), sin(q2.x) * sin(q2.y) * cos(q2.z));
+          vec3 gv = normalMatrix * g;
+          normal = normalize(normal - uBump * (gv - dot(gv, normal) * normal));
+        }`,
+      )
+      .replace(
+        '#include <emissivemap_fragment>',
+        `#include <emissivemap_fragment>
+        totalEmissiveRadiance += uRim * pow(1.0 - clamp(dot(normal, normalize(vViewPosition)), 0.0, 1.0), uRimPower);`,
+      );
+  };
+  m.customProgramCacheKey = () => 'virus-microscopy';
+  return m;
+}
 /** Build a group for a shapes.mjs spec. Returns handles the animator uses. */
 function buildShape(spec, { seed = 1, tint = null } = {}) {
   const body = new THREE.Group();
   const mats = [];
-  const handles = { body, mats, spikes: [], petals: [], membrane: null, crown: null };
-  const mat = (color, extra = {}) => {
+  const handles = { body, mats, spikes: [], petals: [], pits: [], membrane: null, crown: null };
+  const mat = (color, extra = {}, look = null) => {
     // Lit and glossy (revision-four depth): low emissive so key, rim and
     // specular shading read; just enough self-light to keep greens vivid.
-    const m = new THREE.MeshStandardMaterial({ color, roughness: 0.34, metalness: 0.06, emissive: color, emissiveIntensity: 0.1, ...extra });
+    // Glossy, lit membranes (low self-light so the key, rim and specular
+    // shading carry the form), with the microscopy bump and rim.
+    const m = microscopy(new THREE.MeshStandardMaterial({ color, roughness: 0.3, metalness: 0.05, emissive: color, emissiveIntensity: 0.07, ...extra }), color, look || (extra.transparent ? { bump: 0.12, rim: 0.7 } : {}));
     m.userData.base = m.emissiveIntensity;
     m.userData.baseColor = new THREE.Color(m.emissive);
     m.userData.baseTransparent = m.transparent;
@@ -689,8 +725,11 @@ function buildShape(spec, { seed = 1, tint = null } = {}) {
     return m;
   };
   const mainColor = tint || spec.color;
-  const bodyMat = mat(mainColor);
-  const spikeMat = spec.spikes ? mat(spec.spikes, { emissiveIntensity: 0.22, roughness: 0.3 }) : bodyMat;
+  // The CDC-style boss sphere: a lit mid-grey membrane with larger protein
+  // bumps (flat near-white read as plastic); spikes take real shading.
+  const grey = mainColor === PALETTE.bossBody;
+  const bodyMat = grey ? mat('#bfc5cf', { roughness: 0.46, emissiveIntensity: 0.03 }, { bump: 0.55, freq: 11, rim: 0.45 }) : mat(mainColor);
+  const spikeMat = spec.spikes ? mat(spec.spikes, { emissiveIntensity: 0.1, roughness: 0.26 }) : bodyMat;
   const add = (geo, m, at = [0, 0, 0], scale = [1, 1, 1]) => {
     const mesh = new THREE.Mesh(geo, m);
     mesh.position.set(...at);
@@ -702,7 +741,9 @@ function buildShape(spec, { seed = 1, tint = null } = {}) {
   // spheres, and body + stems (+ tips) merged into one mesh per material so
   // each virus costs one or two draw calls.
   const small = !spec.spikes && (spec.parts[0]?.r ?? 1) < 0.9;
-  const detail = small ? 1 : 2;
+  // Bosses get smooth, dense membranes; popcorn stays light (60 at once on
+  // software WebGL), its smooth-shaded spheres carry the bump and rim.
+  const detail = small ? 1 : 3;
   const batches = new Map();
   const batch = (m, geo, matrix) => {
     if (!batches.has(m)) batches.set(m, []);
@@ -791,6 +832,49 @@ function buildShape(spec, { seed = 1, tint = null } = {}) {
       }
     } else if (p.type === 'drop') {
       handles.membrane = add(dropGeometry(p), mat(spec.color, { transparent: true, opacity: 0.42, roughness: 0.08, emissiveIntensity: 0.1, depthWrite: false }), at);
+    } else if (p.type === 'pits') {
+      // Sockets sunk into the membrane, each with a glowing core: the boss's
+      // "eyes", built as geometry (dark, matte, recessed) and lit from inside
+      // in its variant colour. Kept well inside the body's footprint (tested).
+      const tint = spec.spikes || PALETTE.virus;
+      const socketMat = new THREE.MeshStandardMaterial({ color: '#06090b', roughness: 0.85, metalness: 0, emissive: '#000000' });
+      mats.push(socketMat);
+      Object.assign(socketMat.userData, { base: 0, baseColor: new THREE.Color('#000000'), baseTransparent: false, baseOpacity: 1, keep: true });
+      const centre = new THREE.Vector3(...(p.at || [0, 0, 0]));
+      const ball = new THREE.IcosahedronGeometry(1, 2);
+      for (const [x, y, z, size] of p.points) {
+        const dir = new THREE.Vector3(x, y, z).normalize();
+        const pos = dir.clone().multiplyScalar(p.r);
+        pos.y *= p.lift ?? 1;
+        pos.add(centre);
+        const sr = size * p.r;
+        // An almond socket: long along the surface's horizontal tangent,
+        // shallow along the normal, slanted inner-end-down by `slant`.
+        const t1 = new THREE.Vector3(0, 1, 0).cross(dir).normalize();
+        const t2 = dir.clone().cross(t1).normalize();
+        const q = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(t1, t2, dir));
+        q.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), (x < 0 ? 1 : x > 0 ? -1 : 0) * (p.slant ?? 0.25)));
+        const socket = new THREE.Mesh(ball, socketMat);
+        socket.quaternion.copy(q);
+        socket.scale.set(1.35 * sr, 0.62 * sr, 0.6 * sr);
+        socket.position.copy(pos).addScaledVector(dir, -0.25 * sr);
+        // The glowing slit sits in front of the socket floor.
+        const coreMat = new THREE.MeshStandardMaterial({ color: tint, emissive: tint, emissiveIntensity: 1.6, roughness: 0.2, metalness: 0 });
+        Object.assign(coreMat.userData, { base: 1.6, baseColor: new THREE.Color(tint), baseTransparent: false, baseOpacity: 1, keep: true });
+        mats.push(coreMat);
+        const core = new THREE.Group();
+        const slit = new THREE.Mesh(ball, coreMat);
+        slit.scale.set(0.82, 0.3, 0.36);
+        core.add(slit);
+        core.quaternion.copy(q);
+        const r0 = sr;
+        core.scale.setScalar(r0);
+        core.position.copy(pos).addScaledVector(dir, 0.18 * sr);
+        const glowS = sprite(tint, sr * 3.2, 0.3);
+        glowS.position.copy(pos).addScaledVector(dir, 0.3 * sr);
+        body.add(socket, core, glowS);
+        handles.pits.push({ socket, core, coreMat, glow: glowS, r0, sr });
+      }
     } else if (p.type === 'petals') {
       for (let i = 0; i < p.count; i++) {
         const pivot = new THREE.Group();
@@ -1262,8 +1346,6 @@ export function createRenderer({ canvas, stage, settings }) {
   // ---- Enemies --------------------------------------------------------------------
   const enemyMeshes = new Map(),
     pickupMeshes = new Map();
-  const faces = createFaces();
-  scene.add(faces.mesh);
   const pickupTextures = Object.fromEntries(Object.keys(PICKUP_STYLE).map((k) => [k, pickupTexture(k)]));
   const nodeTextures = Object.fromEntries(['cough', 'ring', 'bloom', 'drip'].map((k) => [k, nodeTexture(k)]));
   function addEnemy(e) {
@@ -1292,7 +1374,6 @@ export function createRenderer({ canvas, stage, settings }) {
     const scale = enemyScale(e, spec);
     group.scale.setScalar(scale);
     const char = characterOf(e, bossType);
-    const ch = CHARACTERS[char];
     const bodySphere = spec.parts.find((q) => q.type === 'sphere' && !q.role);
     const ud = {
       ...h,
@@ -1308,7 +1389,6 @@ export function createRenderer({ canvas, stage, settings }) {
       // Vertical stretch of the drawn body (BETA 1.38, GAMMA 0.7).
       aspect: bodySphere?.scale?.[1] ?? 1,
       bodyR: bodyRadiusOf(spec),
-      anchor: { r: ch.anchor?.r ?? bodyRadiusOf(spec), a: ch.anchor?.aspect ?? 1, at: ch.anchor?.at ?? null },
       hurt: 0,
       recoil: 0,
       talk: 0,
@@ -1490,22 +1570,6 @@ export function createRenderer({ canvas, stage, settings }) {
   // Shared moods: the player lost a vial (villains gloat) or deathbombed out
   // of a hit (villains are shocked). Seconds left; set by onEvent.
   const mood = { gloat: 0, shock: 0, march: 0, lastState: null };
-  let faceCount = 0;
-  const faceSlots = [];
-  /** One face for an enemy mesh: mood from personality.faceState, placed on
-   * the drawn body (faces.placeFace). */
-  function drawFace(m, ctx, motion, alpha = 1) {
-    if (faceCount >= FACE_MAX) return;
-    const ud = m.userData;
-    const f = faceState(ud.char, ctx);
-    if (f.alpha * alpha <= 0.01) return;
-    const ch = CHARACTERS[ud.char];
-    const node = ud.anchor.at ? ud.body : ud.tilt;
-    const placed = placeFace(faces, faceCount, camera, node, { r: ud.anchor.r, a: ud.anchor.a, at: ud.anchor.at, scale: ch.face.scale, roll: motion.roll * 0.6, sx: 1, sy: 1 + (motion.sy - 1) * 0.5 });
-    writeFace(faces, faceCount, f, alpha);
-    faceSlots[faceCount] = { id: ud.id, char: ud.char, ...placed };
-    faceCount++;
-  }
   function syncEnemies(s, dt) {
     const live = new Set();
     const b = s.boss;
@@ -1608,10 +1672,7 @@ export function createRenderer({ canvas, stage, settings }) {
         for (const p of ud.petals) p.rotation.z = 0.45 - ud.petalOpen * 1.55;
       }
       if (ud.cargo && motion) ud.cargo.rotation.y = visualTime;
-      let alpha = 1;
-      if (e.kind === 'boss' && b) alpha = syncBossPart(s, b, e, ud);
-      m.updateMatrixWorld(true);
-      drawFace(m, ctx, mo, alpha);
+      if (e.kind === 'boss' && b) syncBossPart(s, b, e, ud, ctx);
     }
     for (const [id, m] of enemyMeshes)
       if (!live.has(id)) {
@@ -1623,8 +1684,16 @@ export function createRenderer({ canvas, stage, settings }) {
     if (mood.lastState === 'intro' && st && st !== 'intro') for (const m of enemyMeshes.values()) if (m.userData.boss) m.userData.land = 0.35;
     mood.lastState = st;
   }
-  /** Boss-only visuals; returns the face opacity (the dormant twin is ghosted). */
-  function syncBossPart(s, b, e, ud) {
+  /** The glowing cores in a boss's pits follow its mood (bossMenace). */
+  function glowPits(ud, menace, alpha = 1) {
+    for (const p of ud.pits) {
+      p.core.scale.setScalar(p.r0 * menace.size);
+      p.coreMat.emissiveIntensity = 0.25 + 1.6 * menace.glow;
+      p.glow.material.opacity = Math.min(0.75, 0.32 * menace.glow) * alpha;
+    }
+  }
+  /** Boss-only visuals: seam, nucleus halo, ghosted dormant twin, node glyph, pits. */
+  function syncBossPart(s, b, e, ud, ctx) {
     const card = b.cards[b.card];
     if (ud.seam) ud.seam.material.opacity = b.state === 'cardIntro' ? 0.5 + Math.sin(visualTime * 30) * 0.4 : 0.35;
     if (ud.halo) {
@@ -1641,7 +1710,7 @@ export function createRenderer({ canvas, stage, settings }) {
       const next = (s.emitters || []).some((x) => x.ownerId === e.id && x.state === 'tele');
       ud.glyph.scale.setScalar(1.5 + (next ? 0.4 + Math.sin(visualTime * 9) * 0.15 : 0));
     }
-    return dormant ? 0.35 : 1;
+    if (ud.pits.length) glowPits(ud, settings.effects() ? bossMenace(ud.char, ctx) : { glow: 1, size: 1 }, dormant ? 0.35 : 1);
   }
 
   // ---- Kill pops and the boss defeat (visual only: no collider remains) -----------
@@ -1672,8 +1741,6 @@ export function createRenderer({ canvas, stage, settings }) {
         mat.emissive.set('#ffffff');
         mat.emissiveIntensity = 1.2 * (1 - k);
       }
-      p.m.updateMatrixWorld(true);
-      drawFace(p.m, { t: visualTime, id: ud.id, hurt: 1, look: [0, 5] }, { roll: 0, sy: 1 + 0.6 * k }, 1 - k);
     }
   }
   function startDefeat(ev) {
@@ -1726,8 +1793,7 @@ export function createRenderer({ canvas, stage, settings }) {
         mat.emissive.set('#ffffff');
         mat.emissiveIntensity = 0.2 + 1.4 * k * k * (0.6 + 0.4 * Math.sin(visualTime * 40));
       }
-      d.m.updateMatrixWorld(true);
-      drawFace(d.m, { t: visualTime, id: ud.id, dying: k, talk: d.talk > 0 ? 1 : 0, look: [Math.sin(visualTime * 9) * 5, 3] }, mo);
+      if (ud.pits.length) glowPits(ud, bossMenace(ud.char, { t: visualTime, id: ud.id, dying: k }));
     }
   }
 
@@ -2112,16 +2178,6 @@ export function createRenderer({ canvas, stage, settings }) {
     titleGroup.add(h.body);
   }
   scene.add(titleGroup);
-  /** The title's five coronas have faces too (they glance around). */
-  function drawTitleFaces() {
-    titleGroup.children.forEach((c, i) => {
-      if (faceCount >= FACE_MAX) return;
-      c.updateMatrixWorld(true);
-      placeFace(faces, faceCount, camera, c, { r: SHAPES.wild.parts[0].r, scale: CHARACTERS.wild.face.scale });
-      writeFace(faces, faceCount, faceState(i === 2 ? 'wild' : i % 2 ? 'hijacker' : 'sneezer', { t: visualTime, id: `title${i}`, look: [Math.sin(visualTime * 0.6 + i * 1.7) * 6, 3] }));
-      faceSlots[faceCount++] = null;
-    });
-  }
 
   function updateCamera(dt) {
     const motion = settings.effects();
@@ -2168,7 +2224,6 @@ export function createRenderer({ canvas, stage, settings }) {
     const hidden = [dot, grazeRing, soap, ...options].filter((o) => !o.visible);
     for (const o of hidden) o.visible = true;
     for (const m of Object.values(bullets)) m.count = 1;
-    faces.mesh.count = 1;
     needles.count = antigenPool.count = strands.count = 1;
     try {
       renderer.compile(scene, camera);
@@ -2192,7 +2247,7 @@ export function createRenderer({ canvas, stage, settings }) {
     scene.remove(zoo);
     zoo.traverse((o) => o.material?.dispose?.());
     for (const o of hidden) o.visible = false;
-    for (const m of [...Object.values(bullets), needles, antigenPool, strands, faces.mesh]) m.count = 0;
+    for (const m of [...Object.values(bullets), needles, antigenPool, strands]) m.count = 0;
     scene.remove(warm);
   }
 
@@ -2284,7 +2339,7 @@ export function createRenderer({ canvas, stage, settings }) {
      * every face is checked to sit inside its anchor's silhouette on screen
      * (centre offset + feature reach <= silhouette radius, in px). */
     audit(s) {
-      const out = { enemies: [], faces: [] };
+      const out = { enemies: [], pits: [] };
       const m3 = new THREE.Matrix3();
       for (const e of s.enemies) {
         const m = enemyMeshes.get(e.id);
@@ -2299,19 +2354,19 @@ export function createRenderer({ canvas, stage, settings }) {
           ez = Math.hypot(el[2] * r, el[5] * r * a, el[8] * r);
         out.enemies.push({ id: e.id, kind: e.kind, char: ud.char, collider: e.radius, drawn: Math.max(ex, ez), min: Math.min(ex, ez) });
       }
-      for (let i = 0; i < faceCount; i++) {
-        const f = faceSlots[i];
-        if (!f) continue;
-        const c = project([f.c.x, f.c.y, f.c.z]),
-          p = project([f.p.x, f.p.y, f.p.z]);
-        // Silhouette radius on screen (the smaller of horizontal and
-        // screen-up, so squat bodies are judged by their short side); reach
-        // is in anchor radii, measured on the horizontal radius.
-        const edge = project([f.c.x + f.rWorld, f.c.y, f.c.z]);
-        const r = Math.abs(edge.pixelX - c.pixelX);
-        const sil = (r * f.silWorld) / f.rWorld;
-        const reach = faceReach(f.char) * r;
-        out.faces.push({ id: f.id, char: f.char, offset: Math.hypot(p.pixelX - c.pixelX, p.pixelY - c.pixelY), reach, silhouette: sil });
+      // Pits: each socket's horizontal reach from the body centre (world).
+      const wp = new THREE.Vector3(),
+        cp = new THREE.Vector3();
+      for (const e of s.enemies) {
+        const m = enemyMeshes.get(e.id);
+        if (!e.alive || !m || !m.userData.pits.length) continue;
+        m.getWorldPosition(cp);
+        for (const p of m.userData.pits) {
+          p.socket.getWorldPosition(wp);
+          // The socket's long semi-axis in world units (its matrix column 0).
+          const r = new THREE.Vector3().setFromMatrixColumn(p.socket.matrixWorld, 0).length();
+          out.pits.push({ id: e.id, char: m.userData.char, reach: Math.hypot(wp.x - cp.x, wp.z - cp.z) + r, collider: e.radius });
+        }
       }
       return out;
     },
@@ -2324,12 +2379,9 @@ export function createRenderer({ canvas, stage, settings }) {
       applyTheme(getLevel(s.wave).world);
       titleGroup.visible = s.phase === 'title';
       if (titleGroup.visible && settings.effects()) titleGroup.children.forEach((c, i) => (c.rotation.y = visualTime * 0.4 + i));
-      faceCount = 0;
       syncEnemies(s, dt);
-      if (titleGroup.visible) drawTitleFaces();
       updatePops(dt);
       updateDying(s, dt);
-      commitFaces(faces, faceCount);
       syncProjectiles(s);
       syncPickups(s);
       syncTelegraphs(s);

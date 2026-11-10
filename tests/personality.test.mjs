@@ -1,16 +1,18 @@
-/** Villain personality (personality.mjs) without touching precision: every
- * collider is exactly what it was before faces and idle life existed, no
- * animation draws a body wider than its collider or moves it off its centre,
- * every face stays inside its body's silhouette, and the simulation never
- * reads any of it. The browser side (real matrices, real faces, frame time)
- * is checked by tests/browser/personality-audit.mjs and the root QA. */
+/** Villain personality (personality.mjs) without touching precision, in a
+ * 3D style: every collider is exactly what it was before the personality
+ * pass, no animation draws a body wider than its collider or moves it off
+ * its centre, no villain has a drawn face (user: "regular viruses don't need
+ * faces ... more 3D, not cartoon"), boss pits sit well inside the body, and
+ * the simulation never reads any of it. The browser side (real matrices,
+ * pits, frame time) is checked by tests/browser/personality-audit.mjs and
+ * the root QA. */
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { RULES, ARCHETYPES, BOSSES } from '../model.mjs';
 import { COLLIDERS, NEEDLE, BODY_RADIUS, MARKER, GRAZE_RING, enemyScale, bodyRadiusOf } from '../hitboxes.mjs';
 import { SHAPES, shapeFor } from '../shapes.mjs';
-import { CHARACTERS, characterOf, faceState, bodyMotion, footprint, faceReach, faceExtent, FACE, FACE_SCENARIOS, BOSS_SCRIPT, bossLine, bossCard, marchTempo, syllablesOf, talkTime } from '../personality.mjs';
+import { CHARACTERS, characterOf, bodyMotion, bossMenace, footprint, BOSS_SCRIPT, bossLine, bossCard, marchTempo, syllablesOf, talkTime } from '../personality.mjs';
 import { cardArena } from './helpers.mjs';
 
 // The collider contract, recorded before the personality pass (revision five,
@@ -86,29 +88,45 @@ test('idle life and reactions never draw a body wider than its collider, and nev
   assert.ok(footprint(1, 1.38, 1, 0.3, 0) > 1.03 && Math.abs(footprint(1, 1, 1, 0.3, 0.2) - 1) < 1e-12);
 });
 
-test('every face stays inside its body silhouette at the steepest and flattest camera', () => {
-  for (const id of Object.keys(CHARACTERS)) {
-    const a = CHARACTERS[id].anchor?.aspect ?? 1;
-    // Vertical silhouette half-extent of the anchor ellipsoid at pitch p (in
-    // anchor radii); horizontally it is always 1.
-    let k = 1;
-    for (let p = 64; p <= 74; p++) {
-      const r = (p * Math.PI) / 180;
-      k = Math.min(k, Math.hypot(a * Math.cos(r), Math.sin(r)));
+test('no villain has a drawn face; boss pits are sculpted sockets well inside the body footprint', () => {
+  const render = readFileSync(new URL('../render.mjs', import.meta.url), 'utf8');
+  assert.ok(!/faces\.mjs|faceState|drawFace/.test(render), 'no face decals in the renderer');
+  for (const [name, spec] of Object.entries(SHAPES)) assert.ok(!spec.parts.some((p) => p.type === 'eyes'), `${name}: no eye meshes`);
+  // Regular viruses carry no pits; every boss body and part does.
+  for (const kind of Object.keys(ARCHETYPES)) assert.ok(!shapeFor({ kind }).parts.some((p) => p.type === 'pits'), kind);
+  for (const key of ['alpha', 'twinB', 'twinG', 'delta', 'half', 'omicron', 'node', 'bigsneezer', 'aerosolcloud', 'mother', 'lambda']) {
+    const spec = SHAPES[key];
+    const pits = spec.parts.find((p) => p.type === 'pits');
+    assert.ok(pits && pits.points.length >= 1, `${key} has pits`);
+    const body = bodyRadiusOf(spec);
+    for (const [x, y, z, size] of pits.points) {
+      // Socket centre: the surface point along (x, y, z), sunk 0.25 socket
+      // radii; its board-plane reach plus its long semi-axis (1.35 socket
+      // radii) stays under 90% of the body.
+      const n = Math.hypot(x, y, z),
+        sr = size * pits.r;
+      const horiz = (Math.hypot(x, z) / n) * (pits.r - 0.25 * sr) + Math.hypot(...(pits.at || [0, 0, 0]).filter((_, i) => i !== 1));
+      assert.ok(horiz + 1.35 * sr <= 0.9 * body, `${key}: pit reaches ${((horiz + 1.35 * sr) / body).toFixed(2)} of the body`);
+      assert.ok(size > 0 && size <= 0.2, `${key}: pit size ${size}`);
     }
-    // The decal centre sits sin(tilt) off the silhouette centre on screen.
-    const reach = Math.sin(FACE.tilt) + faceReach(id);
-    assert.ok(reach <= 0.95 * k, `${id}: face reaches ${reach.toFixed(3)} of a ${k.toFixed(3)} silhouette`);
   }
-  // faceReach is a true worst case over the scenarios it sweeps.
-  const f = faceState('omicron', { hp: 0.05, gloat: 1, t: 1.3, id: 'q' });
-  assert.ok(faceExtent(f) * CHARACTERS.omicron.face.scale <= faceReach('omicron') + 1e-12);
-  assert.ok(FACE_SCENARIOS.length > 20);
+  // The pits' light carries the boss's mood.
+  const rest = bossMenace('alpha', { t: 1, id: 'a' }),
+    tele = bossMenace('alpha', { t: 1, id: 'a', tele: { preset: 'ring', k: 1 } }),
+    hurt = bossMenace('alpha', { t: 1, id: 'a', hurt: 1 }),
+    dead = bossMenace('alpha', { t: 1, id: 'a', dying: 1 }),
+    intro = bossMenace('alpha', { t: 1, id: 'a', intro: 0.1 });
+  assert.ok(tele.glow > rest.glow * 1.5 && tele.size > 1.2, 'pits flare before an attack');
+  assert.ok(hurt.glow < rest.glow && intro.glow < 0.05 && dead.glow < 0.01, 'flicker on hits, dark on entry and defeat');
+  for (const id of Object.keys(CHARACTERS).filter((k) => CHARACTERS[k].menace)) {
+    for (let t = 0; t < 8; t += 0.11) {
+      const m = bossMenace(id, { t, id: 'z', hp: 0.1, gloat: 0.5, talk: 1 });
+      assert.ok(m.glow >= 0 && m.glow <= 2.2 && m.size >= 0.3 && m.size <= 1.35, id);
+    }
+  }
 });
-
-test('every villain has a distinct personality: role, line, face, motion and voice', () => {
-  const kinds = Object.keys(ARCHETYPES);
-  for (const kind of kinds) assert.ok(CHARACTERS[characterOf({ kind })], kind);
+test('every villain has a distinct personality: role, line, motion; bosses add a voice and menace', () => {
+  for (const kind of Object.keys(ARCHETYPES)) assert.ok(CHARACTERS[characterOf({ kind })], kind);
   for (const type of Object.keys(BOSSES)) {
     const s = cardArena(type, 0);
     for (const p of s.enemies.filter((e) => e.kind === 'boss')) assert.ok(CHARACTERS[characterOf(p, type)], `${type} ${p.part}`);
@@ -119,44 +137,32 @@ test('every villain has a distinct personality: role, line, face, motion and voi
   const sigs = new Set();
   for (const [id, ch] of Object.entries(CHARACTERS)) {
     assert.ok(ch.role && ch.line && ch.line.length <= 60, `${id}: role and a one-line personality`);
-    const sig = JSON.stringify([ch.face, ch.rest]);
-    assert.ok(!sigs.has(sig), `${id} has its own face`);
+    assert.ok(!('face' in ch) && !('rest' in ch), `${id}: no face data`);
+    const sig = JSON.stringify([ch.motion, ch.voice, ch.menace]);
+    assert.ok(!sigs.has(sig), `${id} moves (and sounds) like another character`);
     sigs.add(sig);
-    // Its rest face differs from every other character's in mood or style.
-    const f = faceState(id, { t: 0.5, id: 'z' });
-    assert.ok(f.style === ch.face);
+    const boss = !!ch.menace;
+    assert.equal(!!ch.voice, boss, `${id}: only bosses have voices`);
   }
-  // The brute scowls, the show-off grins, the coward panics, the diva has lashes.
-  assert.ok(CHARACTERS.heavy.rest.brow <= -0.9 && CHARACTERS.heavy.face.brows === 3 && CHARACTERS.heavy.face.teeth === 3);
-  assert.ok(CHARACTERS.budder.rest.curve >= 0.8 && CHARACTERS.budder.motion.wink);
-  assert.ok(CHARACTERS.virion.rest.open > 1 && CHARACTERS.bloom.face.lashes === 1);
-  assert.ok(CHARACTERS.vesicle.faceless, 'the supply carrier keeps its icon readable');
+  // The brute breathes slowly and deeply, the coward twitches fast, the sneak never tilts.
+  assert.ok(CHARACTERS.heavy.motion.breathe < 1 && CHARACTERS.heavy.motion.amp >= 0.07);
+  assert.ok(CHARACTERS.virion.motion.twitch >= 5 && CHARACTERS.worm.tilt === false);
 });
-
-test('reactions: hit flinch, panic when low, smug when the player is hit, attack wind-ups', () => {
-  const rest = faceState('wild', { t: 0.4, id: 'a' });
-  const hurt = faceState('wild', { t: 0.4, id: 'a', hurt: 1 });
-  assert.ok(hurt.squint > 0.9 && rest.squint === 0, '>.< on hit');
-  const low = faceState('wild', { t: 0.4, id: 'a', hp: 0.1 });
-  assert.ok(low.sweat > 0.9 && low.open > rest.open && low.brow > 0.8, 'panic');
-  const smug = faceState('heavy', { t: 0.4, id: 'a', gloat: 1 });
-  assert.ok(smug.curve > 0.9 && smug.open < 0.6, 'smug half lids and a grin');
-  const sneeze = faceState('sneezer', { t: 0.4, id: 'a', tele: { preset: 'sneeze', k: 1 } });
-  assert.ok(sneeze.mouth > 0.8 && sneeze.open < 0.3, '"ah... ah...": eyes squeezed, mouth wide');
-  const dive = faceState('droplet', { t: 0.4, id: 'a', mode: 'dive' });
-  assert.ok(dive.mouth > 0.8 && dive.open > 1.2, 'the daredevil screams down');
-  const dead = faceState('alpha', { t: 0.4, id: 'a', dying: 1 });
-  assert.ok(dead.dead > 0.99, 'X X at the end of the defeat');
-  // Blinks happen (and are short), on a per-enemy phase.
-  let blinks = 0;
-  for (let t = 0; t < 20; t += 1 / 60) if (faceState('wild', { t, id: 'b1' }).blinkL > 0.5) blinks++;
-  assert.ok(blinks >= 3 && blinks <= 40, `${blinks} blink frames in 20 s`);
+test('reactions are 3D motion: anticipation, flinch, shiver, landing, death swell', () => {
+  const rest = bodyMotion('wild', { t: 0.4, id: 'a' });
+  const hurt = bodyMotion('wild', { t: 0.4, id: 'a', hurt: 1 });
+  assert.ok(hurt.sy > rest.sy && hurt.sx < rest.sx, 'a hit flinches upward');
+  const low = [0, 0.1, 0.2, 0.3].map((t) => bodyMotion('wild', { t, id: 'a', hp: 0.05 }).yaw);
+  assert.ok(Math.max(...low) - Math.min(...low) > 0.05, 'nearly beaten: a shiver');
+  const land = bodyMotion('alpha', { t: 0, id: 'b', land: 0.5 });
+  assert.ok(land.sy < 0.9, 'a boss squashes as it lands');
+  const dying = bodyMotion('alpha', { t: 0, id: 'b', dying: 1 });
+  assert.ok(dying.sy > 1.2, 'a dying boss swells before it bursts (no collider remains)');
   // The sneeze no longer swells the body past its collider: it stretches up
   // and bristles the (decorative) crown instead.
   const m = bodyMotion('sneezer', { t: 0, id: 's', tele: { preset: 'sneeze', k: 1 } }, 0.85);
   assert.ok(m.sy > 1.2 && m.crown > 1.25 && m.sx <= 1);
 });
-
 test('boss scripts: a name card, one taunt per card, gloats and a defeat line, short and deterministic', () => {
   for (const [type, def] of Object.entries(BOSSES)) {
     const sc = BOSS_SCRIPT[type];
@@ -186,8 +192,8 @@ test('personality stays out of the simulation: pure functions, unchanged inputs,
   const e = deepFreeze({ id: 'f1', kind: 'wild', x: 1, z: -5, hp: 1, maxHp: 3, alive: true });
   const c = deepFreeze({ t: 2, id: e.id, look: [0, 9], hurt: 1, tele: { preset: 'cough', k: 0.5 }, hp: 0.3, gloat: 0.5 });
   for (const id of Object.keys(CHARACTERS)) {
-    assert.deepEqual(faceState(id, c), faceState(id, c), `${id} deterministic`);
-    bodyMotion(id, c, 1);
+    assert.deepEqual(bodyMotion(id, c, 1), bodyMotion(id, c, 1), `${id} deterministic`);
+    bossMenace(id, c);
   }
   characterOf(e);
   const s = cardArena('alpha', 0);
@@ -197,7 +203,7 @@ test('personality stays out of the simulation: pure functions, unchanged inputs,
   assert.equal(JSON.stringify(s), before, 'reading the state never changes it');
   for (const file of ['model.mjs', 'core.mjs', 'enemies.mjs', 'bosses.mjs', 'patterns.mjs', 'bullets.mjs', 'hitboxes.mjs', 'scoring.mjs', 'levels.mjs', 'clock.mjs']) {
     const src = readFileSync(new URL(`../${file}`, import.meta.url), 'utf8');
-    assert.ok(!/personality\.mjs|faces\.mjs|audio\.mjs/.test(src), `${file} does not import presentation`);
+    assert.ok(!/personality\.mjs|audio\.mjs/.test(src), `${file} does not import presentation`);
   }
   // The renderer keeps every body on its collider centre: position comes only
   // from the simulation, personality acts on the tilt node.

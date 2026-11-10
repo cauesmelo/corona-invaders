@@ -1,179 +1,121 @@
-/** Villain personality: who each virus is, how its face and body act, what it
- * says and how it sounds. Pure data and pure functions (no DOM, no Three.js,
- * no Web Audio), read by the renderer (faces, idle life, reactions), the
- * audio engine (voice blips, babble) and the UI (name cards, taunts).
+/** Villain personality: who each virus is, how its body moves and reacts,
+ * what a boss says and how everything sounds. Pure data and pure functions
+ * (no DOM, no Three.js, no Web Audio), read by the renderer (idle life,
+ * reactions, boss pits), the audio engine (voices) and the UI (name cards,
+ * HUD taunts).
  *
- * User feedback (revision five, translated): "the villains could have a bit
- * more personality; the theme is great but it reads generic." Rules that keep
- * a bullet hell readable while adding character:
+ * User feedback, two rounds (translated): "the villains could have a bit
+ * more personality; the theme reads generic", then "regular viruses don't
+ * need little faces; bosses are fine as long as they have some personality;
+ * make it more 3D, you are pulling the style toward cartoon again". So:
+ *   - Regular viruses have no faces. Their character is 3D form and motion:
+ *     silhouette, breathing, spike sway and twitches, how each rears up
+ *     before an attack, flinches, shivers when weak and pops.
+ *   - Bosses have no drawn faces either. Their menace is sculpted geometry
+ *     (glowing pits sunk into the membrane, shapes.mjs `pits`) whose glow
+ *     follows the boss's mood (bossMenace), plus posture and motion, a name
+ *     card and one-line HUD taunts.
  *   - Nothing here changes the simulation. The model never imports this
  *     module; every function only reads the state it is given.
  *   - Colliders stay exactly as they are. Bodies never translate (no bob
  *     offset off the board plane). Squash, stretch and tilt are applied
  *     around the body centre and normalised so the drawn board footprint
  *     never exceeds the collider (bodyMotion); a hit flinch may shrink it by
- *     at most 8% for 0.14 s. The sneeze inhale used to swell the body 1.25x
- *     past its collider and the hit punch 1.14x: both now stretch upward and
- *     bristle the decorative spikes instead.
- *   - Faces are decals inside the body silhouette (faceReach), drawn under
- *     every bullet; they never enlarge the drawn body.
- *   - Speech only appears when bullets have just been cancelled (card
- *     starts, the player losing a vial, a boss defeat), never over a live
- *     pattern the player has to read.
- *
- * Face units: a face decal spans [-1, 1] in both axes (y up on screen); its
- * half-size is FACE.scale x the anchor radius. Mood values:
- *   open   eyelid opening 0 closed .. 1 open .. 1.5 wide (surprise, panic)
- *   brow   -1 angry (inner ends down) .. 0 .. +1 worried (inner ends up)
- *   curve  -1 frown .. +1 smile;  mouth 0 closed .. 1 wide open
- *   smirk  one-sided: right mouth corner and right brow up
- *   squint hurt ">.<";  sweat panic drop;  dead "X X"
+ *     at most 8% for 0.14 s.
+ *   - Taunts appear in the HUD's reserved top band, never over the board.
  */
 
-/** Face decal placement: the decal faces a direction tilted FACE.tilt
- * radians from the camera toward the syringe (+z), so viruses look at you. */
-export const FACE = Object.freeze({ scale: 0.78, tilt: 0.15, eyeY: 0.16, mouthY: -0.42 });
-
-const face = (o = {}) => ({ size: 0.25, gap: 0.33, tall: 1.05, pupil: 0.45, lid: 0, teeth: 0, mouthW: 0.34, brows: 1, lashes: 0, mismatch: 0, scale: FACE.scale, iris: '#0f4a2a', ink: '#08140d', ...o });
-const rest = (o = {}) => ({ open: 1, brow: 0, curve: 0.2, mouth: 0, smirk: 0, ...o });
-
-/** Each character: a role and a one-line personality, a face style and rest
- * mood, idle motion and a voice. `anchor` places the face on a body part in
- * mesh units (at, r, aspect = the body's vertical stretch). */
+/** Each character: a role and a one-line personality and idle motion; a
+ * boss also has a voice (a low formant growl, audio.mjs) and `menace`. `menace` (bosses) sets how its
+ * glowing pits behave at rest: base glow, pulse rate and jitter. */
 export const CHARACTERS = Object.freeze({
   wild: {
     label: 'WILD TYPE',
     role: 'The grunt',
     line: 'Cheeky, eager and not very bright.',
-    face: face({ size: 0.27, pupil: 0.42, teeth: 1, mouthW: 0.36, iris: '#0d5c30' }),
-    rest: rest({ curve: 0.6, brow: 0.1 }),
     motion: { breathe: 2.1, amp: 0.05, sway: 0.3, march: 1, twitch: 3.4 },
-    voice: { pitch: 262, vowel: 'u', syl: 1, len: 0.07, glide: 1.3 },
   },
   mini: {
     label: 'WILD TYPE',
     role: 'The choir',
     line: 'Sixty tiny fans of the wild type, singing in rows.',
-    face: face({ size: 0.3, gap: 0.3, pupil: 0.58, brows: 0, mouthW: 0.2, scale: 0.86, iris: '#0b3b20' }),
-    rest: rest({ curve: 0.2, mouth: 0.35 }),
     motion: { breathe: 2.6, amp: 0.04, sway: 0.14, march: 1.4, twitch: 0 },
-    voice: { pitch: 622, vowel: 'i', syl: 1, len: 0.045, glide: 1.15 },
   },
   sneezer: {
     label: 'SNEEZER',
     role: 'The drama queen',
     line: 'Always about to sneeze, and wants you to know it.',
-    face: face({ size: 0.24, tall: 0.9, pupil: 0.4, lid: 0.55, iris: '#1f6f62' }),
-    rest: rest({ open: 0.62, brow: 0.65, curve: -0.25 }),
     motion: { breathe: 1.3, amp: 0.06, sway: 0.18, march: 0, twitch: 4.2, sniffle: 1 },
-    voice: { pitch: 300, vowel: 'a', syl: 1, len: 0.3, glide: 1.25 },
-    anchor: { aspect: 0.85 },
   },
   budder: {
     label: 'BUDDER',
     role: 'The show-off',
     line: 'Splits for attention. Two of it? Even better.',
-    face: face({ size: 0.24, gap: 0.44, pupil: 0.46, teeth: 1, mouthW: 0.46, scale: 0.8, iris: '#0d6a37' }),
-    rest: rest({ curve: 0.85, smirk: 0.3, brow: 0.25 }),
     motion: { breathe: 1.9, amp: 0.05, sway: 0.12, march: 0, twitch: 0, wink: 3.1 },
-    voice: { pitch: 330, vowel: 'a', syl: 2, len: 0.08, glide: 1.33 },
     tilt: false,
   },
   worm: {
     label: 'RNA WORM',
     role: 'The sneak',
     line: 'Slithers past and never looks you in the eye.',
-    face: face({ size: 0.25, tall: 0.55, gap: 0.32, pupil: 0.55, lid: -0.6, brows: 0, mouthW: 0.3, scale: 0.86, iris: '#2f7a1d' }),
-    rest: rest({ open: 0.55, curve: 0.35, smirk: 0.6 }),
     motion: { breathe: 3, amp: 0.03, sway: 0, march: 0, twitch: 0 },
-    voice: { pitch: 220, vowel: 'i', syl: 1, len: 0.16, glide: 0.7, breath: 0.7 },
-    anchor: { at: [0, 0, 0.9], r: 0.3 },
     tilt: false,
   },
   puff: {
     label: 'AEROSOL PUFF',
     role: 'The airhead',
     line: 'Giggly, spaced out, sprays everywhere.',
-    face: face({ size: 0.22, gap: 0.28, pupil: 0.36, lid: 0.3, brows: 0, mouthW: 0.16, scale: 0.86, iris: '#2b8a5b' }),
-    rest: rest({ open: 0.55, mouth: 0.5, curve: 0.2 }),
     motion: { breathe: 0.9, amp: 0.05, sway: 0.1, march: 0, twitch: 0, wander: 1 },
-    voice: { pitch: 640, vowel: 'i', syl: 3, len: 0.05, glide: 1.1, breath: 0.4 },
-    anchor: { r: 0.3 },
   },
   droplet: {
     label: 'DROPLET',
     role: 'The daredevil',
     line: 'Locks on, dives and screams the whole way down.',
-    face: face({ size: 0.28, pupil: 0.5, brows: 2, teeth: 1, scale: 0.78, iris: '#3c7f12' }),
-    rest: rest({ brow: -0.8, open: 0.75, curve: 0.1 }),
     motion: { breathe: 3.2, amp: 0.04, sway: 0, march: 0, twitch: 2.5 },
-    voice: { pitch: 420, vowel: 'i', syl: 1, len: 0.32, glide: 2.1 },
-    anchor: { r: 0.24 },
     tilt: false,
   },
   hijacker: {
     label: 'HIJACKER',
     role: 'The schemer',
     line: 'Whispers, recruits and lets others take the hits.',
-    face: face({ size: 0.25, pupil: 0.4, lid: -0.3, iris: '#6b8f14' }),
-    rest: rest({ open: 0.7, curve: 0.5, smirk: 0.85 }),
     motion: { breathe: 1.6, amp: 0.04, sway: 0.22, march: 0, twitch: 0, shifty: 1 },
-    voice: { pitch: 168, vowel: 'e', syl: 2, len: 0.09, glide: 0.85 },
   },
   cell: {
     label: 'INFECTED CELL',
     role: 'The victim',
     line: 'A host cell, feeling very, very sick.',
-    face: face({ size: 0.22, gap: 0.3, pupil: 0.3, lid: 0.4, mouthW: 0.3, iris: '#55705f', ink: '#1a2a22' }),
-    rest: rest({ open: 0.55, brow: 0.75, curve: -0.6, mouth: 0.15 }),
     motion: { breathe: 0.8, amp: 0.07, sway: 0.2, march: 0, twitch: 0, queasy: 1 },
-    voice: { pitch: 128, vowel: 'u', syl: 1, len: 0.14, glide: 0.8 },
   },
   heavy: {
     label: 'HEAVY CROWN',
     role: 'The brute',
     line: 'Slow, armoured and permanently furious.',
-    face: face({ size: 0.2, gap: 0.29, tall: 0.8, pupil: 0.58, brows: 3, teeth: 3, mouthW: 0.38, scale: 0.72, iris: '#24300f' }),
-    rest: rest({ brow: -1, open: 0.7, curve: -0.4, mouth: 0.25 }),
     motion: { breathe: 0.7, amp: 0.07, sway: 0.08, march: 0, twitch: 0 },
-    voice: { pitch: 84, vowel: 'o', syl: 1, len: 0.2, glide: 0.9, growl: 1 },
   },
   bloom: {
     label: 'BLOOM',
     role: 'The diva',
     line: 'Hides in its bud, then demands applause.',
-    face: face({ size: 0.27, pupil: 0.45, lashes: 1, scale: 0.8, iris: '#2d9c46' }),
-    rest: rest({ open: 0.5, curve: 0.55, brow: 0.3 }),
     motion: { breathe: 1.5, amp: 0.04, sway: 0.15, march: 0, twitch: 0 },
-    voice: { pitch: 523, vowel: 'a', syl: 1, len: 0.32, glide: 1, vibrato: 1 },
   },
   vesicle: {
     label: 'VESICLE',
     role: 'The courier',
     line: 'Just a bubble with a delivery. Please do not pop it.',
-    face: face({ size: 0.21, gap: 0.28, pupil: 0.52, brows: 0, mouthW: 0.22, scale: 0.6, iris: '#3e6a76', ink: '#11202a' }),
-    rest: rest({ curve: 0.5 }),
     motion: { breathe: 1.2, amp: 0.04, sway: 0.1, march: 0, twitch: 0 },
-    voice: { pitch: 300, vowel: 'o', syl: 1, len: 0.12, glide: 0.7 },
-    // No face: the supply icon it carries is what the player must read.
-    faceless: true,
   },
   virion: {
     label: 'VIRION',
     role: 'The coward',
     line: 'Runs from everything, you included.',
-    face: face({ size: 0.3, gap: 0.3, pupil: 0.3, mouthW: 0.26, iris: '#1d7a45' }),
-    rest: rest({ open: 1.3, brow: 0.9, curve: -0.5, mouth: 0.35 }),
     motion: { breathe: 4.5, amp: 0.03, sway: 0.25, march: 0, twitch: 6 },
-    voice: { pitch: 760, vowel: 'i', syl: 1, len: 0.08, glide: 1.25 },
   },
   // ---- Bosses and their parts ------------------------------------------------
   alpha: {
     label: 'ALPHA',
     role: 'The original',
     line: 'Pompous, proud and still coughing.',
-    face: face({ size: 0.2, gap: 0.3, tall: 0.85, pupil: 0.4, brows: 2, mouthW: 0.36, scale: 0.72, iris: '#12ce5d' }),
-    rest: rest({ open: 0.6, brow: -0.2, curve: 0.45, smirk: 0.35 }),
+    menace: { glow: 1, pulse: 0.45, jitter: 0 },
     motion: { breathe: 0.6, amp: 0.035, sway: 0.12, march: 0, twitch: 0 },
     voice: { pitch: 138, vowel: 'o', syl: 2, len: 0.12, glide: 0.9 },
   },
@@ -181,29 +123,24 @@ export const CHARACTERS = Object.freeze({
     label: 'BETA',
     role: 'The snob twin',
     line: 'Tall, cool and bored of its sibling.',
-    face: face({ size: 0.2, gap: 0.27, tall: 1, pupil: 0.36, lid: 0.2, scale: 0.68, iris: '#1fc9a4' }),
-    rest: rest({ open: 0.45, brow: 0.15, curve: 0.05, smirk: 0.5 }),
+    menace: { glow: 0.75, pulse: 0.3, jitter: 0 },
     motion: { breathe: 0.7, amp: 0.03, sway: 0, march: 0, twitch: 0 },
     voice: { pitch: 236, vowel: 'e', syl: 2, len: 0.1, glide: 0.95 },
-    anchor: { aspect: 1.38 },
     tilt: false,
   },
   gamma: {
     label: 'GAMMA',
     role: 'The hothead twin',
     line: 'Squat, loud and always yelling at its sibling.',
-    face: face({ size: 0.24, gap: 0.35, tall: 0.8, pupil: 0.5, brows: 2, teeth: 1, mouthW: 0.44, scale: 0.7, iris: '#8fd23a' }),
-    rest: rest({ open: 1, brow: -0.9, curve: -0.3, mouth: 0.4 }),
+    menace: { glow: 1.3, pulse: 1.4, jitter: 0.4 },
     motion: { breathe: 1.1, amp: 0.045, sway: 0.14, march: 0, twitch: 2.2 },
     voice: { pitch: 178, vowel: 'a', syl: 1, len: 0.11, glide: 1.1, growl: 0.5 },
-    anchor: { aspect: 0.7 },
   },
   delta: {
     label: 'DELTA',
     role: 'The speedster',
     line: 'Impatient, aggressive, and it really splits in two.',
-    face: face({ size: 0.22, gap: 0.3, tall: 0.7, pupil: 0.5, lid: -0.7, brows: 2, teeth: 2, mouthW: 0.44, scale: 0.72, iris: '#c6e04a' }),
-    rest: rest({ open: 0.75, brow: -0.7, curve: 0.7, mouth: 0.42 }),
+    menace: { glow: 1.2, pulse: 2, jitter: 0.8 },
     motion: { breathe: 1.6, amp: 0.035, sway: 0.1, march: 0, twitch: 5, jitter: 1 },
     voice: { pitch: 198, vowel: 'a', syl: 1, len: 0.06, glide: 0.8, growl: 0.4 },
   },
@@ -211,8 +148,7 @@ export const CHARACTERS = Object.freeze({
     label: 'DELTA',
     role: 'Half a speedster',
     line: 'Twice the impatience.',
-    face: face({ size: 0.24, gap: 0.3, tall: 0.7, pupil: 0.52, lid: -0.8, brows: 2, teeth: 2, mouthW: 0.4, scale: 0.74, iris: '#d4ea62' }),
-    rest: rest({ open: 0.8, brow: -0.85, curve: 0.6, mouth: 0.3 }),
+    menace: { glow: 1.2, pulse: 2.2, jitter: 0.8 },
     motion: { breathe: 1.9, amp: 0.035, sway: 0.1, march: 0, twitch: 5, jitter: 1 },
     voice: { pitch: 236, vowel: 'a', syl: 1, len: 0.05, glide: 0.8, growl: 0.3 },
   },
@@ -220,8 +156,7 @@ export const CHARACTERS = Object.freeze({
     label: 'OMICRON PRIME',
     role: 'The mutant king',
     line: 'Never the same virus twice.',
-    face: face({ size: 0.22, gap: 0.33, pupil: 0.34, mismatch: 0.35, teeth: 1, mouthW: 0.5, scale: 0.72, iris: '#a8ff3c' }),
-    rest: rest({ open: 1.12, brow: 0.3, curve: 0.9, mouth: 0.35 }),
+    menace: { glow: 1.1, pulse: 0.9, jitter: 0.5 },
     motion: { breathe: 0.9, amp: 0.04, sway: 0.16, march: 0, twitch: 3, wander: 1 },
     voice: { pitch: 228, vowel: 'a', syl: 3, len: 0.07, glide: 1.2 },
   },
@@ -229,8 +164,7 @@ export const CHARACTERS = Object.freeze({
     label: 'SPIKE NODE',
     role: 'The bodyguard',
     line: 'Guards the king, one attack each.',
-    face: face({ size: 0.26, gap: 0.3, pupil: 0.5, brows: 2, mouthW: 0.28, scale: 0.8, iris: '#7fbf2a' }),
-    rest: rest({ brow: -0.8, open: 0.8, curve: -0.3 }),
+    menace: { glow: 1, pulse: 1.2, jitter: 0.2 },
     motion: { breathe: 2.4, amp: 0.04, sway: 0.1, march: 0, twitch: 2 },
     voice: { pitch: 300, vowel: 'o', syl: 1, len: 0.06, glide: 0.9 },
   },
@@ -238,28 +172,23 @@ export const CHARACTERS = Object.freeze({
     label: 'BIG SNEEZER',
     role: 'The allergy',
     line: 'One enormous sneeze away from disaster.',
-    face: face({ size: 0.22, gap: 0.34, tall: 0.88, pupil: 0.38, lid: 0.6, brows: 2, mouthW: 0.4, scale: 0.74, iris: '#1f6f62' }),
-    rest: rest({ open: 0.55, brow: 0.8, curve: -0.35 }),
+    menace: { glow: 0.8, pulse: 0.6, jitter: 0 },
     motion: { breathe: 1, amp: 0.06, sway: 0.15, march: 0, twitch: 3.6, sniffle: 1 },
     voice: { pitch: 210, vowel: 'a', syl: 1, len: 0.34, glide: 1.25 },
-    anchor: { aspect: 0.85 },
   },
   aerosolcloud: {
     label: 'AEROSOL CLOUD',
     role: 'The space cadet',
     line: 'Floats, sprays, forgets why.',
-    face: face({ size: 0.22, gap: 0.3, pupil: 0.34, lid: 0.35, brows: 1, mouthW: 0.2, scale: 0.82, iris: '#1fc9a4' }),
-    rest: rest({ open: 0.5, brow: 0.35, mouth: 0.45, curve: 0.3 }),
+    menace: { glow: 0.9, pulse: 0.4, jitter: 0 },
     motion: { breathe: 0.7, amp: 0.05, sway: 0.12, march: 0, twitch: 0, wander: 1 },
     voice: { pitch: 520, vowel: 'i', syl: 3, len: 0.06, glide: 1.05, breath: 0.5 },
-    anchor: { r: 0.42 },
   },
   mother: {
     label: 'MOTHER CELL',
     role: 'The mother',
     line: 'Overbearing. Her children are the bullets.',
-    face: face({ size: 0.2, gap: 0.3, pupil: 0.42, lashes: 1, mouthW: 0.32, scale: 0.66, iris: '#4f8a66', ink: '#14231b' }),
-    rest: rest({ open: 0.7, brow: 0.45, curve: 0.35 }),
+    menace: { glow: 0.8, pulse: 0.35, jitter: 0 },
     motion: { breathe: 0.8, amp: 0.05, sway: 0.1, march: 0, twitch: 0 },
     voice: { pitch: 186, vowel: 'o', syl: 2, len: 0.12, glide: 1.05 },
   },
@@ -267,11 +196,9 @@ export const CHARACTERS = Object.freeze({
     label: 'LAMBDA',
     role: 'The copycat',
     line: 'Mirrors your every move.',
-    face: face({ size: 0.22, gap: 0.3, tall: 1.1, pupil: 0.42, mouthW: 0.3, scale: 0.7, iris: '#c6e04a' }),
-    rest: rest({ open: 0.85, curve: 0.3, smirk: 0.6 }),
+    menace: { glow: 1, pulse: 0.7, jitter: 0.1 },
     motion: { breathe: 1.1, amp: 0.035, sway: 0, march: 0, twitch: 0, mirror: 1 },
     voice: { pitch: 256, vowel: 'o', syl: 2, len: 0.08, glide: 1.1 },
-    anchor: { aspect: 1.15 },
     tilt: false,
   },
 });
@@ -386,9 +313,9 @@ export function bossLine(ev, s) {
 export const DEFEAT_FINAL = Object.freeze({ main: 1, mid: 0.55 });
 export const DEFEAT_POPS = Object.freeze({ main: [0, 0.18, 0.34, 0.48, 0.6, 0.7, 0.78, 0.85], mid: [0, 0.16, 0.3, 0.42] });
 
-/** Babble length for a spoken line: two syllables per word, 2..8. */
+/** Length of a spoken line in syllables: two per word, 2..8 (timing). */
 export const syllablesOf = (text) => Math.max(2, Math.min(8, text.trim().split(/\s+/).length * 2));
-/** How long the mouth flaps for a line (s). */
+/** How long a boss line is voiced and shown as active in the HUD (s). */
 export const talkTime = (text) => 0.12 * syllablesOf(text) + 0.1;
 
 // ---- The march: the bass pulse that speeds up as a sample empties ---------------
@@ -408,7 +335,7 @@ export function marchTempo(s) {
   return 72 + (1 - alive / Math.max(1, total)) * 72;
 }
 
-// ---- Faces --------------------------------------------------------------------
+// ---- Per-enemy phase ------------------------------------------------------------
 /** Stable per-enemy phase in [0, 1): blinks and sways never march in lockstep
  * (except the choir, which shares the beat on purpose). */
 export function hashPhase(id) {
@@ -421,240 +348,47 @@ const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 const mix = (a, b, k) => a + (b - a) * k;
 const smooth = (k) => k * k * (3 - 2 * k);
 
-/** Telegraph expressions per pattern preset: what the face does while a
- * virus winds up an attack (on top of its rest mood). */
-const TELE_FACE = {
-  cough: { open: 0.55, brow: -0.6, curve: 0, mouth: 0.15, puff: 1 },
-  sneeze: { open: 0.15, brow: 0.9, curve: -0.2, mouth: 0.9 },
-  ring: { open: 0.9, brow: -0.5, curve: 0.7, mouth: 0.4 },
-  bloom: { open: 1.1, brow: -0.3, curve: 0.9, mouth: 0.6 },
-  strand: { open: 0.4, brow: -0.6, curve: 0.5, mouth: 0.1 },
-  aerosol: { open: 0.3, brow: 0.2, curve: 0.2, mouth: 0.8 },
-  default: { open: 0.4, brow: -0.8, curve: -0.1, mouth: 0.3 },
-};
 
-/** The face for one enemy this frame. `c` (context, all optional):
- *   t       visual time (s)          id      enemy id (blink phase)
- *   look    [dx, dz] to the syringe  hurt    0..1 just hit (decays)
- *   tele    { preset, k } wind-up    talk    0..1 speaking (mouth flaps)
- *   gloat   0..1 player just lost a vial      shock 0..1 player deathbombed
- *   hp      hp fraction              dying   0..1 death sequence
- *   mode    'dive' | 'aim' | 'puddle' | ...   bud 0 closed .. 1 open
- *   mutating, intro (boss entering), beat (0..1 march phase)
- * Returns the mood and style the renderer writes into the face decal. */
-export function faceState(id, c = {}) {
-  const ch = CHARACTERS[id] || CHARACTERS.wild;
-  const r = ch.rest,
-    st = ch.face;
+// ---- Boss menace: the glow of the pits sunk into a boss's membrane ---------------
+/** How a boss's pits glow this frame: { glow, size } (glow 0 dark .. 2 flaring,
+ * size multiplies the glowing core inside its socket, never the socket).
+ * Context as for bodyMotion, plus `talk` (taunting) and `intro` (entrance
+ * progress 0..1). The pits flare before an attack (the old "eyes narrow"
+ * cue, now light instead of drawn lids), pulse while taunting, flicker when
+ * hit or nearly beaten, glare when the player loses a vial and die out on
+ * defeat. */
+export function bossMenace(id, c = {}) {
+  const ch = CHARACTERS[id] || CHARACTERS.alpha;
+  const m = ch.menace || { glow: 1, pulse: 0.8, jitter: 0 };
   const t = c.t ?? 0,
     ph = hashPhase(c.id);
-  let open = r.open,
-    brow = r.brow,
-    curve = r.curve,
-    mouth = r.mouth,
-    smirk = r.smirk,
-    squint = 0,
-    sweat = 0,
-    dead = 0,
-    alpha = 1;
-  // Look at the syringe (pupils toward it: down on screen is +z).
-  const [dx, dz] = c.look || [0, 6];
-  let lookX = clamp(dx / 7, -1, 1),
-    lookY = -clamp(dz / 9, -0.4, 1);
-  const m = ch.motion;
-  if (m.shifty) lookX = Math.sin(t * 1.3 + ph * 6) > 0.2 ? 0.9 : -0.9;
-  if (m.wander) {
-    lookX = Math.sin(t * 0.9 + ph * 7) * 0.8;
-    lookY = Math.cos(t * 0.7 + ph * 5) * 0.5;
-  }
-  if (m.mirror) lookX = -lookX;
-  if (id === 'worm') lookX = dx > 0 ? -0.9 : 0.9; // never looks at you
-  // Low health: panic (wide eyes, small pupils, worried brows, a sweat drop).
-  const hp = c.hp ?? 1;
-  const panic = hp < 0.35 && id !== 'mini' ? smooth(clamp((0.35 - hp) / 0.2, 0, 1)) : 0;
-  if (panic) {
-    open = mix(open, 1.35, panic);
-    brow = mix(brow, 0.95, panic);
-    curve = mix(curve, -0.6, panic);
-    mouth = mix(mouth, 0.35 + 0.1 * Math.sin(t * 22), panic);
-    smirk *= 1 - panic;
-    sweat = panic;
-    lookX += Math.sin(t * 9 + ph * 4) * 0.5 * panic;
-  }
-  // The player was hit: every villain is smug (half lids, a laughing grin).
-  const g = c.gloat ?? 0;
-  if (g > 0) {
-    open = mix(open, 0.45, g);
-    brow = mix(brow, 0.2, g);
-    curve = mix(curve, 1, g);
-    mouth = mix(mouth, 0.35 + 0.25 * Math.abs(Math.sin(t * 14)), g);
-    smirk = mix(smirk, 0.6, g);
-  }
-  // The player deathbombed out of a hit: shocked, then annoyed.
-  const sh = c.shock ?? 0;
-  if (sh > 0) {
-    open = mix(open, 1.4, sh);
-    brow = mix(brow, -0.6, sh);
-    curve = mix(curve, -0.7, sh);
-    mouth = mix(mouth, 0.5, sh);
-  }
-  // Wind-up for an attack: the archetype's attack face.
+  let glow = m.glow * (0.85 + 0.15 * Math.sin(t * m.pulse * Math.PI * 2 + ph * 6));
+  let size = 1;
+  if (m.jitter) glow *= 1 + m.jitter * 0.25 * Math.sin(t * 37 + ph * 9);
   if (c.tele) {
-    const f = TELE_FACE[c.tele.preset] || TELE_FACE.default;
-    const k = smooth(clamp(c.tele.k * 1.4, 0, 1));
-    open = mix(open, f.open, k);
-    brow = mix(brow, f.brow, k);
-    curve = mix(curve, f.curve, k);
-    mouth = mix(mouth, f.mouth, k);
-    smirk *= 1 - k;
+    const k = smooth(clamp(c.tele.k * 1.3, 0, 1));
+    glow = mix(glow, 2, k);
+    size = mix(size, 1.3, k);
   }
-  if (c.mode === 'dive') {
-    // DROPLET: the scream all the way down.
-    open = 1.3;
-    brow = -0.9;
-    mouth = 0.9 + 0.1 * Math.sin(t * 30);
-    curve = 0.2;
-  } else if (c.mode === 'aim') {
-    open = 0.5;
-    brow = -1;
-    curve = 0.4;
-    lookY = -1;
+  if (c.talk) glow *= 1.15 + 0.35 * Math.abs(Math.sin(t * 9));
+  if ((c.gloat ?? 0) > 0) {
+    glow = mix(glow, 1.9, c.gloat);
+    size = mix(size, 1.2, c.gloat);
   }
-  if (c.mutating) {
-    open = 1.3 + 0.1 * Math.sin(t * 40);
-    lookX = Math.sin(t * 17) * 0.9;
-    lookY = Math.cos(t * 13) * 0.9;
-    curve = 0.8;
-    mouth = 0.5;
-  }
-  // Speaking: the mouth flaps with the babble.
-  const talk = c.talk ?? 0;
-  if (talk > 0) mouth = mix(mouth, 0.15 + 0.55 * Math.abs(Math.sin(t * 17)), Math.min(1, talk * 4));
-  // Boss entrance: eyes open from shut to the rest look.
+  const hp = c.hp ?? 1;
+  if (hp < 0.35) glow *= 0.6 + 0.4 * (Math.sin(t * 31 + ph) > -0.3 ? 1 : 0.2);
+  if ((c.hurt ?? 0) > 0) glow *= 1 - 0.6 * clamp(c.hurt, 0, 1);
   if (c.intro !== undefined && c.intro < 1) {
-    const k = smooth(clamp((c.intro - 0.25) / 0.6, 0, 1));
-    open = mix(0, open, k);
-    curve = mix(0.9, curve, k);
-  }
-  // Blink every 2.6-5.2 s (0.13 s), and on the wink beat for show-offs.
-  const period = 2.6 + ph * 2.6;
-  const bt = (t + ph * 11) % period;
-  let blinkL = bt < 0.13 ? 1 - Math.abs(bt / 0.065 - 1) : 0,
-    blinkR = blinkL;
-  if (m.wink) {
-    const wt = (t + ph * 5) % (m.wink * 2.2);
-    if (wt < 0.3) blinkR = Math.max(blinkR, Math.sin((wt / 0.3) * Math.PI));
-  }
-  // Hit: a ">.<" flinch.
-  const hurt = c.hurt ?? 0;
-  if (hurt > 0) {
-    squint = smooth(clamp(hurt * 1.6, 0, 1));
-    mouth = Math.max(mouth, 0.3 * squint);
-    curve = mix(curve, -0.5, squint);
+    const k = smooth(clamp((c.intro - 0.2) / 0.6, 0, 1));
+    glow *= k;
+    size *= 0.6 + 0.4 * k;
   }
   if (c.dying !== undefined) {
-    // Defeat: a panicked wail (wide eyes, sweat, mouth open), then "X X".
-    const k = clamp(c.dying, 0, 1);
-    open = 1.4;
-    brow = 1;
-    curve = -0.8;
-    mouth = Math.max(mouth, 0.6 + 0.3 * Math.abs(Math.sin(t * 19)));
-    smirk = 0;
-    sweat = 1;
-    dead = smooth(clamp((k - 0.5) * 3, 0, 1));
-    squint = 0;
+    const d = clamp(c.dying, 0, 1);
+    glow = (1 - d) * (1.6 + 0.6 * Math.sin(t * 47));
+    size *= 1 - 0.5 * d;
   }
-  if (c.bud !== undefined) alpha = smooth(clamp((c.bud - 0.35) / 0.5, 0, 1));
-  if (ch.faceless) alpha = 0;
-  return {
-    open: clamp(open, 0, 1.5),
-    blinkL,
-    blinkR,
-    brow: clamp(brow, -1, 1),
-    curve: clamp(curve, -1, 1),
-    mouth: clamp(mouth, 0, 1),
-    smirk: clamp(smirk, -1, 1),
-    squint,
-    sweat: clamp(sweat, 0, 1),
-    dead,
-    lookX: clamp(lookX, -1, 1),
-    lookY: clamp(lookY, -1, 1),
-    alpha,
-    style: st,
-  };
-}
-
-/** How far a face's drawn features reach from the decal centre, in decal
- * units, for one face state (faceState output). Mirrors the shader in
- * faces.mjs: eye ellipses (with wide-open growth and the larger mismatched
- * eye), brows (raised, tilted, smirking), the mouth curve and its opening,
- * lashes and the sweat drop, plus line widths. */
-export function faceExtent(f) {
-  const st = f.style;
-  const wide = Math.max(f.open - 1, 0);
-  let reach = 0;
-  const pt = (x, y, pad = 0) => (reach = Math.max(reach, Math.hypot(x, y) + pad));
-  for (const s of [-1, 1]) {
-    const R = st.size * (s > 0 ? 1 + st.mismatch : 1 - st.mismatch * 0.5) * (1 + wide * 0.3);
-    const ry = R * st.tall,
-      cx = s * st.gap,
-      cy = FACE.eyeY + wide * 0.04;
-    for (let i = 0; i < 24; i++) {
-      const a = (i / 24) * Math.PI * 2;
-      pt(cx + Math.cos(a) * R, cy + Math.sin(a) * ry, 0.04);
-      if (st.lashes) pt(cx + Math.cos(a) * R * 1.3, cy + Math.sin(a) * ry * 1.3, 0.11);
-    }
-    if (st.brows > 0.5 && st.brows < 2.5) {
-      const by = cy + ry + 0.1 + wide * 0.14 + Math.max(f.brow, 0) * 0.05 + (s > 0 ? Math.max(f.smirk, 0) * 0.09 : 0);
-      const tilt = f.brow * 0.34 * R,
-        th = st.brows > 1.5 ? 0.07 : 0.042;
-      pt(cx - s * R * 0.85, by + tilt, th);
-      pt(cx + s * R * 0.9, by - tilt * 0.5, th);
-    }
-  }
-  if (st.brows > 2.5) {
-    const by = FACE.eyeY + st.size * st.tall + 0.11;
-    pt(st.gap + st.size, by + Math.abs(f.brow) * 0.04, 0.08);
-    pt(0, by + Math.abs(f.brow) * 0.12, 0.08);
-  }
-  const open = Math.max(f.mouth, st.teeth > 2.5 ? 0.2 : 0);
-  for (let i = 0; i <= 20; i++) {
-    const x = i / 10 - 1;
-    const up = FACE.mouthY + f.curve * 0.2 * x * x - f.curve * 0.07 + f.smirk * 0.1 * x;
-    pt(x * st.mouthW, up, 0.034);
-    pt(x * st.mouthW, up - open * 0.36 * (1 - x * x * 0.85), 0.034);
-  }
-  if (f.sweat > 0.01) pt(0.66, 0.38 + 0.14, 0.09);
-  return reach;
-}
-/** Contexts that push a face to its extremes (the reach sweep). */
-export const FACE_SCENARIOS = Object.freeze([
-  {},
-  { hurt: 1 },
-  { gloat: 1 },
-  { shock: 1 },
-  { hp: 0.05 },
-  { hp: 0.05, gloat: 1 },
-  { talk: 1 },
-  { mutating: true },
-  { mode: 'dive' },
-  { mode: 'aim' },
-  { intro: 0.5 },
-  { dying: 0.3 },
-  { dying: 0.95 },
-  ...Object.keys({ cough: 1, sneeze: 1, ring: 1, bloom: 1, strand: 1, aerosol: 1, jet: 1 }).flatMap((preset) => [{ tele: { preset, k: 0.5 } }, { tele: { preset, k: 1 } }]),
-]);
-const reachCache = new Map();
-/** Worst-case feature reach of a character's face, in units of its anchor
- * radius (decal scale included), over FACE_SCENARIOS at several times. */
-export function faceReach(id) {
-  if (!reachCache.has(id)) {
-    const st = (CHARACTERS[id] || CHARACTERS.wild).face;
-    let worst = 0;
-    for (const c of FACE_SCENARIOS) for (let t = 0; t < 6; t += 0.37) worst = Math.max(worst, faceExtent(faceState(id, { ...c, t, id: 'r' })));
-    reachCache.set(id, worst * st.scale);
-  }
-  return reachCache.get(id);
+  return { glow: clamp(glow, 0, 2.2), size: clamp(size, 0.3, 1.35) };
 }
 
 // ---- Body motion (squash, stretch, tilt; never translation) ---------------------

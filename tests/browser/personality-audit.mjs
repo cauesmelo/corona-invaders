@@ -12,11 +12,11 @@
  *           matrices of its mesh (__game.audit): the board footprint may
  *           never exceed the collider radius, and is reported as min/max of
  *           drawn / collider over the scene
- *   faces   every face decal: centre offset + feature reach must stay inside
- *           its anchor's silhouette on screen (px)
+ *   pits    every boss pit (socket): its board-plane reach from the body
+ *           centre plus its long semi-axis must stay under the collider
  * `--root` runs the same scenes against another checkout (e.g. a git
  * worktree of the commit before the personality pass) for frame-time
- * before/after; the body and face audits are skipped where __game.audit does
+ * before/after; the body and pit audits are skipped where __game.audit does
  * not exist.
  */
 import { createRequire } from 'node:module';
@@ -66,7 +66,7 @@ for (const sc of SCENES) {
     const frames = [];
     let last = performance.now();
     const body = { min: Infinity, max: 0, n: 0, over: [] },
-      face = { worst: -Infinity, n: 0, outside: [] };
+      pit = { worst: 0, n: 0, outside: [] };
     const t0 = last;
     let nextAudit = t0;
     await new Promise((done) => {
@@ -83,11 +83,11 @@ for (const sc of SCENES) {
             body.n++;
             if (k > 1 + 1e-6) body.over.push(`${e.char} ${k.toFixed(4)}`);
           }
-          for (const f of a?.faces || []) {
-            const slack = f.offset + f.reach - f.silhouette;
-            face.worst = Math.max(face.worst, slack);
-            face.n++;
-            if (slack > 0.75) face.outside.push(`${f.char} +${slack.toFixed(2)} px`);
+          for (const p of a?.pits || []) {
+            const k = p.reach / p.collider;
+            pit.worst = Math.max(pit.worst, k);
+            pit.n++;
+            if (k > 0.95) pit.outside.push(`${p.char} ${k.toFixed(3)}`);
           }
         }
         if (now - t0 < seconds * 1000) requestAnimationFrame(tick);
@@ -109,16 +109,16 @@ for (const sc of SCENES) {
       bullets: s.enemyShots.length,
       calls: g.renderer().calls,
       body: body.n ? { samples: body.n, min: +body.min.toFixed(3), max: +body.max.toFixed(4), over: body.over.slice(0, 5) } : null,
-      face: face.n ? { samples: face.n, worstSlackPx: +face.worst.toFixed(2), outside: face.outside.slice(0, 5) } : null,
+      pit: pit.n ? { samples: pit.n, worst: +pit.worst.toFixed(3), outside: pit.outside.slice(0, 5) } : null,
     };
   }, 5);
   results.push({ scene: sc.name, ...r });
-  console.log(`${sc.name}: median ${r.median} ms, p95 ${r.p95} ms, worst ${r.worst} ms, ${r.fps} fps; ${r.enemies} enemies, ${r.bullets} bullets, ${r.calls} calls` + (r.body ? `; bodies drawn/collider ${r.body.min}-${r.body.max}${r.body.over.length ? ' OVER ' + r.body.over.join(', ') : ''}` : '') + (r.face ? `; faces worst slack ${r.face.worstSlackPx} px${r.face.outside.length ? ' OUTSIDE ' + r.face.outside.join(', ') : ''}` : ''));
+  console.log(`${sc.name}: median ${r.median} ms, p95 ${r.p95} ms, worst ${r.worst} ms, ${r.fps} fps; ${r.enemies} enemies, ${r.bullets} bullets, ${r.calls} calls` + (r.body ? `; bodies drawn/collider ${r.body.min}-${r.body.max}${r.body.over.length ? ' OVER ' + r.body.over.join(', ') : ''}` : '') + (r.pit ? `; pits reach <= ${r.pit.worst} of the collider${r.pit.outside.length ? ' OUTSIDE ' + r.pit.outside.join(', ') : ''}` : ''));
 }
 await browser.close();
 server.close();
 if (errors.length) console.log('page errors:', errors);
 const jsonOut = arg('--json');
 if (jsonOut) writeFileSync(jsonOut, JSON.stringify({ root, results, errors }, null, 2) + '\n');
-const bad = results.some((r) => r.body?.over.length || r.face?.outside.length) || errors.length;
+const bad = results.some((r) => r.body?.over.length || r.pit?.outside.length) || errors.length;
 if (bad) process.exitCode = 1;

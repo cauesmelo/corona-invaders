@@ -16,8 +16,9 @@
  *   - Space. Sounds pan by world x; big events briefly duck the bass bed.
  *   - A clean mix. A compressor and a soft clipper on the master keep the
  *     output under -0.2 dBFS in the busiest moments (measured in the README).
- *   - Character. Every virus type has a tiny formant "voice"; bosses babble
- *     their taunt lines (personality.mjs) while the mouth flaps.
+ *   - Character without cartoon. Regular viruses make organic sounds only
+ *     (wet pops, bristles, breaths, whooshes). Bosses vocalise each taunt as
+ *     a low formant growl (personality.mjs voices); there is no babble.
  *
  * Audio is on by default, starts on the first user gesture (browser autoplay
  * rule, game.js) and pause, blur or a hidden tab suspends the whole context.
@@ -26,7 +27,7 @@
  * and measure every sound.
  */
 import { chainMultiplier } from './model.mjs';
-import { CHARACTERS, characterOf, bossLine, syllablesOf, marchTempo, DEFEAT_FINAL, DEFEAT_POPS } from './personality.mjs';
+import { CHARACTERS, characterOf, bossLine, marchTempo, DEFEAT_FINAL, DEFEAT_POPS } from './personality.mjs';
 
 const BASS = [55, 43.65, 49, 41.2]; // the original 4-note march (A1 F1 G1 E1)
 const PENTA = [0, 2, 4, 7, 9];
@@ -299,25 +300,33 @@ export function createAudio({ context = null, clock = null, random = Math.random
     if (breath > 0) noise(dest, { t, a: 0.01, d: len, peak: peak * breath * 0.6, type: 'bandpass', f: f2, q: 2 });
   }
   /** A character's voice blip (`syl` syllables, or its own count). */
-  function speak(id, { t = now() + 0.005, pan = 0, syl = null, pitchMul = 1, loud = 1, vowels = null, contour = 0 } = {}) {
+  function speak(id, { t = now() + 0.005, pan = 0, syl = null, pitchMul = 1, loud = 1, vowels = null, contour = 0, growl = null, len = null } = {}) {
     const v = (CHARACTERS[id] || CHARACTERS.wild).voice;
     const n = syl ?? v.syl;
     const dest = out(pan, 0.12);
     for (let i = 0; i < n; i++) {
-      const start = t + i * (v.len + 0.035);
+      const L = len ?? v.len;
+      const start = t + i * (L + 0.035);
       // Babble contour: +1 rises (question, excitement), -1 falls (defeat).
       const p = v.pitch * pitchMul * vary(60) * 2 ** ((contour * i) / Math.max(1, n - 1) / 4);
       const vowel = vowels ? vowels[i % vowels.length] : v.vowel;
-      syllable(dest, { t: start, pitch: p, pitch1: p * v.glide, len: v.len * vary(80), vowel, peak: LEVELS.voice * loud, growl: v.growl || 0, vibrato: v.vibrato || 0, breath: v.breath || 0 });
+      syllable(dest, { t: start, pitch: p, pitch1: p * v.glide, len: L * vary(80), vowel, peak: LEVELS.voice * loud, growl: growl ?? (v.growl || 0), vibrato: v.vibrato || 0, breath: Math.max(0.3, v.breath || 0) });
     }
-    return n * (v.len + 0.035);
+    return n * ((len ?? v.len) + 0.035);
   }
-  /** A boss line spoken as babble: vowels taken from the text, so each line
-   * has its own melody; "?" and "!" rise, "..." falls. */
-  function babble(id, text, pan) {
-    const vowels = (text.toLowerCase().match(/[aeiou]/g) || ['a']).filter((_, i) => i % 2 === 0);
-    const contour = /\.\.\./.test(text) ? -1.2 : /[?!]$/.test(text) ? 1 : 0;
-    speak(id, { syl: syllablesOf(text), pan, vowels, contour, loud: 1.15, t: now() + 0.02 });
+  /** A boss vocalises a line: a low, growling two-part formant call with a
+   * sub rumble (menace, not speech): rising for a taunt, a sneer for a
+   * gloat, falling for a defeat. */
+  function vocalise(id, mood = 'taunt', pan = 0) {
+    const t = now() + 0.02;
+    const contour = mood === 'defeat' ? -1.4 : mood === 'gloat' ? 0.4 : 0.9;
+    speak(id, { t, syl: 2, pan, pitchMul: 0.55, loud: 1.1, contour, growl: 0.6, len: 0.26 });
+    osc(out(pan, 0.2), { type: 'sine', f: 62, f1: mood === 'defeat' ? 38 : 70, t, a: 0.05, d: 0.55, peak: 0.12 });
+  }
+  /** An organic breath: band-passed noise through a vowel's formants. */
+  function breath(dest, { t, len, from = 500, to = 1300, peak = 0.06 }) {
+    noise(dest, { t, a: len * 0.7, d: len * 0.3, peak, type: 'bandpass', f: from, f1: to, q: 2.2, glide: 0.9 });
+    noise(dest, { t, a: len * 0.7, d: len * 0.3, peak: peak * 0.6, type: 'bandpass', f: from * 2.2, f1: to * 1.8, q: 3, glide: 0.9 });
   }
 
   // ---- Sound recipes -------------------------------------------------------------
@@ -372,7 +381,6 @@ export function createAudio({ context = null, clock = null, random = Math.random
       if (size === 2) noise(dest, { t: t + 0.005, a: 0.004, d: 0.12, peak: LEVELS.kill * 0.3, type: 'lowpass', f: 900, f1: 220, q: 2 });
       // Tail: the chain note, a soft sparkle that climbs with the streak.
       osc(dest, { type: 'triangle', f: base * 2, t: t + 0.012, a: 0.004, d: 0.13, peak: LEVELS.kill * 0.16 * (0.6 + Math.min(1, count / 8) * 0.4) });
-      if (ev.kind && ev.kind !== 'mini' && ev.kind !== 'virion-bullet' && ev.kind !== 'boss-part' && rnd() < 0.35 && gate('death-voice', 0.4)) speak(characterOf({ kind: ev.kind }), { t: t + 0.02, pan, syl: 1, pitchMul: 1.35, loud: 0.6 });
     },
     graze(ev) {
       if (!gate('graze', 0.035) || !claim(0.04, 0)) return;
@@ -436,11 +444,7 @@ export function createAudio({ context = null, clock = null, random = Math.random
       duckBed(14, 0.9, t);
       // Every villain on screen laughs at you (one voice, the boss's if any).
       const line = bossLine(ev, s);
-      if (line) babble(speakerOf(line, s), line.text, 0);
-      else {
-        const near = (s?.enemies || []).find((e) => e.alive && !e.harmless && e.kind !== 'mini');
-        if (near) speak(characterOf(near), { t: t + 0.35, pan: panOf(near.x), syl: 3, pitchMul: 1.15, contour: 0.6 });
-      }
+      if (line) vocalise(speakerOf(line, s), 'gloat', 0);
     },
     respawn(ev) {
       const t = now() + 0.002,
@@ -523,18 +527,22 @@ export function createAudio({ context = null, clock = null, random = Math.random
       const pan = panOf(ev.x);
       const t = now() + 0.004;
       if (ev.preset === 'sneeze') {
-        // "ah... ah..." in the sneezer's own voice, rising into the sneeze.
-        const v = CHARACTERS[id].voice;
+        // Two rising breaths in, the wind-up of the sneeze (no voice).
         const dest = out(pan, 0.15);
         const tele = Math.max(0.5, ev.tele || 0.8);
-        [0, 0.42].forEach((at, i) => syllable(dest, { t: t + at * tele, pitch: v.pitch * (1 + i * 0.19), pitch1: v.pitch * (1.18 + i * 0.22), len: 0.3 * tele, vowel: 'a', peak: LEVELS.voice * 0.9, breath: 0.6 }));
+        [0, 0.45].forEach((at, i) => breath(dest, { t: t + at * tele, len: 0.34 * tele, from: 450 + i * 120, to: 1200 + i * 300, peak: 0.07 + i * 0.02 }));
       } else if (ev.preset === 'jet' || ev.preset === 'wall') {
         // A rising danger swell for lane jets and mucus walls.
         osc(out(pan), { type: 'triangle', f: 196, f1: 392, t, a: 0.25, d: 0.5, peak: 0.035, glide: 1 });
         noise(out(pan), { t, a: 0.3, d: 0.45, peak: 0.03, type: 'bandpass', f: 400, f1: 2400, q: 2 });
       } else if (ev.boss) {
         if (gate('tele-boss', 0.25)) osc(out(pan), { type: 'sine', f: 1319, f1: 1568, t, a: 0.002, d: 0.08, peak: 0.016 });
-      } else if (gate('tele-voice', 0.16) && gate(`tele-${id}`, 0.5)) speak(id, { t, pan, loud: 0.75 });
+      } else if (gate('tele-bristle', 0.12)) {
+        // Spikes bristle before a shot: a dry tick and a membrane flex.
+        noise(out(pan), { t, a: 0.002, d: 0.03, peak: 0.03, type: 'bandpass', f: 3800 * vary(150), q: 4 });
+        osc(out(pan), { type: 'sine', f: 180 * vary(80), f1: 240, t, a: 0.01, d: 0.08, peak: 0.025 });
+      }
+      void id;
     },
     sneeze(ev) {
       // "CHOO": a wet noise burst with an "oo" and a little recoil thump.
@@ -542,7 +550,7 @@ export function createAudio({ context = null, clock = null, random = Math.random
       const t = now() + 0.003,
         dest = out(panOf(ev.x), 0.2);
       noise(dest, { t, a: 0.004, d: 0.26, peak: 0.12, type: 'bandpass', f: 3600, f1: 700, q: 1.1 });
-      syllable(dest, { t: t + 0.02, pitch: 340, pitch1: 250, len: 0.18, vowel: 'u', peak: LEVELS.voice * 0.7, breath: 0.8 });
+      noise(dest, { t: t + 0.02, a: 0.01, d: 0.2, peak: 0.06, type: 'bandpass', f: 760, f1: 340, q: 3 });
       osc(dest, { type: 'sine', f: 140, f1: 60, t, a: 0.002, d: 0.1, peak: 0.08 });
     },
     ring(ev) {
@@ -557,7 +565,8 @@ export function createAudio({ context = null, clock = null, random = Math.random
       osc(dest, { type: 'sawtooth', f: 110, f1: 82, t, a: 0.01, d: 0.5, peak: 0.035, filter: { f: 900 } });
     },
     'dive-telegraph'(ev) {
-      if (gate('dive', 0.3)) speak('droplet', { t: now() + 0.01, pan: panOf(ev.x), loud: 0.9 });
+      // The dive: a rising wet whoosh.
+      if (gate('dive', 0.3)) noise(out(panOf(ev.x), 0.15), { t: now() + 0.01, a: 0.2, d: 0.15, peak: 0.07, type: 'bandpass', f: 500, f1: 3500, q: 2.5, glide: 0.9 });
     },
     land(ev) {
       noise(out(panOf(ev.x)), { t: now() + 0.003, a: 0.003, d: 0.1, peak: 0.06, type: 'lowpass', f: 700, f1: 180, q: 3 });
@@ -576,25 +585,25 @@ export function createAudio({ context = null, clock = null, random = Math.random
     },
     infected(ev) {
       const t = now() + 0.003;
-      speak('hijacker', { t, pan: panOf(ev.x), syl: 2, loud: 0.9 });
-      noise(out(panOf(ev.x)), { t, a: 0.003, d: 0.15, peak: 0.06, type: 'bandpass', f: 900, q: 3, drive: true });
+      noise(out(panOf(ev.x)), { t, a: 0.003, d: 0.15, peak: 0.07, type: 'bandpass', f: 900, q: 3, drive: true });
+      osc(out(panOf(ev.x)), { type: 'sine', f: 110, f1: 70, t, a: 0.005, d: 0.2, peak: 0.08 });
     },
     tether(ev) {
-      if (gate('tether', 0.6)) speak('hijacker', { t: now() + 0.01, pan: panOf(ev.x), syl: 1, pitchMul: 0.9, loud: 0.7 });
+      // The RNA proboscis latches on: a low wet draw.
+      if (gate('tether', 0.6)) noise(out(panOf(ev.x)), { t: now() + 0.01, a: 0.08, d: 0.25, peak: 0.05, type: 'lowpass', f: 300, f1: 1200, q: 4 });
     },
     'bloom-open'(ev) {
-      if (gate('bloom', 0.4)) speak('bloom', { t: now() + 0.01, pan: panOf(ev.x), loud: 0.8 });
-    },
-    spawn(ev) {
-      // A rare-type entrance gets its voice (popcorn stays quiet).
-      if (ev.kind === 'mini' || ev.kind === 'wild' || ev.kind === 'virion' || ev.kind === 'vesicle') return;
-      if (gate('spawn', 0.4) && gate(`spawn-${ev.kind}`, 1.5)) speak(characterOf({ kind: ev.kind }), { t: now() + 0.01, pan: panOf(ev.x), loud: 0.7 });
+      // Petals unfurl: a soft sweep and a glassy shimmer.
+      if (gate('bloom', 0.4)) {
+        const t = now() + 0.01;
+        noise(out(panOf(ev.x), 0.2), { t, a: 0.12, d: 0.2, peak: 0.04, type: 'bandpass', f: 900, f1: 4000, q: 1.5 });
+        osc(out(panOf(ev.x), 0.3), { type: 'triangle', f: 784, f1: 830, t: t + 0.08, a: 0.02, d: 0.25, peak: 0.025 });
+      }
     },
     escape(ev) {
       if (!gate('escape', 0.3)) return;
       const t = now() + 0.003;
-      speak(characterOf({ kind: ev.kind }), { t, pan: panOf(ev.x), syl: 2, contour: 1, loud: 0.8 });
-      osc(out(panOf(ev.x)), { type: 'triangle', f: 330, f1: 140, t: t + 0.1, a: 0.005, d: 0.25, peak: 0.03 });
+      osc(out(panOf(ev.x)), { type: 'triangle', f: 330, f1: 140, t, a: 0.005, d: 0.3, peak: 0.04 });
     },
     mutating(ev) {
       const t = now() + 0.003;
@@ -615,7 +624,7 @@ export function createAudio({ context = null, clock = null, random = Math.random
       osc(out(panOf(ev.x), 0.2), { type: 'sine', f: 520, f1: 860, t: now() + 0.003, a: 0.004, d: 0.14, peak: 0.05 });
     },
     vesicle(ev) {
-      speak('vesicle', { t: now() + 0.01, pan: panOf(ev.x), loud: 0.6 });
+      osc(out(panOf(ev.x), 0.2), { type: 'sine', f: 300, f1: 210, t: now() + 0.01, a: 0.01, d: 0.14, peak: 0.04 });
     },
     absorbed() {
       if (gate('absorbed', 0.06)) osc(out(0), { type: 'sine', f: 400, f1: 260, t: now() + 0.002, a: 0.002, d: 0.05, peak: 0.03 });
@@ -627,7 +636,7 @@ export function createAudio({ context = null, clock = null, random = Math.random
       const t = now() + 0.003,
         dest = out(panOf(ev.x), 0.25);
       noise(dest, { t, a: 0.005, d: 0.35, peak: 0.12, type: 'bandpass', f: 600, f1: 3000, q: 2, drive: true });
-      speak('delta', { t: t + 0.1, pan: 0, syl: 1, loud: 1 });
+      vocalise('delta', 'taunt', 0);
     },
     'nucleus-swap'(ev) {
       osc(out(panOf(ev.x), 0.2), { type: 'sine', f: 880, f1: 1320, t: now() + 0.003, a: 0.003, d: 0.12, peak: 0.03 });
@@ -656,7 +665,7 @@ export function createAudio({ context = null, clock = null, random = Math.random
         osc(dest, { type: 'square', f: 784, t: t + 0.42, a: 0.004, d: 0.22, peak: 0.035, filter: { f: 2400 } });
       }
       const line = bossLine(ev, s);
-      if (line && b) babble(speakerOf(line, s), line.text, pan);
+      if (line && b) vocalise(speakerOf(line, s), 'taunt', pan);
     },
     'card-end'(ev) {
       const t = now() + 0.004,
@@ -696,7 +705,7 @@ export function createAudio({ context = null, clock = null, random = Math.random
       noise(dest, { t: t + len, a: 0.002, d: 0.28, peak: 0.12, type: 'lowpass', f: 1500, f1: 150 });
       duckBed(10, len + 0.4, t);
       const id = ev.boss === 'betagamma' ? 'gamma' : ev.boss;
-      if (CHARACTERS[id]) speak(id, { t: t + 0.35, syl: 3, contour: 0.8, loud: 1.1 });
+      if (CHARACTERS[id]) speak(id, { t: t + 0.35, syl: 2, contour: 0.8, loud: 1.1, pitchMul: 0.5, growl: 0.7, len: 0.32 });
       void s;
     },
     'boss-defeated'(ev, s) {
@@ -719,7 +728,7 @@ export function createAudio({ context = null, clock = null, random = Math.random
         osc(d2, { type: 'sine', f: 120, f1: 45, t: t + at, a: 0.002, d: 0.08, peak: 0.12 });
       });
       const line = bossLine(ev, s);
-      if (line) babble(speakerOf(line, s, ev.boss), line.text, pan);
+      if (line) vocalise(speakerOf(line, s, ev.boss), 'defeat', pan);
       // The big one.
       osc(dest, { type: 'sine', f: 70, f1: 24, t: t + final, a: 0.004, d: 1.5, peak: 0.55, glide: 0.5 });
       noise(dest, { t: t + final, a: 0.002, d: 0.9, peak: 0.28, type: 'lowpass', f: 3500, f1: 120, q: 0.7, glide: 0.7 });
@@ -806,7 +815,7 @@ export function createAudio({ context = null, clock = null, random = Math.random
     },
     /** A character's voice blip on its own (soundboard). */
     voice(id, opts = {}) {
-      if (enabled && ctx) speak(id, opts);
+      if (enabled && ctx && CHARACTERS[id]?.voice) speak(id, { pitchMul: 0.55, growl: 0.6, len: 0.26, syl: 2, ...opts });
     },
     /** Bass march, scheduled a few ms ahead from the frame loop: 72 bpm at a
      * full sample, 144 when nearly empty (personality.marchTempo). */
@@ -879,7 +888,10 @@ export const SFX_CATALOG = Object.freeze([
   { id: 'dive', group: 'Threats', label: 'DROPLET dives "wheee"', ev: { type: 'dive-telegraph', x: 4 } },
   { id: 'splash', group: 'Threats', label: 'DROPLET splash', ev: { type: 'splash', x: 4 } },
   { id: 'mutating', group: 'Threats', label: 'MUTATION warble', ev: { type: 'mutating', x: 0 } },
-  ...Object.keys(CHARACTERS).map((id) => ({ id: `voice-${id}`, group: 'Voices', label: `${CHARACTERS[id].label}: ${CHARACTERS[id].role}`, voice: id })),
+  // Bosses only: regular viruses have no voice (organic sounds instead).
+  ...Object.keys(CHARACTERS)
+    .filter((id) => CHARACTERS[id].voice)
+    .map((id) => ({ id: `voice-${id}`, group: 'Boss voices', label: `${CHARACTERS[id].label}: ${CHARACTERS[id].role}`, voice: id })),
   { id: 'boss-intro', group: 'Bosses', label: 'Boss entrance (ALPHA)', ev: { type: 'boss-intro', boss: 'alpha', mid: false } },
   { id: 'boss-intro-mid', group: 'Bosses', label: 'Midboss entrance (BIG SNEEZER)', ev: { type: 'boss-intro', boss: 'bigsneezer', mid: true } },
   { id: 'card-start', group: 'Bosses', label: 'Card declared + taunt (OMICRON)', ev: { type: 'card-start', index: 2, cardType: 'card' }, s: boss('omicron') },

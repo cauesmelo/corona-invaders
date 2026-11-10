@@ -320,7 +320,7 @@ function handleEvents(list, s, live) {
   }
 }
 
-// ---- Villain personality: boss name cards and speech bubbles ----------------
+// ---- Villain personality: boss name cards and HUD taunts ---------------------
 // Speech only appears when bullets were just cancelled (a card start, a lost
 // vial, a defeat), and both panels are translucent (MOVEMENT_AUDIT.md E1).
 let shownBoss = null;
@@ -344,37 +344,24 @@ function showBossCard(ev) {
     el.innerHTML = `<small>${ev.mid ? 'MIDBOSS' : 'VARIANT BOSS'} · ${card.title}</small><strong>${card.name}</strong><em>${card.line}</em>${hint ? `<span class="hint">${hint}</span>` : ''}`;
   });
 }
-const bubble = { id: null, until: 0 };
+/** A boss line in the HUD, not a speech bubble (user: "not cartoon"): card
+ * starts and gloats type into the VIRAL LOAD panel's taunt line, inside the
+ * reserved top band; the defeat line uses the callout (the panel is gone by
+ * then and every boss bullet was just cancelled). */
 function say(line, s, ev) {
-  const parts = s.enemies.filter((e) => e.kind === 'boss' && e.part !== 'node' && (e.alive || ev.type === 'boss-defeated'));
-  const who = (line.speaker && parts.find((e) => e.tag === line.speaker)) || parts[0];
-  const el = $('#boss-say');
-  el.textContent = line.text;
-  el.className = `${line.mood}${line.speaker ? ` twin-${line.speaker}` : ''}`;
-  bubble.id = who?.id ?? null;
-  bubble.x = who?.x ?? ev.x ?? 0;
-  bubble.z = who?.z ?? ev.z ?? -7;
-  bubble.r = who?.radius ?? 2;
-  bubble.until = performance.now() + (talkTime(line.text) + 0.7) * 1000;
-  el.hidden = false;
-  placeBubble(s);
-}
-/** Keep the bubble over its speaker (it follows a moving boss). */
-function placeBubble(s) {
-  const el = $('#boss-say');
-  if (el.hidden) return;
-  if (performance.now() > bubble.until || s.phase === 'title') {
-    el.hidden = true;
+  const who = line.speaker === 'B' ? 'BETA' : line.speaker === 'G' ? 'GAMMA' : bossCard(s.boss?.type ?? ev.boss)?.name || '';
+  if (ev.type === 'boss-defeated') {
+    flashElement('#callout', 1800, (el) => {
+      el.innerHTML = `<small>${who}</small>${line.text}`;
+      el.classList.remove('is-card');
+      el.classList.add('long');
+    });
     return;
   }
-  const who = s.enemies.find((e) => e.id === bubble.id && e.alive);
-  if (who) [bubble.x, bubble.z] = [who.x, who.z];
-  const p = view?.screenOf(bubble.x, 0.55, bubble.z - bubble.r * 1.05);
-  if (!p) return;
-  const w = stage.clientWidth;
-  const half = el.offsetWidth / 2;
-  const x = Math.max(half + 6, Math.min(w - half - 6, p.pixelX));
-  el.style.transform = `translate(${Math.round(x - half)}px, ${Math.round(Math.max(4, p.pixelY - el.offsetHeight - 8))}px)`;
+  flashElement('#boss-taunt', (talkTime(line.text) + 1.6) * 1000, (el) => {
+    el.className = line.mood;
+    el.innerHTML = `<b>${who}</b><span>${line.text}</span>`;
+  });
 }
 
 function showIntro() {
@@ -1318,7 +1305,6 @@ async function boot() {
     }
     if (clock.steps && !demo) spendPulse();
     if (!demo) noteBoss(state);
-    placeBubble(shown);
     audio.setSuspended(!!shown.paused);
     audio.tick(shown, shown.phase === 'playing' && !shown.paused && ui.attract !== 'demo');
     if (ui.screen === 'lost') {

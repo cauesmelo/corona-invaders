@@ -12,7 +12,7 @@ import { FAMILIES } from '../bullets.mjs';
 import { causeText } from '../ui.mjs';
 import { CHARACTERS, characterOf } from '../personality.mjs';
 
-const ORGANIC = new Set(['sphere', 'crown', 'clubs', 'shell', 'tube', 'torus', 'petals', 'drop', 'virions', 'warts', 'eyes']);
+const ORGANIC = new Set(['sphere', 'crown', 'clubs', 'shell', 'tube', 'torus', 'petals', 'drop', 'virions', 'warts', 'pits']);
 const PLANE_WORDS = /wing|fin\b|tail|fuselage|cockpit|engine|thruster|rotor|propeller|nose ?cone|jet\b/i;
 
 test('no plane-like geometry: every mesh part is organic (no boxes, cones, wings, fins or tails)', () => {
@@ -51,16 +51,15 @@ test('the four variant bosses have distinct silhouettes, not one ball with recol
     for (const p of SHAPES[k].parts.filter((p) => p.type === 'sphere' && p.scale)) assert.ok(p.scale[0] === 1 && p.scale[2] === 1, k);
 });
 
-test('every villain has a face, drawn as a decal (no eye meshes), except the supply carrier', () => {
-  // Revision five feedback: "the villains need a bit more personality".
-  // Popcorn used to stay faceless; now every virus has its own face from
-  // personality.mjs, drawn inside its body (tests/personality.test.mjs).
-  for (const spec of Object.values(SHAPES)) assert.ok(!spec.parts.some((p) => p.type === 'eyes'), 'faces are decals, not mesh parts');
+test('no cartoon faces: regular viruses are faceless and bosses show only sculpted pits', () => {
+  // Revision five, second round (user): "regular viruses don't need little
+  // faces; bosses are fine if they have personality; more 3D, not cartoon".
+  for (const spec of Object.values(SHAPES)) assert.ok(!spec.parts.some((p) => p.type === 'eyes'), 'no drawn eyes');
   for (const kind of Object.keys(ARCHETYPES)) {
-    const ch = CHARACTERS[characterOf({ kind })];
-    assert.ok(ch.face && (ch.faceless || ch.rest), kind);
+    assert.ok(!shapeFor({ kind }).parts.some((p) => p.type === 'pits'), `${kind} is faceless`);
+    assert.ok(CHARACTERS[characterOf({ kind })].motion, `${kind} has its own motion`);
   }
-  assert.ok(CHARACTERS.vesicle.faceless);
+  for (const type of ['alpha', 'twinB', 'twinG', 'delta', 'omicron']) assert.ok(SHAPES[type].parts.some((p) => p.type === 'pits'), type);
 });
 
 test('the syringe has no crossbars: nothing extends sideways beyond the barrel + 0.2 u, and the needle points up-field', () => {
