@@ -150,7 +150,9 @@ test('credits: "no recordings, no fonts, nothing but code" is true of every file
   const found = [];
   const walk = (dir) => {
     for (const name of readdirSync(dir)) {
-      if (['node_modules', 'dist', '.git', 'tests'].includes(name)) continue;
+      // docs/ only holds the screenshots the GitHub README shows. The game never loads them and
+      // package-itch.mjs leaves the folder out of the ZIP (it takes root files, assets/ and vendor/).
+      if (['node_modules', 'dist', '.git', 'tests', 'docs'].includes(name)) continue;
       const full = path.join(dir, name);
       if (statSync(full).isDirectory()) walk(full);
       else if (/\.(mp3|wav|ogg|m4a|flac|png|jpe?g|gif|webp|svg|woff2?|ttf|otf|glb|gltf|obj|fbx|ktx2?|hdr)$/i.test(name)) found.push(path.relative(root, full));
