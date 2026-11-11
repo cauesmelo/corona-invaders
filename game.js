@@ -47,7 +47,6 @@ import {
   creditsLeft,
   setGameSpeed,
   GAME_SPEEDS,
-  PROLOGUE,
   summarizeRunLog,
   runLogText,
 } from './model.mjs';
@@ -62,6 +61,7 @@ import { chooseInput } from './autopilot.mjs';
 import { createAudio } from './audio.mjs';
 import { TOP_BAND } from './camera.mjs';
 import { bossCard, bossLine, talkTime, DEFEAT_FINAL } from './personality.mjs';
+import { BRIEFING, CREDITS, REEL, epilogue, createReel, tickReel, pressReel, currentCard, holdOf, inertKey } from './credits.mjs';
 import { matrix, segments, vial, medalRing, ICONS, controlsCard, controlsLine, creditsCard, fmtTime, pixelSprite, soapBubbles, helix, r0Dial, causeText } from './ui.mjs';
 
 const $ = (sel) => document.querySelector(sel);
@@ -137,7 +137,12 @@ const ui = {
   mapOpen: false,
   trayMode: 'campaign',
   controlsOpen: false,
-  creditsOpen: false,
+  // The reel playing now (credits.mjs): the new-run briefing, the epilogue or
+  // the credits roll. `epilogue` is set when OMICRON PRIME's defeat has just
+  // won the run and cleared when the epilogue ends, so the FINAL REPORT waits
+  // for it (a state loaded by a fixture or the tray goes straight to the report).
+  reel: null,
+  epilogue: false,
   attract: 'title',
   attractTime: 0,
   idle: 0,
@@ -306,7 +311,12 @@ function handleEvents(list, s, live) {
     } else if (ev.type === 'resample') {
       saveRun();
       openFormulate({ resampled: true });
-    } else if (ev.type === 'won') clearRun();
+    } else if (ev.type === 'won') {
+      // The run is finished: nothing to continue, then the epilogue plays
+      // once the boss's final pop has landed (syncUI starts it).
+      clearRun();
+      ui.epilogue = !s.practice;
+    }
     else if (ev.type === 'card-start') {
       noteCard(s, ev);
       flashElement('#callout', 1450, (el) => {
@@ -439,12 +449,6 @@ function showIntro() {
     store.seen.add(level.code);
     save(KEYS.seen, [...store.seen]);
   }
-  const prologue = level.id === 1 && !state.practice && !store.seen.has('prologue');
-  if (prologue) {
-    store.seen.add('prologue');
-    save(KEYS.seen, [...store.seen]);
-    flashElement('#callout', 3000, (el) => ((el.innerHTML = `<small>FIELD NOTE 0</small>${PROLOGUE}`), el.classList.add('long'), el.classList.remove('is-card')));
-  }
   flashElement('#intro-card', fresh || sectorStart ? 2600 : 1600, (el) => {
     el.classList.toggle('short', !(fresh || sectorStart));
     el.classList.toggle('sector', sectorStart);
@@ -517,17 +521,19 @@ function runLogHTML() {
 function currentScreen() {
   if (!inputEnabled) return '';
   if (ui.mapOpen) return 'map';
+  if (ui.reel) return 'reel';
   const p = state.paused ? 'paused' : state.phase;
-  if (p === 'title') return ui.creditsOpen ? 'credits' : ui.controlsOpen ? 'controls' : ui.attract === 'title' ? 'title' : ui.attract;
+  if (p === 'title') return ui.controlsOpen ? 'controls' : ui.attract === 'title' ? 'title' : ui.attract;
   if (p === 'paused') return ui.controlsOpen ? 'controls' : 'pause';
   if (p === 'lost') return 'lost';
   if (p === 'draft') return 'formulate';
   const shown = !(performance.now() < (ui.reportAt || 0));
-  if (p === 'won') return shown ? (state.practice ? 'practice' : 'won') : '';
+  // A live win plays the epilogue first (a reel); the FINAL REPORT follows it.
+  if (p === 'won') return shown && !ui.epilogue ? (state.practice ? 'practice' : 'won') : '';
   if (p === 'transition' && state.transitionHold) return shown ? 'report' : '';
   return '';
 }
-const ROWS = ['play-button', 'resume-button', 'assist-button', 'easy-button', 'retry-button', 'copy-button', 'menu-button', 'difficulty-button', 'speed-button', 'sound-button', 'effects-button', 'controls-button', 'back-button'];
+const ROWS = ['play-button', 'resume-button', 'assist-button', 'easy-button', 'retry-button', 'copy-button', 'newrun-button', 'menu-button', 'difficulty-button', 'speed-button', 'sound-button', 'effects-button', 'controls-button', 'back-button'];
 const ATTRACT = ['title', 'demo', 'scores', 'attract-controls', 'attract-credits'];
 function configure(screen) {
   const assist = assistAvailable(state);
@@ -538,11 +544,11 @@ function configure(screen) {
       scores: ['play-button'],
       'attract-controls': ['play-button'],
       'attract-credits': ['play-button'],
-      credits: ['back-button'],
+      reel: [],
       pause: ['play-button', ...(state.practice || creditsLeft(state) > 0 ? ['retry-button'] : []), 'menu-button', 'difficulty-button', 'speed-button', 'sound-button', 'effects-button', 'controls-button'],
       controls: ['back-button'],
       lost: state.runOver ? ['play-button', 'copy-button', 'menu-button'] : ['play-button', ...(assist ? ['assist-button', ...(state.difficulty !== 'easy' ? ['easy-button'] : [])] : []), 'menu-button'],
-      won: ['play-button', 'copy-button', 'menu-button'],
+      won: ['play-button', 'copy-button', 'newrun-button', 'menu-button'],
       practice: ['play-button', 'menu-button'],
       report: ['play-button'],
     }[screen] || [];
@@ -563,6 +569,7 @@ function configure(screen) {
   playButton.classList.toggle('blink', ATTRACT.includes(screen));
   tag.textContent = '';
   body.innerHTML = '';
+  body.removeAttribute('aria-live');
   $('#copy-button').innerHTML = 'COPY RUN LOG <span class="hint">C</span>';
   $('#copy-button').classList.remove('done');
   const touch = touchQuery.matches;
@@ -600,9 +607,8 @@ function configure(screen) {
   } else if (screen === 'controls') {
     heading.innerHTML = matrix('CONTROLS');
     body.innerHTML = controlsCard(touch);
-  } else if (screen === 'credits') {
-    heading.innerHTML = matrix('CREDITS');
-    body.innerHTML = creditsCard();
+  } else if (screen === 'reel') {
+    renderReel();
   } else if (screen === 'lost' && state.runOver) {
     // No credit left: the FINAL REPORT (RESEARCH_V1.md 5.3).
     heading.innerHTML = matrix('FINAL') + matrix('REPORT');
@@ -640,8 +646,12 @@ function configure(screen) {
     const run = state.run;
     const placebo = run && run.drafts > 0 && run.discards === run.drafts;
     body.innerHTML = `<div class="fr-cols"><div>${finalReportHTML(state.finalReport)}</div>${runLogHTML()}</div>${run ? `${placebo ? '<p class="badge">PLACEBO GROUP · NO ADJUVANTS TAKEN</p>' : ''}${formulationList(run.deck)}` : ''}`;
-    playButton.textContent = 'NEW RUN';
+    // The FINAL REPORT's primary row rolls the credits (they end on the title,
+    // where START begins a new run); NEW RUN is one row down for a repeat win.
+    playButton.innerHTML = `CREDITS <span class="hint">${press}</span>`;
+    $('#newrun-button').textContent = 'NEW RUN';
     $('#menu-button').innerHTML = `PRACTICE <span class="hint">TRAY</span>`;
+    ui.lockUntil = performance.now() + 1000;
   } else if (screen === 'practice') {
     const r = state.practice?.result || {};
     heading.innerHTML = matrix(r.cardName ? (r.neutralized ? 'NEUTRALIZED' : 'CARD OVER') : 'CLEAR');
@@ -681,7 +691,7 @@ function focusPrimary(screen) {
   const target = screen === 'lost' && $('#easy-button').classList.contains('primary') ? $('#easy-button') :
     screen === 'map'
       ? $(`#tray-rows [data-stage="${Math.min(state.wave, state.unlockedStage)}"]`) || $('#tray-rows button:not(:disabled)') || $('#map-back')
-      : screen === 'controls' || screen === 'credits'
+      : screen === 'controls'
         ? $('#back-button')
         : playButton;
   target?.focus({ preventScroll: true });
@@ -919,10 +929,14 @@ function syncLayout() {
 
 function syncUI() {
   persistUnlock();
+  // The epilogue opens once the boss's final pop has landed (ui.reportAt).
+  if (ui.epilogue && !ui.reel && state.phase === 'won' && !state.practice && inputEnabled && !ui.mapOpen && performance.now() >= (ui.reportAt || 0)) startReel('epilogue');
   const screen = currentScreen();
   overlay.hidden = !screen || screen === 'formulate';
   const fEl = $('#formulate');
   if (fEl.hidden !== (screen !== 'formulate')) fEl.hidden = screen !== 'formulate';
+  const reelKind = ui.reel ? ui.reel.r.kind : '';
+  if (cabinet.dataset.reel !== reelKind) cabinet.dataset.reel = overlay.dataset.reel = reelKind;
   const drafting = screen === 'formulate' || !!view?.draft?.active;
   if (cabinet.hasAttribute('data-draft') !== drafting) cabinet.toggleAttribute('data-draft', drafting);
   if (screen === 'formulate' && ui.fKey !== offerKey()) openFormulate();
@@ -967,16 +981,23 @@ function resume() {
   togglePause(state);
   if (!state.paused) lockHeld();
 }
-function beginPlay(action) {
+/** Start or resume play. `briefing`: this is a NEW run from 1-1 (START, NEW
+ * RUN, the tray's 1-1), so the briefing plays first and the stage intro waits
+ * for it; a continue, a retry, a resume or any later stage never shows it. */
+function beginPlay(action, { briefing = false } = {}) {
   wake();
   lockHeld();
   audio.resume();
-  ui.mapOpen = ui.controlsOpen = ui.creditsOpen = false;
+  ui.mapOpen = ui.controlsOpen = false;
+  ui.reel = null;
+  ui.epilogue = false;
   action();
-  if (state.phase === 'playing') showIntro();
+  if (briefing && state.phase === 'playing') startReel('briefing');
+  else if (state.phase === 'playing') showIntro();
   syncUI();
   focusGame();
 }
+const newRunPlay = () => beginPlay(freshCampaign, { briefing: true });
 function freshCampaign() {
   if (load(KEYS.difficulty, null) === null) save(KEYS.difficulty, store.difficulty);
   runId++;
@@ -1002,14 +1023,15 @@ function primaryAction() {
     resume();
     syncUI();
     focusGame();
-  } else if (screen === 'lost' && state.runOver) beginPlay(freshCampaign);
+  } else if (screen === 'lost' && state.runOver) newRunPlay();
   else if (screen === 'lost' || screen === 'practice') beginPlay(() => restartGame(state));
-  else if (screen === 'won') beginPlay(freshCampaign);
+  // The FINAL REPORT's main action rolls the credits, which end on the title.
+  else if (screen === 'won') startReel('credits');
   else if (screen === 'report') {
     confirmReport(state);
     syncUI();
     focusGame();
-  } else if (ATTRACT.includes(screen)) beginPlay(freshCampaign);
+  } else if (ATTRACT.includes(screen)) newRunPlay();
 }
 function openMap() {
   wake();
@@ -1036,7 +1058,9 @@ function closeMap() {
   syncUI();
 }
 function retrySector() {
-  if (state.phase === 'lost' && state.runOver) return beginPlay(freshCampaign);
+  // A won run is over: R must not restart OMICRON PRIME under the FINAL REPORT.
+  if (state.phase === 'won' && !state.practice) return;
+  if (state.phase === 'lost' && state.runOver) return newRunPlay();
   // A restart mid-stage spends a credit; with none left it is refused.
   if (!state.practice && state.phase !== 'lost' && creditsLeft(state) <= 0) return;
   beginPlay(() => restartGame(state));
@@ -1147,16 +1171,15 @@ $('#controls-button').addEventListener('click', () => {
   syncUI();
 });
 $('#back-button').addEventListener('click', () => {
-  ui.controlsOpen = ui.creditsOpen = false;
+  ui.controlsOpen = false;
   syncUI();
 });
-$('#title-credits').addEventListener('click', () => {
-  ui.creditsOpen = true;
-  syncUI();
-});
+// CREDITS plays the same roll the ending does, then returns to the title.
+$('#title-credits').addEventListener('click', () => startReel('credits'));
+$('#newrun-button').addEventListener('click', newRunPlay);
 $('#easy-start').addEventListener('click', () => {
   setMode('easy');
-  beginPlay(freshCampaign);
+  newRunPlay();
 });
 $('#tray-tabs').addEventListener('click', (event) => {
   const tab = event.target.closest('[data-mode]');
@@ -1170,10 +1193,14 @@ $('#tray-rows').addEventListener('click', (event) => {
   ui.mapReturn = null;
   state.difficulty = store.difficulty;
   if (el.dataset.stage)
-    beginPlay(() => {
-      runId++;
-      selectStage(state, Number(el.dataset.stage));
-    });
+    beginPlay(
+      () => {
+        runId++;
+        selectStage(state, Number(el.dataset.stage));
+      },
+      // A run from 1-1 is a new run, so it opens with the briefing too.
+      { briefing: Number(el.dataset.stage) === 1 },
+    );
   else if (el.dataset.practice) beginPlay(() => startPractice(state, Number(el.dataset.practice)));
   else {
     const [type, index] = el.dataset.card.split(':');
@@ -1181,7 +1208,8 @@ $('#tray-rows').addEventListener('click', (event) => {
   }
 });
 $('#pause-button').addEventListener('click', () => {
-  if (state.phase === 'title') return;
+  // A reel (briefing, epilogue) is not a state to pause.
+  if (state.phase === 'title' || ui.reel) return;
   if (state.paused) resume();
   else togglePause(state);
   audio.setSuspended(!!state.paused);
@@ -1408,9 +1436,13 @@ function moveFocus(delta) {
   items[index < 0 ? 0 : (index + delta + items.length) % items.length].focus({ preventScroll: true });
 }
 window.addEventListener('keydown', (event) => {
+  // A key already down is never a new press, whatever `repeat` says (a missed
+  // keyup, a synthetic event): the reels and the FINAL REPORT read this.
+  const wasHeld = held.has(event.code);
   held.add(event.code);
   if (!inputEnabled) return;
   const code = event.code;
+  if (ui.reel) return reelKey(event, wasHeld);
   if (view?.draft?.holding) {
     // The pick animates (play is held): a press skips it after 0.36 s and
     // never reaches play (a SOAP key counts only after a release).
@@ -1421,7 +1453,10 @@ window.addEventListener('keydown', (event) => {
   }
   const onButton = event.target instanceof HTMLButtonElement;
   const screen = ui.screen;
-  if (screen === 'lost' && (code === 'Space' || code === 'Enter') && (event.repeat || performance.now() < (ui.lockUntil || 0))) {
+  // The loss screen and the FINAL REPORT wait 1 s and a fresh press: a SOAP
+  // key still held from the fight must not continue or start the credits.
+  const gated = screen === 'lost' || (screen === 'won' && !state.practice);
+  if (gated && (code === 'Space' || code === 'Enter') && (event.repeat || wasHeld || performance.now() < (ui.lockUntil || 0))) {
     event.preventDefault(); // also blocks a focused button's native activation
     return;
   }
@@ -1437,8 +1472,8 @@ window.addEventListener('keydown', (event) => {
   if (screen && screen !== 'report') {
     if (code === 'Escape') {
       if (screen === 'map') closeMap();
-      else if (screen === 'controls' || screen === 'credits') {
-        ui.controlsOpen = ui.creditsOpen = false;
+      else if (screen === 'controls') {
+        ui.controlsOpen = false;
         syncUI();
       } else if (screen === 'pause') {
         resume();
@@ -1502,7 +1537,7 @@ window.addEventListener('keyup', (event) => {
 });
 window.addEventListener('blur', () => {
   releaseAll();
-  if (['playing', 'transition', 'draft'].includes(state.phase) && !state.paused) {
+  if (['playing', 'transition', 'draft'].includes(state.phase) && !state.paused && !ui.reel) {
     state.paused = true;
     // A hidden or blurred tab may stop requestAnimationFrame first, so the
     // audio is suspended here directly as well as by the frame loop.
@@ -1513,7 +1548,7 @@ window.addEventListener('blur', () => {
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden) return;
   releaseAll();
-  if (['playing', 'transition'].includes(state.phase)) {
+  if (['playing', 'transition'].includes(state.phase) && !ui.reel) {
     state.paused = true;
     audio.setSuspended(true);
   }
@@ -1609,7 +1644,19 @@ $('#touch-bomb').addEventListener('click', (event) => {
   // Keyboard / assistive activation; pointer activation already happened.
   if (event.detail === 0) bombPulse = 3;
 });
-overlay.addEventListener('pointerdown', () => {
+// The briefing's card lets pointers through (CSS), so a press on the board skips
+// it and also starts steering: the capture phase runs first, the pad or canvas
+// handler after it (it would otherwise be wiped by the skip's lockHeld).
+stage.addEventListener(
+  'pointerdown',
+  (event) => {
+    if (ui.reel?.r.kind === 'briefing' && event.button === 0) reelPress('Pointer', false);
+  },
+  { capture: true },
+);
+overlay.addEventListener('pointerdown', (event) => {
+  // A click or tap turns an epilogue or credits card like a key does (after its lockout).
+  if (ui.reel) return void (event.button === 0 && reelPress('Pointer', false));
   if (ui.attract !== 'title') {
     wake();
     syncUI();
@@ -1651,6 +1698,94 @@ function spendPulse() {
   if (bombPulse > 0) bombPulse--;
 }
 
+// ---- Reels: the briefing, the epilogue and the credits (credits.mjs) -------------
+// One card at a time inside the lab card, over the 3D board. The simulation is
+// held while a reel plays (frame loop). A press turns a card after its lockout
+// (the briefing has none); a key already held, an auto-repeat or a browser
+// chord never counts, so a SOAP key held through the boss's last pop cannot
+// skip the epilogue or the credits (tests/browser/ending.mjs holds Space).
+const REEL_CARDS = { briefing: () => [BRIEFING], epilogue: () => epilogue(state.finalReport, WORLDS[3].note), credits: () => CREDITS };
+function startReel(kind) {
+  ui.reel = { r: createReel(kind, REEL_CARDS[kind](), { lockout: kind === 'briefing' ? 0 : REEL.lockout }) };
+  // Whatever was held when the reel opened (the START press, a SOAP key) stays
+  // unspent after it too.
+  lockHeld();
+  ui.mapOpen = ui.controlsOpen = false;
+  ui.idle = 0;
+  syncUI();
+}
+function reelTick(dt) {
+  const { r } = ui.reel;
+  const changed = tickReel(r, dt);
+  if (r.done) endReel();
+  else if (changed) cardTurned();
+}
+function reelPress(code, repeat) {
+  if (!ui.reel) return;
+  const verdict = pressReel(ui.reel.r, { code, repeat });
+  if (verdict === 'end') endReel();
+  else if (verdict === 'next') cardTurned();
+}
+function reelKey(event, wasHeld) {
+  const code = event.code;
+  // Browser chords (reload, fullscreen, switching tabs) are not presses.
+  if (inertKey(code) || event.metaKey || event.ctrlKey || event.altKey) return;
+  event.preventDefault();
+  reelPress(code, event.repeat || wasHeld);
+}
+function cardTurned() {
+  renderReel();
+  if (ui.reel.r.kind !== 'briefing') audio.event({ type: 'reel' }, state);
+}
+function endReel() {
+  const { kind } = ui.reel.r;
+  ui.reel = null;
+  lockHeld(); // the key that ended it must not fire a SOAP when play resumes
+  if (kind === 'briefing') showIntro();
+  else if (kind === 'epilogue') ui.epilogue = false;
+  else {
+    // The roll ends on the title: from the FINAL REPORT the finished run is
+    // left behind (its save was cleared when it was won), from the title's
+    // CREDITS button nothing else changes.
+    if (state.phase !== 'title') backToTitle();
+    ui.attract = 'title';
+    ui.attractTime = ui.idle = 0;
+  }
+  if (kind !== 'briefing') audio.event({ type: 'reel', end: kind === 'credits' }, state);
+  syncUI();
+  if (kind === 'briefing') focusGame();
+}
+/** The title after a finished run: a fresh state, like the page's first load
+ * (the title scene shows stage 1's board, not the last boss's cell), with the
+ * unlocked stages kept for the tray. */
+function backToTitle() {
+  const { unlockedStage } = state;
+  view?.reset();
+  Object.assign(state, createState({ seed: freshSeed(), difficulty: store.difficulty, drafts: true }), { unlockedStage });
+  setGameSpeed(state, store.speed);
+}
+const escapeHTML = (text) => String(text).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+/** The card on screen: its dot-matrix heading, its lines (the briefing types
+ * them in one by one), the position dots and the key hint. Called when the
+ * card turns; the wait before the hint shows is the card's lockout (CSS). */
+function renderReel() {
+  const { r } = ui.reel;
+  const card = currentCard(r);
+  const heading = $('#overlay-heading'),
+    body = $('#overlay-body');
+  heading.classList.toggle('logo', !!card.logo);
+  heading.innerHTML = card.logo
+    ? `<span class="logo-row">${pixelSprite('corona', { cls: 'logo-virus' })}${matrix('CORONA')}${pixelSprite('corona', { cls: 'logo-virus' })}</span>${matrix('INVADERS')}<span class="logo-sub">${pixelSprite('syringe', { color: '#7fe8ff', cls: 'logo-syringe' })}<em>${escapeHTML(card.lines[0])}</em></span>`
+    : matrix(card.heading);
+  setText($('#card-tag'), card.tag || '');
+  const lines = card.logo ? [] : card.lines;
+  const pips = r.cards.length > 1 ? `<span class="reel-pips" aria-hidden="true">${r.cards.map((_, i) => `<i${i === r.index ? ' class="on"' : i < r.index ? ' class="done"' : ''}></i>`).join('')}</span>` : '';
+  const key = touchQuery.matches ? 'TAP' : 'ANY KEY';
+  const hint = r.kind === 'briefing' ? `${key} SKIPS` : `${key}: NEXT${touchQuery.matches ? '' : ' · ESC: SKIP'}`;
+  body.setAttribute('aria-live', 'polite');
+  body.innerHTML = `<div class="reel-lines">${lines.map((t, i) => `<p class="reel-line" style="--i:${card.reveal ? i : 0}">${escapeHTML(t)}</p>`).join('')}</div><div class="reel-foot">${pips}<span class="reel-hint" style="--lock:${r.lockout}s">${hint}</span></div>`;
+}
+
 // ---- Attract mode: logo -> live demo -> top scores -> controls -------------------
 function leaveDemo() {
   if (ui.demo) {
@@ -1659,7 +1794,7 @@ function leaveDemo() {
   }
 }
 function tickAttract(dt) {
-  if (state.phase !== 'title' || ui.mapOpen || ui.controlsOpen || ui.creditsOpen || !inputEnabled) {
+  if (state.phase !== 'title' || ui.mapOpen || ui.controlsOpen || ui.reel || !inputEnabled) {
     ui.idle = 0;
     if (ui.attract !== 'title') {
       leaveDemo();
@@ -1701,6 +1836,15 @@ window.__game = {
   /** QA: ASSIST game speed (100/90/80/70%). */
   speed: (v) => (v === undefined ? state.gameSpeed : setGameSpeed(state, v)),
   getAudio: () => ({ enabled: audio.enabled, context: audio.contextState }),
+  /** QA: the reel on screen (briefing, epilogue or credits), or null. */
+  reel: () => {
+    if (!ui.reel) return null;
+    const { r } = ui.reel;
+    const card = currentCard(r);
+    return { kind: r.kind, index: r.index, count: r.cards.length, id: card.id, heading: card.heading || null, lines: [...card.lines], t: r.t, hold: holdOf(card), lockout: r.lockout, done: r.done, reason: r.reason, text: $('#overlay-body').innerText };
+  },
+  /** QA: whether the epilogue is still owed (a live win waiting for its reel). */
+  ending: () => ({ epilogue: ui.epilogue, screen: ui.screen, saved: !!savedRun() }),
   start: () => beginPlay(() => startGame(state)),
   restart: () => {
     restartGame(state);
@@ -1712,12 +1856,16 @@ window.__game = {
     runId++;
     newRun(state, seed);
     ui.mapOpen = false;
+    ui.reel = null;
+    ui.epilogue = false;
     syncUI();
     view?.render(state, 0);
   },
   checkpoint: (stage) => {
     const result = stage ? selectStage(state, stage) : restartGame(state);
     ui.mapOpen = false;
+    ui.reel = null;
+    ui.epilogue = false;
     syncUI();
     view?.render(state, 0);
     return result;
@@ -1859,6 +2007,7 @@ async function boot() {
     const dt = Math.min(real, 0.05);
     lastFrame = timestamp;
     tickAttract(real);
+    if (ui.reel) reelTick(Math.min(real, 0.1)); // a stalled frame never spends a card
     // ASSIST game speed scales real time into the fixed-step clock.
     advanceClock(clock, real * (ui.attract === 'demo' ? 1 : state.gameSpeed || 1));
     if (forceSmooth) clock.smooth = true;
@@ -1872,7 +2021,9 @@ async function boot() {
     const draft = view.draft;
     if (draft.active && draft.holding && state.paused) draft.close();
     if (draft.active && !draft.holding && state.phase !== 'draft') draft.close();
-    const holdSim = !demo && draft.holding;
+    // A reel (briefing, epilogue, credits) holds the simulation like a draft
+    // animation does: the stage waits for the briefing, nothing moves under it.
+    const holdSim = !demo && (draft.holding || !!ui.reel);
     for (let i = 0; i < clock.steps && !holdSim; i++) {
       if (i === clock.steps - 1) {
         prevPositions = clock.smooth ? capturePositions(shown) : null;
@@ -1891,7 +2042,7 @@ async function boot() {
     if (clock.steps && !demo) spendPulse();
     if (!demo) noteBoss(state);
     audio.setSuspended(!!shown.paused);
-    audio.tick(shown, shown.phase === 'playing' && !shown.paused && ui.attract !== 'demo');
+    audio.tick(shown, shown.phase === 'playing' && !shown.paused && ui.attract !== 'demo' && !ui.reel);
     if (ui.screen === 'lost') {
       const left = Math.max(0, Math.ceil(9 - ui.lostTime));
       const label = document.getElementById('countdown-text');

@@ -1163,7 +1163,7 @@ canvas {
 }
 .overlay[data-screen='pause'] .matrix,
 .overlay[data-screen='controls'] .matrix,
-.overlay[data-screen='credits'] .matrix,
+.overlay[data-screen='reel'] .matrix,
 .overlay[data-screen='practice'] .matrix,
 .overlay[data-screen='won'] .matrix {
   color: var(--cyan);
@@ -2774,4 +2774,111 @@ kbd {
   font-size: 9px;
   letter-spacing: 0.06em;
   line-height: 14px;
+}
+
+/* ---- Reels: the briefing, the epilogue and the credits (credits.mjs) ----------
+ * One lab card at a time over the dimmed 3D board. Lines type in one by one
+ * (--i is the line's index; only the briefing sets a stagger), the key hint
+ * waits out the card's lockout (--lock) so it never invites a press that would
+ * be ignored. Reduced motion shows everything at once. */
+.overlay[data-screen='reel'] {
+  background: radial-gradient(ellipse at center, rgba(3, 8, 10, 0.55), rgba(3, 8, 10, 0.88));
+}
+.overlay[data-screen='reel'] .card {
+  width: min(480px, 100%);
+  min-height: 250px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 30px 24px 18px;
+}
+/* The briefing never blocks the board: a press anywhere skips it and plays. */
+.overlay[data-reel='briefing'] {
+  pointer-events: none;
+}
+.overlay[data-reel='epilogue'] .matrix {
+  color: var(--virus);
+}
+.overlay[data-screen='reel'] .logo .logo-row .dm {
+  height: 44px;
+}
+.overlay[data-screen='reel'] .logo .dm + .dm {
+  height: 32px;
+}
+.reel-lines {
+  display: grid;
+  gap: 9px;
+  margin: 10px auto 18px;
+  max-width: 40em;
+}
+.reel-line {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  letter-spacing: 0.05em;
+  color: #cfeff5;
+  animation: reel-in 0.7s ease-out both;
+  animation-delay: calc(var(--i, 0) * 0.55s);
+}
+.overlay[data-reel='credits'] .reel-line {
+  letter-spacing: 0.02em;
+  color: var(--ink);
+}
+.reel-foot {
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  margin-top: auto;
+}
+.reel-pips {
+  display: flex;
+  gap: 7px;
+}
+.reel-pips i {
+  width: 7px;
+  height: 7px;
+  border: 1px solid #2f5f5a;
+  border-radius: 50%;
+}
+.reel-pips i.done {
+  background: #2f5f5a;
+}
+.reel-pips i.on {
+  border-color: var(--cyan);
+  background: var(--cyan);
+  box-shadow: 0 0 6px #7fe8ff88;
+}
+.reel-hint {
+  color: var(--muted);
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  animation: reel-hint 0.5s ease-out both;
+  animation-delay: var(--lock, 0.6s);
+}
+@keyframes reel-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+@keyframes reel-hint {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 0.75;
+  }
+}
+/* The credits roll over the bare board, like the title: the instruments rest. */
+.cabinet[data-reel='credits'] .hud > * {
+  visibility: hidden;
+}
+@media (prefers-reduced-motion: reduce) {
+  .reel-line,
+  .reel-hint {
+    animation: none;
+  }
+  .reel-hint {
+    opacity: 0.75;
+  }
 }
