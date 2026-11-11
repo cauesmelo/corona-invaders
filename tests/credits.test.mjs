@@ -13,6 +13,7 @@ import { fileURLToPath } from 'node:url';
 import { BRIEFING, CREDITS, REEL, VERSION, creditsRows, createReel, currentCard, epilogue, holdOf, inertKey, pressReel, reelLength, tickReel } from '../credits.mjs';
 import { creditsCard } from '../ui.mjs';
 import { PROLOGUE, WORLDS } from '../levels.mjs';
+import { createState, finalReport } from '../model.mjs';
 import { stampOf } from '../runlog.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -96,6 +97,20 @@ test('the epilogue says each way of winning in its own words and never miscounts
   assert.equal(epilogue({}, WORLDS[3].note).length, 3);
   assert.equal(epilogue(undefined).length, 3);
   assert.match(how({}), /^CONTAINED\.$/);
+});
+
+test('the epilogue reads the model\'s real FINAL REPORT (its field names are the contract)', () => {
+  // A fresh Normal run from 1-1 that spent no credit is a 1CC; the report is what the model files at the win.
+  const real = finalReport(createState({ seed: 3 }), true);
+  const cards = epilogue(real, WORLDS[3].note);
+  assert.equal(real.stamp, '1CC · ONE CREDIT CLEAR');
+  assert.match(cards[2].lines[0], /ONE SYRINGE, ONE CREDIT/);
+  assert.equal(cards[2].lines[1], `SEQUENCED ${real.sequenced} OF ${real.variantCards} VARIANT CARDS.`);
+  assert.ok(real.variantCards > 0 && Number.isInteger(real.creditsUsed) && real.credits === 3);
+  // A run that spent credits says so, from the same fields.
+  const spent = finalReport(Object.assign(createState({ seed: 3 }), { creditsUsed: 2 }), true);
+  assert.equal(spent.stamp, null);
+  assert.match(epilogue(spent, WORLDS[3].note)[2].lines[0], /CONTAINED USING 2 OF 3 CREDITS\./);
 });
 
 test('the culture card names every variant the run fought', () => {
