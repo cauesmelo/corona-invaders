@@ -855,6 +855,16 @@ export function createAudio({ context = null, clock = null, random = Math.random
         dest = out(0, 0.45);
       [0, 4, 7, 12, 16, 19, 24].forEach((n, i) => osc(dest, { type: 'triangle', f: 392 * 2 ** (n / 12), t: t + i * 0.1, a: 0.005, d: 0.6, peak: 0.06 }));
     },
+    // A card turning over in the epilogue and the credits: one soft bell and
+    // its fifth, quieter than every stage sound (no music plays on these
+    // screens, so nothing competes). The roll's last card closes a fifth lower.
+    reel(ev) {
+      const t = now() + 0.005,
+        dest = out(0, 0.5),
+        f = ev.end ? 392 : 659;
+      osc(dest, { type: 'sine', f, t, a: 0.03, d: 0.9, peak: 0.04 });
+      osc(dest, { type: 'triangle', f: f * 1.5, t: t + 0.02, a: 0.04, d: 0.7, peak: 0.016 });
+    },
   };
   /** Who speaks a boss line: the named twin, else the boss itself. */
   const speakerOf = (line, s, type = s?.boss?.type) => (line.speaker === 'G' ? 'gamma' : line.speaker === 'B' ? 'beta' : type === 'betagamma' ? 'beta' : CHARACTERS[type] ? type : 'alpha');
@@ -1048,6 +1058,8 @@ export const SFX_CATALOG = Object.freeze([
   { id: 'boss-defeated', group: 'Bosses', label: 'Boss defeated (payoff)', ev: { type: 'boss-defeated', boss: 'alpha', mid: false, x: 0 }, s: boss('alpha') },
   { id: 'midboss-defeated', group: 'Bosses', label: 'Midboss defeated', ev: { type: 'boss-defeated', boss: 'mother', mid: true, x: 0 }, s: boss('mother') },
   { id: 'won', group: 'Bosses', label: 'Campaign won', ev: { type: 'won' } },
+  { id: 'reel-card', group: 'Screens', label: 'Epilogue or credits card turns', ev: { type: 'reel' } },
+  { id: 'reel-end', group: 'Screens', label: 'Credits end', ev: { type: 'reel', end: true } },
   { id: 'draft', group: 'Adjuvants', label: 'FORMULATE opens (glass tray)', ev: { type: 'draft' } },
   { id: 'reveal-common', group: 'Adjuvants', label: 'Reveal: common', ev: { type: 'reveal', tier: 'common', slot: 0 } },
   { id: 'reveal-rare', group: 'Adjuvants', label: 'Reveal: rare', ev: { type: 'reveal', tier: 'rare', slot: 1 } },
