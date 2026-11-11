@@ -47,8 +47,9 @@ Nothing here is uploaded. The owner edits and approves it.
   | SOAP (bomb) | Space or X | Right button | SOAP button |
   | Fire | Automatic | Automatic | Automatic |
   | Pause / restart stage | P or Esc / R | Pause button | Pause button |
+  | Briefing, epilogue, credits | Any key turns or skips a card; Esc skips the epilogue or the credits | Click | Tap |
 
-- **Credits for the page:** original game and sprites by Cauê Melo; three.js (MIT); all sound synthesized with the Web Audio API; the four-note march nods to Space Invaders (Taito, 1978). Recommended AI disclosure (release plan): Code, and Text & Dialog.
+- **Credits for the page:** original game by Cauê Melo (Canvas Retro Arcade, 2023, MIT), whose 16×16 corona and syringe sprites come back; three.js r187 (MIT); all sound synthesized with the Web Audio API; the four-note march nods to Space Invaders (Taito, 1978). The same lines roll in the game's own credits (the title's CREDITS button and the end of the run); they come from `credits.mjs`, where the owner can add a line. Recommended AI disclosure (release plan): Code, and Text & Dialog.
 - **Cover candidate (630 × 500):** `common/artifacts/ci-v1-release/itch-cover-630x500.png`, the title card cropped from a real 960 × 640 frame. A 3D gameplay cover (a boss with its ring of bullets) would sell the 3D look better. Owner's choice.
 - **Screenshot candidates (real 960 × 640 frames, Chrome + SwiftShader):**
   - `itch-title-960x640.png`: the title.

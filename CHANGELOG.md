@@ -2,6 +2,14 @@
 
 Player-facing changes in Corona Invaders 3D. Versions follow `package.json`; the title screen shows the release as `v1.0`.
 
+## [Unreleased]
+
+### A beginning and an end
+
+- **A briefing opens every new run:** five lines in the lab's voice say who you are (the syringe), where you are going (AIRWAY, LUNGS, BLOODSTREAM, THE CELL) and what counts as winning (R0 below 1). Any key or click skips it; it never returns within the run.
+- **An epilogue, then the credits:** beating OMICRON PRIME now plays three short cards about what the culture became and how your run went, then the FINAL REPORT. Its CREDITS button rolls seven calm cards and ends on the title. The title's CREDITS button plays the same roll.
+- **The FINAL REPORT waits for a fresh press**, so a SOAP key held through the boss cannot skip it. R no longer restarts OMICRON under a won run. NEW RUN is one row down for a repeat win.
+
 ## [1.0.0] - 2026-11-10
 
 The first release of Corona Invaders 3D: a 3D bullet hell in the browser, built on Cauê Melo's original *Corona Invaders* from Canvas Retro Arcade (2023). You fly a short vaccine syringe against coronaviruses. The original's green pixel corona, its syringe and its 4 × 15 grid all come back on a real 3D board.
